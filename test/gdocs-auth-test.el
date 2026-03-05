@@ -64,26 +64,38 @@
 
 ;;;; Multi-account selection
 
-(ert-deftest gdocs-auth-test-resolve-account-single ()
-  "With one account, resolve-account auto-selects it without prompting."
+(ert-deftest gdocs-auth-test-select-single-account ()
+  "With one account, `gdocs-auth-select-account' returns it directly."
   (let ((gdocs-accounts '(("solo" . ((client-id . "id")
                                       (client-secret . "secret"))))))
-    (should (equal "solo" (gdocs-auth--resolve-account nil)))))
+    (should (equal "solo" (gdocs-auth-select-account)))))
 
-(ert-deftest gdocs-auth-test-resolve-account-explicit ()
-  "With an explicit ACCOUNT argument, return it directly."
+(ert-deftest gdocs-auth-test-select-multiple-accounts ()
+  "With multiple accounts, `gdocs-auth-select-account' prompts the user."
   (let ((gdocs-accounts '(("personal" . ((client-id . "id1")
                                           (client-secret . "s1")))
                            ("work" . ((client-id . "id2")
-                                      (client-secret . "s2"))))))
+                                      (client-secret . "s2")))))
+        (prompted nil))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt collection &rest _args)
+                 (setq prompted t)
+                 (car collection))))
+      (gdocs-auth-select-account)
+      (should prompted))))
+
+(ert-deftest gdocs-auth-test-resolve-account-passthrough ()
+  "With an explicit ACCOUNT argument, resolve-account returns it directly."
+  (let ((gdocs-accounts '(("personal" . ((client-id . "id1")
+                                          (client-secret . "s1"))))))
     (should (equal "work" (gdocs-auth--resolve-account "work")))))
 
 ;;;; Error on missing config
 
-(ert-deftest gdocs-auth-test-resolve-account-nil ()
+(ert-deftest gdocs-auth-test-error-when-no-accounts ()
   "With no accounts configured, signal an error."
   (let ((gdocs-accounts nil))
-    (should-error (gdocs-auth--resolve-account nil)
+    (should-error (gdocs-auth-select-account)
                   :type 'error)))
 
 ;;;; Token file path
