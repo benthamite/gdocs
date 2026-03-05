@@ -788,7 +788,7 @@ lookup.  MARKERS is an alist of element markers from named ranges."
 ;; ---------------------------------------------------------------------------
 ;;; Google Docs paragraph -> IR
 
-(defun gdocs-convert--docs-paragraph-to-ir (paragraph lists-map markers)
+(defun gdocs-convert--docs-paragraph-to-ir (paragraph lists-map _markers)
   "Convert a Google Docs PARAGRAPH to an IR element.
 LISTS-MAP is the document lists property.  MARKERS is parsed
 named-range marker data."
@@ -1077,8 +1077,7 @@ Returns nil if no formatting is applied."
   "Create bullet/list requests for ELEMENT from START to END."
   (let ((list-info (plist-get element :list)))
     (when list-info
-      (let ((type (plist-get list-info :type))
-            (preset (gdocs-convert--list-type-to-preset
+      (let ((preset (gdocs-convert--list-type-to-preset
                      (plist-get list-info :type))))
         (list `((createParagraphBullets
                  . ((range . ((startIndex . ,start)
@@ -1099,7 +1098,6 @@ START and END define the text range in the document."
         (id (plist-get element :id)))
     (when (and marker id)
       (let* ((marker-type (plist-get marker :type))
-             (marker-data (plist-get marker :data))
              (name (format "gdocs-org-marker:%s:%s"
                            marker-type id)))
         (list `((createNamedRange
