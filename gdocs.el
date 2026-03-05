@@ -101,7 +101,10 @@ keybindings."
   "Open a Google Doc as an org buffer.
 DOCUMENT-ID-OR-URL is a document ID or full Google Docs URL.
 ACCOUNT is the account name to use; if nil, prompt."
-  (interactive "sGoogle Doc ID or URL: ")
+  (interactive
+   (progn
+     (gdocs-auth--validate-accounts-configured)
+     (list (read-string "Google Doc ID or URL: "))))
   (let ((doc-id (gdocs-sync--parse-document-id document-id-or-url))
         (acct (or account (gdocs-auth-select-account "Account: "))))
     (gdocs-api-get-document
@@ -204,7 +207,10 @@ name."
   "Link the current org buffer to an existing Google Doc.
 DOCUMENT-ID-OR-URL is a document ID or full Google Docs URL.
 ACCOUNT is the account name to use; if nil, prompt."
-  (interactive "sGoogle Doc ID or URL: ")
+  (interactive
+   (progn
+     (gdocs-auth--validate-accounts-configured)
+     (list (read-string "Google Doc ID or URL: "))))
   (gdocs-sync-link document-id-or-url account))
 
 (defun gdocs-unlink ()

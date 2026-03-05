@@ -278,7 +278,10 @@ Intended for use in `after-save-hook'."
 DOCUMENT-ID-OR-URL is a document ID or full Google Docs URL.
 ACCOUNT is the account name to use; if nil, prompt.  FILE-PATH
 is unused but accepted for API compatibility."
-  (interactive "sGoogle Doc ID or URL: ")
+  (interactive
+   (progn
+     (gdocs-auth--validate-accounts-configured)
+     (list (read-string "Google Doc ID or URL: "))))
   (ignore file-path)
   (let ((doc-id (gdocs-sync--parse-document-id document-id-or-url))
         (acct (or account (gdocs-auth-select-account "Account: "))))

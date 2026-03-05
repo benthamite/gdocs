@@ -26,6 +26,10 @@
 (require 'plz)
 (require 'browse-url)
 (require 'url-util)
+(require 'cl-lib)
+
+(declare-function org-back-to-heading "org" (&optional invisible-ok))
+(declare-function org-fold-show-subtree "org-fold" ())
 
 ;;;; Custom group and variables
 
@@ -139,9 +143,33 @@ Signal an error if `gdocs-accounts' is nil."
                      nil t))))
 
 (defun gdocs-auth--validate-accounts-configured ()
-  "Signal an error if `gdocs-accounts' is not configured."
+  "Check that `gdocs-accounts' is configured.
+If not, open the setup guide and signal a user error."
   (unless gdocs-accounts
-    (error "No accounts configured; set `gdocs-accounts' first")))
+    (gdocs-auth--open-account-setup-guide)
+    (user-error "Please configure `gdocs-accounts' first (see manual)")))
+
+(defun gdocs-auth--open-account-setup-guide ()
+  "Open the manual to the account configuration section."
+  (let ((manual (gdocs-auth--find-manual)))
+    (if manual
+        (progn
+          (find-file-other-window manual)
+          (widen)
+          (goto-char (point-min))
+          (when (re-search-forward ":CUSTOM_ID: h:account-configuration" nil t)
+            (org-back-to-heading t)
+            (org-fold-show-subtree)
+            (recenter 0)))
+      (describe-variable 'gdocs-accounts))))
+
+(defun gdocs-auth--find-manual ()
+  "Find the gdocs manual file, or nil if not found."
+  (when-let* ((lib (locate-library "gdocs-auth"))
+              (dir (file-name-directory lib)))
+    (cl-find-if #'file-exists-p
+                (list (expand-file-name "README.org" dir)
+                      (expand-file-name "gdocs.org" dir)))))
 
 ;;;; Token file operations
 
