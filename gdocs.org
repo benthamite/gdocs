@@ -864,66 +864,175 @@ implemented.
 :CUSTOM_ID: h:comments-and-suggestions
 :END:
 
+This phase adds full collaboration support: comments, suggestions, and
+live change awareness.  It will introduce a new module
+=gdocs-comments.el= and extend the sync and diff engines.
+
 *** Comments system
 :PROPERTIES:
 :CUSTOM_ID: h:comments-system
 :END:
 
-A side buffer for viewing and managing Google Docs comments.  Planned
-commands include ~gdocs-comments~ (toggle the side buffer),
-~gdocs-comment-add~ (create a comment anchored to a text selection),
-~gdocs-comment-reply~, ~gdocs-comment-resolve~, and
-~gdocs-comment-delete~.  Comments will be linked to positions in the
-org buffer so that clicking a comment in the side buffer jumps to the
-relevant text.
+A side buffer (~gdocs-comments~) for viewing and managing Google Docs
+comments.  The buffer will display in a side window (configurable via a
+planned ~gdocs-comments-side~ option, defaulting to the right) and show
+each comment with:
+
+- Author name and avatar (as text initials).
+- Timestamp.
+- The quoted text the comment is anchored to.
+- Comment body.
+- Reply thread (indented).
+- Resolved status.
+
+Comments will be linked to positions in the org buffer so that clicking
+a comment in the side buffer jumps to the corresponding text.
+
+Planned commands:
+
+- ~gdocs-comments~ — open or toggle the comments side buffer.
+- ~gdocs-comment-add~ — select a region in the org buffer, then type a
+  comment.  Creates a comment anchored to that text in the Google Doc.
+- ~gdocs-comment-reply~ — reply to the comment at point in the
+  comments buffer.
+- ~gdocs-comment-resolve~ — resolve the comment at point.
+- ~gdocs-comment-delete~ — delete the comment at point.
+
+Comments will be fetched when pulling and when the comments buffer is
+opened.  New comments created locally will be pushed immediately (on
+comment creation, not on buffer save).
 
 *** Suggesting mode
 :PROPERTIES:
 :CUSTOM_ID: h:suggesting-mode
 :END:
 
-A toggle between direct editing and suggesting mode.  When suggesting
-mode is active, pushed changes are sent as suggestions (using the
-Google Docs API's suggested insertion/deletion fields) rather than
-direct edits.  Existing suggestions from others will be displayed with
-distinct faces: green underline for suggested insertions, strikethrough
-for suggested deletions.
+A new command ~gdocs-suggesting-mode~ will toggle between direct editing
+and suggesting mode for the current buffer.  When suggesting mode is
+active:
+
+- The modeline will show =GDocs:suggesting=.
+- On push, changes are sent as suggestions (using the Google Docs API's
+  ~InsertText~ / ~DeleteContentRange~ with ~suggestedInsertionIds~ /
+  ~suggestedDeletionIds~ fields) rather than direct edits.
+
+When pulling, existing suggestions from other collaborators will be
+displayed with distinct faces: green underline for suggested insertions,
+strikethrough for suggested deletions.  Each suggestion will be
+attributed to its author.
+
+Planned commands for handling suggestions:
+
+- ~gdocs-suggestion-accept~ — accept the suggestion at point.
+- ~gdocs-suggestion-reject~ — reject the suggestion at point.
+- ~gdocs-suggestion-accept-all~ — accept all suggestions.
+- ~gdocs-suggestion-reject-all~ — reject all suggestions.
 
 *** Periodic polling
 :PROPERTIES:
 :CUSTOM_ID: h:periodic-polling
 :END:
 
-Automatic polling for remote changes at a configurable interval
-(default: 30 seconds).  When remote changes are detected and the local
-buffer has no unsaved changes, the pull happens silently.  When
-conflicts exist, a warning appears in the modeline.
+When ~gdocs-mode~ is active, a timer will poll the Google Doc for
+changes at a configurable interval (planned option:
+~gdocs-poll-interval~, default 30 seconds).  Polling checks only the
+document revision ID (a lightweight API call).
+
+Behavior when remote changes are detected:
+
+- If the local buffer has no unsaved changes: auto-pull and update
+  silently, showing a brief message: "Pulled remote changes."
+- If the local buffer has unsaved changes: show a warning in the
+  modeline (=GDocs:conflict=) and notify: "Remote changes detected.
+  Save to push your changes, or run ~gdocs-pull~ to pull."
+
+Polling will be paused while the buffer is in conflict resolution mode.
+A command ~gdocs-poll-toggle~ will enable or disable polling per buffer.
+
+*** Planned configuration variables (phase 2)
+:PROPERTIES:
+:CUSTOM_ID: h:planned-options-phase-2
+:END:
+
+| Variable                 | Default    | Description                                     |
+|--------------------------+------------+-------------------------------------------------|
+| ~gdocs-poll-interval~    | =30=       | Seconds between polls for remote changes        |
+| ~gdocs-comments-side~    | ='right=   | Side for the comments buffer (='left= or ='right=) |
+| ~gdocs-default-account~  | ~nil~      | Default account when multiple are configured    |
 
 ** Drive browser and export (phase 3)
 :PROPERTIES:
 :CUSTOM_ID: h:drive-browser-and-export
 :END:
 
+This phase adds a Google Drive browser and an org export dispatcher
+backend, completing the integration with the Google ecosystem.
+
 *** Google Drive browser
 :PROPERTIES:
 :CUSTOM_ID: h:drive-browser
 :END:
 
-A dired-like buffer for browsing Google Drive.  It will list files and
-folders with columns for type, name, owner, last modified, and sharing
-status.  Navigation will follow familiar dired conventions: =RET= to
-open a file or enter a folder, =^= to go up, =g= to refresh, =s= to
-search, =m=/=u= for marking, and =d=/=x= for deletion.
+A new module =gdocs-drive.el= will provide a dired-like buffer for
+browsing Google Drive.  The command ~gdocs-drive~ will open the browser,
+prompting for an account if multiple are configured.
+
+The buffer will list files and folders with columns for icon/type
+indicator, file name, owner, last modified, and sharing status.  Files
+are fetched asynchronously with a loading indicator.
+
+Planned keybindings:
+
+| Key   | Action                                           |
+|-------+--------------------------------------------------|
+| =RET= | Open file (Google Doc \to org buffer) or enter folder |
+| =^=   | Go up one directory                              |
+| =g=   | Refresh the listing                              |
+| =s=   | Search Drive (full-text)                         |
+| =m=   | Mark a file                                      |
+| =u=   | Unmark a file                                    |
+| =U=   | Unmark all                                       |
+| =o=   | Open file in browser                             |
+| =i=   | Show file info (metadata, permissions, revisions) |
+| =d=   | Mark for deletion                                |
+| =x=   | Execute deletions                                |
+| =C=   | Create a new Google Doc                          |
+| =R=   | Rename a file                                    |
+| =T=   | Toggle between Google Docs only and all file types |
+| =S=   | Toggle to show only files shared with you        |
+| =q=   | Quit the Drive browser                           |
+
+By default, the browser will show only Google Docs (filtered by MIME
+type =application/vnd.google-apps.document=).
 
 *** Org export backend
 :PROPERTIES:
 :CUSTOM_ID: h:org-export-backend
 :END:
 
-An org export dispatcher backend registered under the =g= key, so the
-sequence =C-c C-e g d= exports to Google Docs (creating a new document
-or updating a linked one) and =C-c C-e g o= exports and opens in the
-browser.
+A new module =gdocs-export.el= will register as an org export backend
+so that users can use the standard org export dispatcher.  The export
+menu key will be =g=, so the sequences are:
+
+- =C-c C-e g d= — export to Google Docs (create new or update existing
+  linked Doc).
+- =C-c C-e g o= — export and open in browser.
+
+The backend will parse the buffer with ~org-element~, convert to Google
+Docs API requests, and create or update the document.  For buffers
+already linked to a Google Doc, this is equivalent to ~gdocs-push~.
+For unlinked buffers, it creates a new Google Doc and links the buffer.
+
+*** Planned configuration variables (phase 3)
+:PROPERTIES:
+:CUSTOM_ID: h:planned-options-phase-3
+:END:
+
+| Variable                   | Default        | Description                                          |
+|----------------------------+----------------+------------------------------------------------------|
+| ~gdocs-image-directory~    | ="./images/"=  | Directory for downloaded images (relative to org file) |
+| ~gdocs-image-folder-id~    | ~nil~          | Google Drive folder ID for uploaded images            |
+| ~gdocs-modeline-lighter~   | =" GDocs"=     | Modeline lighter text                                |
 
 * Indices
 :PROPERTIES:
