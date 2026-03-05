@@ -83,7 +83,10 @@ external packages:
 :CUSTOM_ID: h:quick-start
 :END:
 
-1. Configure your Google Cloud OAuth credentials:
+1. Obtain OAuth credentials from Google Cloud Console
+   ([[#h:obtaining-credentials][Obtaining credentials]]).
+
+2. Configure your credentials in Emacs:
 
    #+begin_src emacs-lisp
    (setq gdocs-accounts
@@ -91,11 +94,11 @@ external packages:
                           (client-secret . "YOUR-CLIENT-SECRET")))))
    #+end_src
 
-2. Authenticate: =M-x gdocs-authenticate=.
+3. Authenticate: =M-x gdocs-authenticate=.
 
-3. Open an existing Google Doc: =M-x gdocs-open=.
+4. Open an existing Google Doc: =M-x gdocs-open=.
 
-4. Or create a new Google Doc from an org file: =M-x gdocs-create=.
+5. Or create a new Google Doc from an org file: =M-x gdocs-create=.
 
 Once a buffer is linked, the ~gdocs-mode~ minor mode activates
 automatically.  Changes are pushed to Google Docs on every save (when
@@ -116,7 +119,9 @@ at any time with =M-x gdocs-pull=.
 The user option ~gdocs-accounts~ is an alist of named Google accounts
 with their OAuth credentials.  Each entry takes the form
 ~(NAME . ((client-id . "ID") (client-secret . "SECRET")))~ where NAME
-is a string identifying the account (e.g., ="personal"= or ="work"=).
+is a string identifying the account (e.g., ="personal"= or ="work"=),
+and ~client-id~ and ~client-secret~ are OAuth 2.0 credentials that you
+obtain from the Google Cloud Console ([[#h:obtaining-credentials][Obtaining credentials]]).
 
 When ~gdocs-accounts~ is ~nil~ or has only one entry, commands that
 require an account use it automatically without prompting.  When
@@ -128,6 +133,80 @@ separate OAuth credentials).
 
 The default value is ~nil~.  You must configure at least one account
 before using any =gdocs= commands.
+
+*** Obtaining credentials
+:PROPERTIES:
+:CUSTOM_ID: h:obtaining-credentials
+:END:
+
+To use =gdocs=, you need an OAuth 2.0 /client ID/ and /client secret/
+from the Google Cloud Console.  These credentials identify your
+application to Google's servers and allow it to request access to your
+Google Docs and Drive data on your behalf.  They are not passwords ---
+they do not grant access by themselves.  The actual authorization
+happens when you run ~gdocs-authenticate~ and grant consent in your
+browser.
+
+Follow these steps to create your credentials:
+
+1. Go to the [[https://console.cloud.google.com/][Google Cloud Console]] and sign in with the Google account
+   you want to use with =gdocs=.
+
+2. Create a new project (or select an existing one):
+   - Click the project dropdown at the top of the page.
+   - Click *New Project*.
+   - Enter a name (e.g., "Emacs gdocs") and click *Create*.
+
+3. Enable the required APIs.  Go to *APIs & Services > Library* and
+   enable both of these:
+   - *Google Docs API* (search for "Google Docs API").
+   - *Google Drive API* (search for "Google Drive API").
+
+4. Configure the OAuth consent screen.  Go to *APIs & Services > OAuth
+   consent screen*:
+   - Select *External* as the user type (unless you have a Google
+     Workspace organization and want to restrict access to internal
+     users).
+   - Fill in the required fields: app name (e.g., "Emacs gdocs") and
+     your email address for the support and developer contact fields.
+   - On the *Scopes* page, add these two scopes:
+     - =https://www.googleapis.com/auth/documents=
+     - =https://www.googleapis.com/auth/drive=
+   - On the *Test users* page, add your own email address.  While the
+     app is in "Testing" status (the default), only listed test users
+     can authorize it.
+   - Click *Save and Continue* through the remaining pages.
+
+5. Create the OAuth credentials.  Go to *APIs & Services >
+   Credentials*:
+   - Click *Create Credentials > OAuth client ID*.
+   - Select *Desktop app* as the application type.
+   - Enter a name (e.g., "Emacs gdocs") and click *Create*.
+   - Google will display your *Client ID* and *Client secret*.  Copy
+     both values.
+
+6. Configure =gdocs= with the credentials you just obtained:
+
+   #+begin_src emacs-lisp
+   (setq gdocs-accounts
+         '(("personal" . ((client-id . "123456789-abcdef.apps.googleusercontent.com")
+                          (client-secret . "GOCSPX-abcdefghijklmnop")))))
+   #+end_src
+
+   Replace the example values with your actual client ID and client
+   secret.  The name ="personal"= is arbitrary; use whatever label
+   makes sense to you.
+
+7. Run =M-x gdocs-authenticate=.  Your browser will open to a Google
+   consent screen.  Grant access, and =gdocs= will store the resulting
+   tokens securely in ~gdocs-token-directory~
+   ([[#h:account-configuration][Account configuration]]).
+
+Note: while the app remains in "Testing" status, Google will show a
+warning screen during authorization ("Google hasn't verified this
+app").  Click *Continue* to proceed.  You do not need to publish the
+app for personal use --- "Testing" status works indefinitely for the
+test users you listed in step 4.
 
 #+vindex: gdocs-token-directory
 The user option ~gdocs-token-directory~ specifies the directory where
@@ -927,6 +1006,7 @@ Planned commands for handling suggestions:
 - ~gdocs-suggestion-reject~ — reject the suggestion at point.
 - ~gdocs-suggestion-accept-all~ — accept all suggestions.
 - ~gdocs-suggestion-reject-all~ — reject all suggestions.
+
 
 *** Periodic polling
 :PROPERTIES:

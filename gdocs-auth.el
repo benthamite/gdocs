@@ -146,8 +146,8 @@ If not, open the setup guide and signal a user error."
     (user-error "Please configure `gdocs-accounts' first (see manual)")))
 
 (defun gdocs-auth--open-account-setup-guide ()
-  "Open the Info manual to the account configuration section."
-  (info "(gdocs) Account configuration"))
+  "Open the Info manual to the credential setup guide."
+  (info "(gdocs) Obtaining credentials"))
 
 ;;;; Token file operations
 
