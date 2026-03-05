@@ -26,6 +26,12 @@
 (require 'plz)
 (require 'browse-url)
 (require 'url-util)
+(require 'info)
+
+(with-eval-after-load 'info
+  (info-initialize)
+  (add-to-list 'Info-directory-list
+               (file-name-directory (or load-file-name (locate-library "gdocs-auth")))))
 
 ;;;; Custom group and variables
 
