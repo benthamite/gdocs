@@ -13,7 +13,6 @@
 
 @finalout
 @titlepage
-@title gdocs: Google Docs integration for Emacs org-mode
 @author Pablo Stafforini (@email{pablo@@stafforini.com})
 @end titlepage
 
@@ -23,7 +22,7 @@
 @node Top
 @top gdocs: Google Docs integration for Emacs org-mode
 
-This manual describes the features and customization options for the Emacs Lisp package @samp{gdocs}.
+This manual describes the features and customization options for the Emacs Lisp package @samp{gdocs}. @*
 
 @end ifnottex
 
@@ -146,30 +145,30 @@ Indices
 @node Overview
 @chapter Overview
 
-The @samp{gdocs} package provides bidirectional synchronization between
-org-mode files and Google Docs.  It lets you open, edit, create, and
-push Google Docs entirely from within Emacs, using org-mode as the
-native editing format.  The package handles OAuth 2.0 authentication,
-format conversion, incremental diffing, and conflict resolution so that
-your org files and their Google Docs counterparts stay in sync.
+The @samp{gdocs} package provides bidirectional synchronization between @*
+org-mode files and Google Docs.  It lets you open, edit, create, and @*
+push Google Docs entirely from within Emacs, using org-mode as the @*
+native editing format.  The package handles OAuth 2.0 authentication, @*
+format conversion, incremental diffing, and conflict resolution so that @*
+your org files and their Google Docs counterparts stay in sync. @*
 
-The package addresses three main workflows:
+The package addresses three main workflows: @*
 
 @itemize
 @item
-@strong{Publish org to Google Docs.}  Create a Google Doc from an existing
-org file to share with collaborators.  The two files remain in sync:
-edits to either propagate to the other.
+@strong{Publish org to Google Docs.}  Create a Google Doc from an existing @*
+org file to share with collaborators.  The two files remain in sync: @*
+edits to either propagate to the other. @*
 
 @item
-@strong{Read and edit shared Google Docs.}  Open a Google Doc shared by
-someone else as an org-mode buffer in Emacs.  Edit without leaving
-Emacs.
+@strong{Read and edit shared Google Docs.}  Open a Google Doc shared by @*
+someone else as an org-mode buffer in Emacs.  Edit without leaving @*
+Emacs. @*
 
 @item
-@strong{Import existing Google Docs.}  Import old Google Docs into org
-files.  The files remain synchronized, but you may later choose to
-unlink or delete the Google Doc.
+@strong{Import existing Google Docs.}  Import old Google Docs into org @*
+files.  The files remain synchronized, but you may later choose to @*
+unlink or delete the Google Doc. @*
 @end itemize
 
 @menu
@@ -181,52 +180,52 @@ unlink or delete the Google Doc.
 @node Architecture
 @section Architecture
 
-The package is composed of several modules, each responsible for a
-distinct layer of functionality:
+The package is composed of several modules, each responsible for a @*
+distinct layer of functionality: @*
 
 @table @asis
 @item @samp{gdocs.el}
-Entry point, user commands, and the @code{gdocs-mode} minor
-mode (@ref{Minor mode}).
+Entry point, user commands, and the @code{gdocs-mode} minor @*
+mode (@ref{Minor mode}). @*
 @item @samp{gdocs-auth.el}
-OAuth 2.0 flow, token management, and
-multi-account support (@ref{Authentication}).
+OAuth 2.0 flow, token management, and @*
+multi-account support (@ref{Authentication}). @*
 @item @samp{gdocs-api.el}
-Asynchronous Google Docs and Google Drive API
-client built on @samp{plz.el} (@ref{API client}).
+Asynchronous Google Docs and Google Drive API @*
+client built on @samp{plz.el} (@ref{API client}). @*
 @item @samp{gdocs-convert.el}
-Bidirectional conversion between org-mode and
-Google Docs JSON via an intermediate representation (IR)
-(@ref{Format conversion}).
+Bidirectional conversion between org-mode and @*
+Google Docs JSON via an intermediate representation (IR) @*
+(@ref{Format conversion}). @*
 @item @samp{gdocs-diff.el}
-Incremental diff engine that computes the minimal
-set of API requests to synchronize changes (@ref{Diff engine}).
+Incremental diff engine that computes the minimal @*
+set of API requests to synchronize changes (@ref{Diff engine}). @*
 @item @samp{gdocs-sync.el}
-Push/pull orchestration, shadow copy management,
-and conflict detection (@ref{Sync engine}).
+Push/pull orchestration, shadow copy management, @*
+and conflict detection (@ref{Sync engine}). @*
 @item @samp{gdocs-merge.el}
-Side-by-side conflict resolution interface
-(@ref{Conflict resolution}).
+Side-by-side conflict resolution interface @*
+(@ref{Conflict resolution}). @*
 @end table
 
-All API operations are fully asynchronous via @samp{plz.el} so that Emacs
-never blocks during network requests.
+All API operations are fully asynchronous via @samp{plz.el} so that Emacs @*
+never blocks during network requests. @*
 
 @node Dependencies
 @section Dependencies
 
-The package requires Emacs 29.1 or later and depends on the following
-external packages:
+The package requires Emacs 29.1 or later and depends on the following @*
+external packages: @*
 
 @itemize
 @item
-@samp{plz} (0.7+) for asynchronous HTTP requests.
+@samp{plz} (0.7+) for asynchronous HTTP requests. @*
 @item
-@samp{dash} (2.19+) for list manipulation utilities.
+@samp{dash} (2.19+) for list manipulation utilities. @*
 @item
-@samp{s} (1.13+) for string manipulation utilities.
+@samp{s} (1.13+) for string manipulation utilities. @*
 @item
-@samp{org} (9.6+), which is built into Emacs.
+@samp{org} (9.6+), which is built into Emacs. @*
 @end itemize
 
 @node Quick start
@@ -234,11 +233,11 @@ external packages:
 
 @enumerate
 @item
-Obtain OAuth credentials from Google Cloud Console
-(@ref{Obtaining credentials}).
+Obtain OAuth credentials from Google Cloud Console @*
+(@ref{Obtaining credentials}). @*
 
 @item
-Configure your credentials in Emacs:
+Configure your credentials in Emacs: @*
 
 @lisp
 (setq gdocs-accounts
@@ -247,19 +246,19 @@ Configure your credentials in Emacs:
 @end lisp
 
 @item
-Authenticate: @samp{M-x gdocs-authenticate}.
+Authenticate: @samp{M-x gdocs-authenticate}. @*
 
 @item
-Open an existing Google Doc: @samp{M-x gdocs-open}.
+Open an existing Google Doc: @samp{M-x gdocs-open}. @*
 
 @item
-Or create a new Google Doc from an org file: @samp{M-x gdocs-create}.
+Or create a new Google Doc from an org file: @samp{M-x gdocs-create}. @*
 @end enumerate
 
-Once a buffer is linked, the @code{gdocs-mode} minor mode activates
-automatically.  Changes are pushed to Google Docs on every save (when
-@code{gdocs-auto-push-on-save} is non-nil), and you can pull remote changes
-at any time with @samp{M-x gdocs-pull}.
+Once a buffer is linked, the @code{gdocs-mode} minor mode activates @*
+automatically.  Changes are pushed to Google Docs on every save (when @*
+@code{gdocs-auto-push-on-save} is non-nil), and you can pull remote changes @*
+at any time with @samp{M-x gdocs-pull}. @*
 
 @node User options
 @chapter User options
@@ -274,23 +273,23 @@ at any time with @samp{M-x gdocs-pull}.
 @section Account configuration
 
 @vindex gdocs-accounts
-The user option @code{gdocs-accounts} is an alist of named Google accounts
-with their OAuth credentials.  Each entry takes the form
-@code{(NAME . ((client-id . "ID") (client-secret . "SECRET")))} where NAME
-is a string identifying the account (e.g., @samp{"personal"} or @samp{"work"}),
-and @code{client-id} and @code{client-secret} are OAuth 2.0 credentials that you
-obtain from the Google Cloud Console (@ref{Obtaining credentials}).
+The user option @code{gdocs-accounts} is an alist of named Google accounts @*
+with their OAuth credentials.  Each entry takes the form @*
+@code{(NAME . ((client-id . "ID") (client-secret . "SECRET")))} where NAME @*
+is a string identifying the account (e.g., @samp{"personal"} or @samp{"work"}), @*
+and @code{client-id} and @code{client-secret} are OAuth 2.0 credentials that you @*
+obtain from the Google Cloud Console (@ref{Obtaining credentials}). @*
 
-When @code{gdocs-accounts} is @code{nil} or has only one entry, commands that
-require an account use it automatically without prompting.  When
-multiple accounts are configured, commands prompt with
-@code{completing-read} to select one.  You would configure multiple accounts
-when you need to access Google Docs from different Google Workspace
-organizations (for example, a personal account and a work account with
-separate OAuth credentials).
+When @code{gdocs-accounts} is @code{nil} or has only one entry, commands that @*
+require an account use it automatically without prompting.  When @*
+multiple accounts are configured, commands prompt with @*
+@code{completing-read} to select one.  You would configure multiple accounts @*
+when you need to access Google Docs from different Google Workspace @*
+organizations (for example, a personal account and a work account with @*
+separate OAuth credentials). @*
 
-The default value is @code{nil}.  You must configure at least one account
-before using any @samp{gdocs} commands.
+The default value is @code{nil}.  You must configure at least one account @*
+before using any @samp{gdocs} commands. @*
 
 @menu
 * Obtaining credentials::
@@ -299,86 +298,86 @@ before using any @samp{gdocs} commands.
 @node Obtaining credentials
 @subsection Obtaining credentials
 
-To use @samp{gdocs}, you need an OAuth 2.0 @emph{client ID} and @emph{client secret}
-from the Google Cloud Console.  These credentials identify your
-application to Google's servers and allow it to request access to your
-Google Docs and Drive data on your behalf.  They are not passwords ---
-they do not grant access by themselves.  The actual authorization
-happens when you run @code{gdocs-authenticate} and grant consent in your
-browser.
+To use @samp{gdocs}, you need an OAuth 2.0 @emph{client ID} and @emph{client secret} @*
+from the Google Cloud Console.  These credentials identify your @*
+application to Google's servers and allow it to request access to your @*
+Google Docs and Drive data on your behalf.  They are not passwords --- @*
+they do not grant access by themselves.  The actual authorization @*
+happens when you run @code{gdocs-authenticate} and grant consent in your @*
+browser. @*
 
-Follow these steps to create your credentials:
+Follow these steps to create your credentials: @*
 
 @enumerate
 @item
-Go to the @uref{https://console.cloud.google.com/, Google Cloud Console} and sign in with the Google account
-you want to use with @samp{gdocs}.
+Go to the @uref{https://console.cloud.google.com/, Google Cloud Console} and sign in with the Google account @*
+you want to use with @samp{gdocs}. @*
 
 @item
-Create a new project (or select an existing one):
+Create a new project (or select an existing one): @*
 @itemize
 @item
-Click the project dropdown at the top of the page.
+Click the project dropdown at the top of the page. @*
 @item
-Click @strong{New Project}.
+Click @strong{New Project}. @*
 @item
-Enter a name (e.g., ``Emacs gdocs'') and click @strong{Create}.
+Enter a name (e.g., ``Emacs gdocs'') and click @strong{Create}. @*
 @end itemize
 
 @item
-Enable the required APIs.  Go to @strong{APIs & Services > Library} and
-enable both of these:
+Enable the required APIs.  Go to @strong{APIs & Services > Library} and @*
+enable both of these: @*
 @itemize
 @item
-@strong{Google Docs API} (search for ``Google Docs API'').
+@strong{Google Docs API} (search for ``Google Docs API''). @*
 @item
-@strong{Google Drive API} (search for ``Google Drive API'').
+@strong{Google Drive API} (search for ``Google Drive API''). @*
 @end itemize
 
 @item
-Configure the OAuth consent screen.  Go to @strong{APIs & Services > OAuth
-consent screen}:
+Configure the OAuth consent screen.  Go to @strong{APIs & Services > OAuth @*
+consent screen}: @*
 @itemize
 @item
-Select @strong{External} as the user type (unless you have a Google
-Workspace organization and want to restrict access to internal
-users).
+Select @strong{External} as the user type (unless you have a Google @*
+Workspace organization and want to restrict access to internal @*
+users). @*
 @item
-Fill in the required fields: app name (e.g., ``Emacs gdocs'') and
-your email address for the support and developer contact fields.
+Fill in the required fields: app name (e.g., ``Emacs gdocs'') and @*
+your email address for the support and developer contact fields. @*
 @item
-On the @strong{Scopes} page, add these two scopes:
+On the @strong{Scopes} page, add these two scopes: @*
 @itemize
 @item
-@samp{https://www.googleapis.com/auth/documents}
+@samp{https://www.googleapis.com/auth/documents} @*
 @item
-@samp{https://www.googleapis.com/auth/drive}
+@samp{https://www.googleapis.com/auth/drive} @*
 @end itemize
 @item
-On the @strong{Test users} page, add your own email address.  While the
-app is in ``Testing'' status (the default), only listed test users
-can authorize it.
+On the @strong{Test users} page, add your own email address.  While the @*
+app is in ``Testing'' status (the default), only listed test users @*
+can authorize it. @*
 @item
-Click @strong{Save and Continue} through the remaining pages.
-@end itemize
-
-@item
-Create the OAuth credentials.  Go to @strong{APIs & Services >
-Credentials}:
-@itemize
-@item
-Click @strong{Create Credentials > OAuth client ID}.
-@item
-Select @strong{Desktop app} as the application type.
-@item
-Enter a name (e.g., ``Emacs gdocs'') and click @strong{Create}.
-@item
-Google will display your @strong{Client ID} and @strong{Client secret}.  Copy
-both values.
+Click @strong{Save and Continue} through the remaining pages. @*
 @end itemize
 
 @item
-Configure @samp{gdocs} with the credentials you just obtained:
+Create the OAuth credentials.  Go to @strong{APIs & Services > @*
+Credentials}: @*
+@itemize
+@item
+Click @strong{Create Credentials > OAuth client ID}. @*
+@item
+Select @strong{Desktop app} as the application type. @*
+@item
+Enter a name (e.g., ``Emacs gdocs'') and click @strong{Create}. @*
+@item
+Google will display your @strong{Client ID} and @strong{Client secret}.  Copy @*
+both values. @*
+@end itemize
+
+@item
+Configure @samp{gdocs} with the credentials you just obtained: @*
 
 @lisp
 (setq gdocs-accounts
@@ -386,73 +385,73 @@ Configure @samp{gdocs} with the credentials you just obtained:
                        (client-secret . "GOCSPX-abcdefghijklmnop")))))
 @end lisp
 
-Replace the example values with your actual client ID and client
-secret.  The name @samp{"personal"} is arbitrary; use whatever label
-makes sense to you.
+Replace the example values with your actual client ID and client @*
+secret.  The name @samp{"personal"} is arbitrary; use whatever label @*
+makes sense to you. @*
 
 @item
-Run @samp{M-x gdocs-authenticate}.  Your browser will open to a Google
-consent screen.  Grant access, and @samp{gdocs} will store the resulting
-tokens securely in @code{gdocs-token-directory}
-(@ref{Account configuration}).
+Run @samp{M-x gdocs-authenticate}.  Your browser will open to a Google @*
+consent screen.  Grant access, and @samp{gdocs} will store the resulting @*
+tokens securely in @code{gdocs-token-directory} @*
+(@ref{Account configuration}). @*
 @end enumerate
 
-Note: while the app remains in ``Testing'' status, Google will show a
-warning screen during authorization (``Google hasn't verified this
-app'').  Click @strong{Continue} to proceed.  You do not need to publish the
-app for personal use --- ``Testing'' status works indefinitely for the
-test users you listed in step 4.
+Note: while the app remains in ``Testing'' status, Google will show a @*
+warning screen during authorization (``Google hasn't verified this @*
+app'').  Click @strong{Continue} to proceed.  You do not need to publish the @*
+app for personal use --- ``Testing'' status works indefinitely for the @*
+test users you listed in step 4. @*
 
 @vindex gdocs-token-directory
-The user option @code{gdocs-token-directory} specifies the directory where
-OAuth token files are stored.  Each account's tokens are saved as a
-JSON file named @samp{ACCOUNT-NAME.json} with restrictive file permissions
-(600) to protect the sensitive token data.  Parent directories are
-created automatically when needed.
+The user option @code{gdocs-token-directory} specifies the directory where @*
+OAuth token files are stored.  Each account's tokens are saved as a @*
+JSON file named @samp{ACCOUNT-NAME.json} with restrictive file permissions @*
+(600) to protect the sensitive token data.  Parent directories are @*
+created automatically when needed. @*
 
-The default value is the @samp{gdocs/tokens/} subdirectory of
-@code{user-emacs-directory}.  You would change this if you want to store
-tokens in a location managed by a secrets tool or a different
-directory structure.
+The default value is the @samp{gdocs/tokens/} subdirectory of @*
+@code{user-emacs-directory}.  You would change this if you want to store @*
+tokens in a location managed by a secrets tool or a different @*
+directory structure. @*
 
 @node Sync behavior
 @section Sync behavior
 
 @vindex gdocs-auto-push-on-save
-The user option @code{gdocs-auto-push-on-save} controls whether changes are
-automatically pushed to Google Docs whenever you save a linked org
-buffer.  When non-nil, saving the buffer triggers an asynchronous push
-of any changes detected since the last sync.
+The user option @code{gdocs-auto-push-on-save} controls whether changes are @*
+automatically pushed to Google Docs whenever you save a linked org @*
+buffer.  When non-nil, saving the buffer triggers an asynchronous push @*
+of any changes detected since the last sync. @*
 
-The default value is @code{t}.  Set this to @code{nil} if you prefer to push
-changes manually with @code{gdocs-push} (@ref{Pushing and pulling}).  Automatic
-pushing is suppressed when the buffer is in a conflict or error state,
-regardless of this setting.
+The default value is @code{t}.  Set this to @code{nil} if you prefer to push @*
+changes manually with @code{gdocs-push} (@ref{Pushing and pulling}).  Automatic @*
+pushing is suppressed when the buffer is in a conflict or error state, @*
+regardless of this setting. @*
 
 @vindex gdocs-auto-pull-on-open
-The user option @code{gdocs-auto-pull-on-open} controls whether a linked org
-buffer automatically pulls the latest remote content when opened.  When
-non-nil, opening a file that has @code{gdocs-mode} active triggers an
-immediate pull to ensure you start editing the most recent version.
+The user option @code{gdocs-auto-pull-on-open} controls whether a linked org @*
+buffer automatically pulls the latest remote content when opened.  When @*
+non-nil, opening a file that has @code{gdocs-mode} active triggers an @*
+immediate pull to ensure you start editing the most recent version. @*
 
-The default value is @code{nil}.  Enable this if you frequently collaborate
-on documents and want to always start with the latest remote state.
-When disabled, the buffer shows whatever was last saved locally, and you
-must run @code{gdocs-pull} manually to fetch updates.
+The default value is @code{nil}.  Enable this if you frequently collaborate @*
+on documents and want to always start with the latest remote state. @*
+When disabled, the buffer shows whatever was last saved locally, and you @*
+must run @code{gdocs-pull} manually to fetch updates. @*
 
 @node File storage
 @section File storage
 
 @vindex gdocs-directory
-The user option @code{gdocs-directory} specifies the default directory where
-newly imported org files are saved.  When you use @code{gdocs-open} to fetch
-a Google Doc for the first time, the resulting org file is written to
-this directory with a filename derived from the document title.
+The user option @code{gdocs-directory} specifies the default directory where @*
+newly imported org files are saved.  When you use @code{gdocs-open} to fetch @*
+a Google Doc for the first time, the resulting org file is written to @*
+this directory with a filename derived from the document title. @*
 
-The default value is @samp{~/org/gdocs/}.  The directory is created
-automatically if it does not exist.  If you already have an org file
-and use @code{gdocs-create} or @code{gdocs-link}, the file stays at its current
-location regardless of this setting.
+The default value is @samp{~/org/gdocs/}.  The directory is created @*
+automatically if it does not exist.  If you already have an org file @*
+and use @code{gdocs-create} or @code{gdocs-link}, the file stays at its current @*
+location regardless of this setting. @*
 
 @node Commands
 @chapter Commands
@@ -471,101 +470,101 @@ location regardless of this setting.
 
 @findex gdocs-open
 @findex gdocs-create
-The command @code{gdocs-open} fetches a Google Doc and opens it as an
-org-mode buffer.  It prompts for a document ID or a full Google Docs
-URL (e.g., @samp{https://docs.google.com/document/d/DOCUMENT-ID/edit}).  If
-multiple accounts are configured in @code{gdocs-accounts}
-(@ref{Account configuration}), it prompts you to select one.  The document is
-converted from Google Docs JSON to org-mode format via the intermediate
-representation (@ref{Format conversion}), saved to @code{gdocs-directory}
-(@ref{File storage}) with a sanitized filename, and displayed in a buffer
-with @code{gdocs-mode} active.
+The command @code{gdocs-open} fetches a Google Doc and opens it as an @*
+org-mode buffer.  It prompts for a document ID or a full Google Docs @*
+URL (e.g., @samp{https://docs.google.com/document/d/DOCUMENT-ID/edit}).  If @*
+multiple accounts are configured in @code{gdocs-accounts} @*
+(@ref{Account configuration}), it prompts you to select one.  The document is @*
+converted from Google Docs JSON to org-mode format via the intermediate @*
+representation (@ref{Format conversion}), saved to @code{gdocs-directory} @*
+(@ref{File storage}) with a sanitized filename, and displayed in a buffer @*
+with @code{gdocs-mode} active. @*
 
-The command @code{gdocs-create} does the reverse: it creates a new Google
-Doc from the current org buffer's content.  The title defaults to the
-buffer's @samp{#+TITLE} keyword, falling back to the buffer name.  After
-creating the document, the buffer is linked to it and @code{gdocs-mode} is
-activated.  Subsequent saves push changes to the newly created Doc.
+The command @code{gdocs-create} does the reverse: it creates a new Google @*
+Doc from the current org buffer's content.  The title defaults to the @*
+buffer's @samp{#+TITLE} keyword, falling back to the buffer name.  After @*
+creating the document, the buffer is linked to it and @code{gdocs-mode} is @*
+activated.  Subsequent saves push changes to the newly created Doc. @*
 
-Both commands are autoloaded, so they are available without explicitly
-loading the package.
+Both commands are autoloaded, so they are available without explicitly @*
+loading the package. @*
 
 @node Pushing and pulling
 @section Pushing and pulling
 
 @findex gdocs-push
 @findex gdocs-pull
-The command @code{gdocs-push} pushes local changes to the linked Google Doc.
-If a shadow copy exists (i.e., the buffer has been synced at least once
-in the current session), the push is incremental: only the differences
-between the current buffer and the shadow are sent as Google Docs API
-@code{batchUpdate} requests (@ref{Diff engine}).  If no shadow exists (for
-example, after restarting Emacs), the push performs a full document
-replacement.
+The command @code{gdocs-push} pushes local changes to the linked Google Doc. @*
+If a shadow copy exists (i.e., the buffer has been synced at least once @*
+in the current session), the push is incremental: only the differences @*
+between the current buffer and the shadow are sent as Google Docs API @*
+@code{batchUpdate} requests (@ref{Diff engine}).  If no shadow exists (for @*
+example, after restarting Emacs), the push performs a full document @*
+replacement. @*
 
-When @code{gdocs-auto-push-on-save} is non-nil, @code{gdocs-push} is called
-automatically after every save.  Pushes are serialized: if a push is
-already in progress when another is triggered, the second push is
-queued and executed after the first completes.
+When @code{gdocs-auto-push-on-save} is non-nil, @code{gdocs-push} is called @*
+automatically after every save.  Pushes are serialized: if a push is @*
+already in progress when another is triggered, the second push is @*
+queued and executed after the first completes. @*
 
-The command @code{gdocs-pull} fetches the latest version of the linked
-Google Doc.  It first checks the document's revision ID via the Google
-Drive API; if the revision matches the locally stored one, it reports
-``Already up to date.''  If the revision differs, it fetches the full
-document, converts it to org-mode format, and either replaces the
-buffer content silently (when there are no local modifications) or
-triggers the conflict resolution interface (@ref{Conflict resolution}).
+The command @code{gdocs-pull} fetches the latest version of the linked @*
+Google Doc.  It first checks the document's revision ID via the Google @*
+Drive API; if the revision matches the locally stored one, it reports @*
+``Already up to date.''  If the revision differs, it fetches the full @*
+document, converts it to org-mode format, and either replaces the @*
+buffer content silently (when there are no local modifications) or @*
+triggers the conflict resolution interface (@ref{Conflict resolution}). @*
 
 @node Linking and unlinking
 @section Linking and unlinking
 
 @findex gdocs-link
 @findex gdocs-unlink
-The command @code{gdocs-link} links the current org buffer to an existing
-Google Doc.  It prompts for a document ID or URL and, if needed, an
-account.  Linking writes file-local variables (@samp{gdocs-document-id} and
-@samp{gdocs-account}) to the end of the org file and triggers an initial
-pull to establish the sync baseline.
+The command @code{gdocs-link} links the current org buffer to an existing @*
+Google Doc.  It prompts for a document ID or URL and, if needed, an @*
+account.  Linking writes file-local variables (@samp{gdocs-document-id} and @*
+@samp{gdocs-account}) to the end of the org file and triggers an initial @*
+pull to establish the sync baseline. @*
 
-The command @code{gdocs-unlink} removes the file-local variables and clears
-all buffer-local sync state, turning the org file back into a
-standalone document.  The file content is preserved; only the sync
-metadata is removed.
+The command @code{gdocs-unlink} removes the file-local variables and clears @*
+all buffer-local sync state, turning the org file back into a @*
+standalone document.  The file content is preserved; only the sync @*
+metadata is removed. @*
 
 @node Status and browser
 @section Status and browser
 
 @findex gdocs-status
 @findex gdocs-open-in-browser
-The command @code{gdocs-status} displays the current sync status in the echo
-area.  It shows the linked document ID, account name, sync status
-(synced, modified, pushing, conflict, or error), revision ID, and the
-timestamp of the last sync.  This is useful for quickly verifying
-whether the buffer is in sync without inspecting the modeline.
+The command @code{gdocs-status} displays the current sync status in the echo @*
+area.  It shows the linked document ID, account name, sync status @*
+(synced, modified, pushing, conflict, or error), revision ID, and the @*
+timestamp of the last sync.  This is useful for quickly verifying @*
+whether the buffer is in sync without inspecting the modeline. @*
 
-The command @code{gdocs-open-in-browser} opens the linked Google Doc in your
-default web browser using @code{browse-url}.  It constructs the URL from
-the stored document ID@.  This is convenient when you need to check
-formatting, share the link with someone, or use Google Docs features
-that are not yet supported in @samp{gdocs}.
+The command @code{gdocs-open-in-browser} opens the linked Google Doc in your @*
+default web browser using @code{browse-url}.  It constructs the URL from @*
+the stored document ID@.  This is convenient when you need to check @*
+formatting, share the link with someone, or use Google Docs features @*
+that are not yet supported in @samp{gdocs}. @*
 
 @node Authentication
 @section Authentication
 
 @findex gdocs-authenticate
 @findex gdocs-logout
-The command @code{gdocs-authenticate} initiates the OAuth 2.0 flow for a
-Google account (@ref{OAuth flow}).  If multiple accounts are configured, it
-prompts you to select one.  The command opens your browser to Google's
-consent screen, and a temporary local HTTP server receives the
-authorization callback.  Upon successful authentication, tokens are
-stored in @code{gdocs-token-directory} (@ref{Account configuration}).
+The command @code{gdocs-authenticate} initiates the OAuth 2.0 flow for a @*
+Google account (@ref{OAuth flow}).  If multiple accounts are configured, it @*
+prompts you to select one.  The command opens your browser to Google's @*
+consent screen, and a temporary local HTTP server receives the @*
+authorization callback.  Upon successful authentication, tokens are @*
+stored in @code{gdocs-token-directory} (@ref{Account configuration}). @*
 
-The command @code{gdocs-logout} deletes the stored token file for an
-account, effectively logging you out.  You will need to run
-@code{gdocs-authenticate} again to re-authorize.
+The command @code{gdocs-logout} deletes the stored token file for an @*
+account, effectively logging you out.  You will need to run @*
+@code{gdocs-authenticate} again to re-authorize. @*
 
-Both commands are autoloaded.
+Both commands are autoloaded. @*
 
 @node Conflict resolution (1)
 @section Conflict resolution
@@ -579,42 +578,42 @@ Both commands are autoloaded.
 @findex gdocs-merge-accept-all-remote
 @findex gdocs-merge-finalize
 @findex gdocs-merge-abort
-When a pull detects that both local and remote changes exist, the
-conflict resolution interface opens in a dedicated @samp{*gdocs-merge*}
-buffer using @code{gdocs-merge-mode} (@ref{Merge mode}).  The following commands
-are available in the merge buffer:
+When a pull detects that both local and remote changes exist, the @*
+conflict resolution interface opens in a dedicated @samp{*gdocs-merge*} @*
+buffer using @code{gdocs-merge-mode} (@ref{Merge mode}).  The following commands @*
+are available in the merge buffer: @*
 
 @itemize
 @item
-@code{gdocs-merge-next-hunk} (@samp{n}) moves to the next unresolved conflict
-hunk.
+@code{gdocs-merge-next-hunk} (@samp{n}) moves to the next unresolved conflict @*
+hunk. @*
 @item
-@code{gdocs-merge-previous-hunk} (@samp{p}) moves to the previous unresolved
-hunk.
+@code{gdocs-merge-previous-hunk} (@samp{p}) moves to the previous unresolved @*
+hunk. @*
 @item
-@code{gdocs-merge-accept-local} (@samp{a}) accepts the local version of the
-current hunk.
+@code{gdocs-merge-accept-local} (@samp{a}) accepts the local version of the @*
+current hunk. @*
 @item
-@code{gdocs-merge-accept-remote} (@samp{b}) accepts the remote version of the
-current hunk.
+@code{gdocs-merge-accept-remote} (@samp{b}) accepts the remote version of the @*
+current hunk. @*
 @item
-@code{gdocs-merge-edit-hunk} (@samp{e}) opens a temporary org-mode buffer
-pre-filled with the local text so you can edit the merged result
-manually.  Press @samp{C-c C-c} in the edit buffer to accept.
+@code{gdocs-merge-edit-hunk} (@samp{e}) opens a temporary org-mode buffer @*
+pre-filled with the local text so you can edit the merged result @*
+manually.  Press @samp{C-c C-c} in the edit buffer to accept. @*
 @item
-@code{gdocs-merge-accept-all-local} (@samp{A}) resolves all unresolved hunks
-with the local version.
+@code{gdocs-merge-accept-all-local} (@samp{A}) resolves all unresolved hunks @*
+with the local version. @*
 @item
-@code{gdocs-merge-accept-all-remote} (@samp{B}) resolves all unresolved hunks
-with the remote version.
+@code{gdocs-merge-accept-all-remote} (@samp{B}) resolves all unresolved hunks @*
+with the remote version. @*
 @item
-@code{gdocs-merge-finalize} (@samp{C-c C-c}) finalizes the merge once all
-hunks are resolved, applies the merged content to the original
-buffer, and triggers a push.  It signals an error if any hunks remain
-unresolved.
+@code{gdocs-merge-finalize} (@samp{C-c C-c}) finalizes the merge once all @*
+hunks are resolved, applies the merged content to the original @*
+buffer, and triggers a push.  It signals an error if any hunks remain @*
+unresolved. @*
 @item
-@code{gdocs-merge-abort} (@samp{C-c C-k} or @samp{q}) aborts the merge after
-confirmation, leaving the buffer unchanged.
+@code{gdocs-merge-abort} (@samp{C-c C-k} or @samp{q}) aborts the merge after @*
+confirmation, leaving the buffer unchanged. @*
 @end itemize
 
 @node Functions
@@ -633,21 +632,21 @@ confirmation, leaving the buffer unchanged.
 
 @findex gdocs-auth-select-account
 @findex gdocs-auth-get-access-token
-The function @code{gdocs-auth-select-account} selects a Google account from
-@code{gdocs-accounts}.  If only one account is configured, it returns that
-account's name without prompting.  If multiple accounts exist, it
-prompts via @code{completing-read} with an optional PROMPT argument.  It
-signals an error if @code{gdocs-accounts} is @code{nil}.  This function is used
-internally by most commands but is also available for use in custom
-workflows or hooks.
+The function @code{gdocs-auth-select-account} selects a Google account from @*
+@code{gdocs-accounts}.  If only one account is configured, it returns that @*
+account's name without prompting.  If multiple accounts exist, it @*
+prompts via @code{completing-read} with an optional PROMPT argument.  It @*
+signals an error if @code{gdocs-accounts} is @code{nil}.  This function is used @*
+internally by most commands but is also available for use in custom @*
+workflows or hooks. @*
 
-The function @code{gdocs-auth-get-access-token} ensures a valid OAuth access
-token for a given account, then calls a callback with the token string.
-If the token is expired or about to expire (within a 60-second safety
-margin), it refreshes the token asynchronously before calling the
-callback.  If no token exists, it initiates the full OAuth flow.  This
-function is the primary entry point for all API operations that need
-authentication.
+The function @code{gdocs-auth-get-access-token} ensures a valid OAuth access @*
+token for a given account, then calls a callback with the token string. @*
+If the token is expired or about to expire (within a 60-second safety @*
+margin), it refreshes the token asynchronously before calling the @*
+callback.  If no token exists, it initiates the full OAuth flow.  This @*
+function is the primary entry point for all API operations that need @*
+authentication. @*
 
 @node API client (1)
 @section API client
@@ -663,25 +662,25 @@ authentication.
 @findex gdocs-api-get-document
 @findex gdocs-api-batch-update
 @findex gdocs-api-create-document
-The function @code{gdocs-api-get-document} fetches a Google Docs document by
-its ID@.  It calls CALLBACK with the parsed JSON document structure.
-This is used internally by @code{gdocs-pull} to retrieve the remote document
-state.
+The function @code{gdocs-api-get-document} fetches a Google Docs document by @*
+its ID@.  It calls CALLBACK with the parsed JSON document structure. @*
+This is used internally by @code{gdocs-pull} to retrieve the remote document @*
+state. @*
 
-The function @code{gdocs-api-batch-update} sends a list of @code{batchUpdate}
-requests to a document, which is how all modifications (insertions,
-deletions, style changes) are applied to Google Docs.  The REQUESTS
-argument is a list of request alists as specified by the Google Docs
-API@.  This function is called by both the incremental diff engine and
-full replacement paths.
+The function @code{gdocs-api-batch-update} sends a list of @code{batchUpdate} @*
+requests to a document, which is how all modifications (insertions, @*
+deletions, style changes) are applied to Google Docs.  The REQUESTS @*
+argument is a list of request alists as specified by the Google Docs @*
+API@.  This function is called by both the incremental diff engine and @*
+full replacement paths. @*
 
-The function @code{gdocs-api-create-document} creates a new empty Google
-Docs document with a given title.  The callback receives the response
-JSON, which includes the new @samp{documentId}.
+The function @code{gdocs-api-create-document} creates a new empty Google @*
+Docs document with a given title.  The callback receives the response @*
+JSON, which includes the new @samp{documentId}. @*
 
-All three functions accept an optional ACCOUNT argument; when @code{nil},
-the default account is selected automatically
-(@ref{Account configuration}).
+All three functions accept an optional ACCOUNT argument; when @code{nil}, @*
+the default account is selected automatically @*
+(@ref{Account configuration}). @*
 
 @node Google Drive API
 @subsection Google Drive API
@@ -690,24 +689,24 @@ the default account is selected automatically
 @findex gdocs-api-list-files
 @findex gdocs-api-upload-image
 @findex gdocs-api-search-files
-The function @code{gdocs-api-get-file-metadata} fetches metadata for a
-Google Drive file, including its @samp{id}, @samp{name}, @samp{modifiedTime},
-@samp{version}, and @samp{headRevisionId}.  The revision ID is used by the pull
-mechanism to detect whether the remote document has changed
-(@ref{Pushing and pulling}).
+The function @code{gdocs-api-get-file-metadata} fetches metadata for a @*
+Google Drive file, including its @samp{id}, @samp{name}, @samp{modifiedTime}, @*
+@samp{version}, and @samp{headRevisionId}.  The revision ID is used by the pull @*
+mechanism to detect whether the remote document has changed @*
+(@ref{Pushing and pulling}). @*
 
-The function @code{gdocs-api-list-files} lists Google Drive files matching a
-query string (using Drive's query syntax).  It supports pagination via
-an optional PAGE-TOKEN argument.
+The function @code{gdocs-api-list-files} lists Google Drive files matching a @*
+query string (using Drive's query syntax).  It supports pagination via @*
+an optional PAGE-TOKEN argument. @*
 
-The function @code{gdocs-api-upload-image} uploads a local image file to
-Google Drive using a multipart upload.  It determines the MIME type
-from the file extension (PNG, JPEG, GIF, WebP, and SVG are supported).
-An optional FOLDER-ID argument specifies the parent folder in Drive.
+The function @code{gdocs-api-upload-image} uploads a local image file to @*
+Google Drive using a multipart upload.  It determines the MIME type @*
+from the file extension (PNG, JPEG, GIF, WebP, and SVG are supported). @*
+An optional FOLDER-ID argument specifies the parent folder in Drive. @*
 
-The function @code{gdocs-api-search-files} performs a full-text search across
-Google Drive by wrapping @code{gdocs-api-list-files} with a
-@samp{fullText contains} query.
+The function @code{gdocs-api-search-files} performs a full-text search across @*
+Google Drive by wrapping @code{gdocs-api-list-files} with a @*
+@samp{fullText contains} query. @*
 
 @node Format conversion (1)
 @section Format conversion
@@ -717,67 +716,67 @@ Google Drive by wrapping @code{gdocs-api-list-files} with a
 @findex gdocs-convert-ir-to-org
 @findex gdocs-convert-docs-json-to-ir
 @findex gdocs-convert-ir-to-docs-requests
-All conversion passes through a flat list of intermediate
-representation (IR) element plists, which serves as the canonical
-interchange format shared with the diff engine (@ref{Diff engine}).
+All conversion passes through a flat list of intermediate @*
+representation (IR) element plists, which serves as the canonical @*
+interchange format shared with the diff engine (@ref{Diff engine}). @*
 
-The function @code{gdocs-convert-org-buffer-to-ir} parses the current org
-buffer using @code{org-element-parse-buffer} and returns an IR element list.
-The related function @code{gdocs-convert-org-string-to-ir} does the same but
-accepts an org-mode string rather than operating on the current buffer.
+The function @code{gdocs-convert-org-buffer-to-ir} parses the current org @*
+buffer using @code{org-element-parse-buffer} and returns an IR element list. @*
+The related function @code{gdocs-convert-org-string-to-ir} does the same but @*
+accepts an org-mode string rather than operating on the current buffer. @*
 
-The function @code{gdocs-convert-ir-to-org} converts an IR element list back
-to a well-formatted org-mode string.  This is the inverse of
-@code{gdocs-convert-org-buffer-to-ir} and is used when pulling remote
-changes.
+The function @code{gdocs-convert-ir-to-org} converts an IR element list back @*
+to a well-formatted org-mode string.  This is the inverse of @*
+@code{gdocs-convert-org-buffer-to-ir} and is used when pulling remote @*
+changes. @*
 
-The function @code{gdocs-convert-docs-json-to-ir} converts a Google Docs API
-JSON response (an alist with keys like @samp{body}, @samp{title}, @samp{lists}, and
-@samp{namedRanges}) to an IR element list.  It walks the document structure
-and maps each structural element to its IR equivalent.
+The function @code{gdocs-convert-docs-json-to-ir} converts a Google Docs API @*
+JSON response (an alist with keys like @samp{body}, @samp{title}, @samp{lists}, and @*
+@samp{namedRanges}) to an IR element list.  It walks the document structure @*
+and maps each structural element to its IR equivalent. @*
 
-The function @code{gdocs-convert-ir-to-docs-requests} converts an IR element
-list to a list of Google Docs @code{batchUpdate} request alists.  It tracks
-a running UTF-16 insertion index starting at 1 (the beginning of the
-Google Docs body).  This function is used for full document replacement
-and by the diff engine for incremental insertions.
+The function @code{gdocs-convert-ir-to-docs-requests} converts an IR element @*
+list to a list of Google Docs @code{batchUpdate} request alists.  It tracks @*
+a running UTF-16 insertion index starting at 1 (the beginning of the @*
+Google Docs body).  This function is used for full document replacement @*
+and by the diff engine for incremental insertions. @*
 
 @node Diff engine (1)
 @section Diff engine
 
 @findex gdocs-diff-generate
 @findex gdocs-diff-generate-requests
-The function @code{gdocs-diff-generate} is the main entry point of the diff
-engine.  It compares two IR element lists (OLD-IR and NEW-IR) and
-returns a list of @code{batchUpdate} request plists representing the minimal
-changes needed.  Internally, it computes content-based keys for each
-element, runs a longest-common-subsequence (LCS) algorithm to identify
-kept, deleted, inserted, and modified elements, and generates the
-appropriate API requests.  When more than 50% of elements have changed,
-it falls back to a full document replacement to avoid overly complex
-request sequences.
+The function @code{gdocs-diff-generate} is the main entry point of the diff @*
+engine.  It compares two IR element lists (OLD-IR and NEW-IR) and @*
+returns a list of @code{batchUpdate} request plists representing the minimal @*
+changes needed.  Internally, it computes content-based keys for each @*
+element, runs a longest-common-subsequence (LCS) algorithm to identify @*
+kept, deleted, inserted, and modified elements, and generates the @*
+appropriate API requests.  When more than 50% of elements have changed, @*
+it falls back to a full document replacement to avoid overly complex @*
+request sequences. @*
 
-The function @code{gdocs-diff-generate-requests} is a lower-level entry
-point that takes pre-classified diff operations (from the LCS phase)
-along with the old and new IRs.  It returns requests with correct
-ordering: deletions in reverse index order (highest first), then
-insertions in forward order, which is required by the Google Docs API
-because indices shift as operations are applied.
+The function @code{gdocs-diff-generate-requests} is a lower-level entry @*
+point that takes pre-classified diff operations (from the LCS phase) @*
+along with the old and new IRs.  It returns requests with correct @*
+ordering: deletions in reverse index order (highest first), then @*
+insertions in forward order, which is required by the Google Docs API @*
+because indices shift as operations are applied. @*
 
 @node Conflict resolution (2)
 @section Conflict resolution
 
 @findex gdocs-merge-start
-The function @code{gdocs-merge-start} opens the conflict resolution
-interface.  It takes two org-mode strings (local and remote) and a
-callback function.  It computes hunks by running an LCS diff on the
-line-level differences, sets up the @samp{*gdocs-merge*} buffer with
-color-coded overlays for conflicts, and displays it.  When the user
-finalizes the merge, the callback is called with the resulting merged
-org string.
+The function @code{gdocs-merge-start} opens the conflict resolution @*
+interface.  It takes two org-mode strings (local and remote) and a @*
+callback function.  It computes hunks by running an LCS diff on the @*
+line-level differences, sets up the @samp{*gdocs-merge*} buffer with @*
+color-coded overlays for conflicts, and displays it.  When the user @*
+finalizes the merge, the callback is called with the resulting merged @*
+org string. @*
 
-This function is called internally by the sync engine when a pull
-detects both local and remote changes (@ref{Conflict resolution}).
+This function is called internally by the sync engine when a pull @*
+detects both local and remote changes (@ref{Conflict resolution}). @*
 
 @node Authentication (1)
 @chapter Authentication
@@ -791,61 +790,61 @@ detects both local and remote changes (@ref{Conflict resolution}).
 @node OAuth flow
 @section OAuth flow
 
-The OAuth 2.0 flow works as follows:
+The OAuth 2.0 flow works as follows: @*
 
 @enumerate
 @item
-The user runs @samp{M-x gdocs-authenticate}.
+The user runs @samp{M-x gdocs-authenticate}. @*
 @item
-A temporary local HTTP server starts on a random high port to
-receive the authorization callback.
+A temporary local HTTP server starts on a random high port to @*
+receive the authorization callback. @*
 @item
-The user's default browser opens to Google's OAuth consent screen.
+The user's default browser opens to Google's OAuth consent screen. @*
 @item
-After the user grants consent, Google redirects to the local server
-with an authorization code.
+After the user grants consent, Google redirects to the local server @*
+with an authorization code. @*
 @item
-The package exchanges the code for access and refresh tokens.
+The package exchanges the code for access and refresh tokens. @*
 @item
-Tokens are stored in @code{gdocs-token-directory} with 600 permissions.
+Tokens are stored in @code{gdocs-token-directory} with 600 permissions. @*
 @end enumerate
 
-The package requests two OAuth scopes:
+The package requests two OAuth scopes: @*
 
 @itemize
 @item
-@samp{https://www.googleapis.com/auth/documents} for reading and writing
-Google Docs.
+@samp{https://www.googleapis.com/auth/documents} for reading and writing @*
+Google Docs. @*
 @item
-@samp{https://www.googleapis.com/auth/drive} for listing, browsing, and
-creating files in Google Drive.
+@samp{https://www.googleapis.com/auth/drive} for listing, browsing, and @*
+creating files in Google Drive. @*
 @end itemize
 
 @node Token management
 @section Token management
 
-Access tokens are refreshed automatically before each API call when
-they are expired or within 60 seconds of expiry.  The refresh uses the
-stored refresh token and happens asynchronously, so Emacs is never
-blocked.  Each token file also stores the @samp{client_id} and
-@samp{client_secret} so that token refreshes work without re-reading
-@code{gdocs-accounts}.
+Access tokens are refreshed automatically before each API call when @*
+they are expired or within 60 seconds of expiry.  The refresh uses the @*
+stored refresh token and happens asynchronously, so Emacs is never @*
+blocked.  Each token file also stores the @samp{client_id} and @*
+@samp{client_secret} so that token refreshes work without re-reading @*
+@code{gdocs-accounts}. @*
 
-If no token file exists for an account (e.g., after running
-@code{gdocs-logout}), the next API operation triggers a fresh OAuth flow.
+If no token file exists for an account (e.g., after running @*
+@code{gdocs-logout}), the next API operation triggers a fresh OAuth flow. @*
 
 @node Multi-account support
 @section Multi-account support
 
-Each entry in @code{gdocs-accounts} is an independent account with its own
-OAuth credentials and token file.  Linked org files remember which
-account they are associated with via the @samp{gdocs-account} file-local
-variable.  When you open a linked file, the stored account is used
-automatically.
+Each entry in @code{gdocs-accounts} is an independent account with its own @*
+OAuth credentials and token file.  Linked org files remember which @*
+account they are associated with via the @samp{gdocs-account} file-local @*
+variable.  When you open a linked file, the stored account is used @*
+automatically. @*
 
-You would configure custom OAuth credentials per account if you want to
-avoid shared rate limits or if your organization requires its own OAuth
-application.
+You would configure custom OAuth credentials per account if you want to @*
+avoid shared rate limits or if your organization requires its own OAuth @*
+application. @*
 
 @node API client
 @chapter API client
@@ -858,22 +857,22 @@ application.
 @node Error handling and retries
 @section Error handling and retries
 
-All API requests include automatic retry logic for transient errors.
-When the server returns HTTP 429 (rate limited), 500 (internal server
-error), or 503 (service unavailable), the request is retried with
-exponential backoff up to three times.  If the response includes a
-@samp{Retry-After} header, its value is used as the delay; otherwise, the
-delay follows the pattern 1s, 2s, 4s, capped at 30 seconds.
+All API requests include automatic retry logic for transient errors. @*
+When the server returns HTTP 429 (rate limited), 500 (internal server @*
+error), or 503 (service unavailable), the request is retried with @*
+exponential backoff up to three times.  If the response includes a @*
+@samp{Retry-After} header, its value is used as the delay; otherwise, the @*
+delay follows the pattern 1s, 2s, 4s, capped at 30 seconds. @*
 
-Authentication failures (HTTP 401 or 403) produce a clear error message
-directing you to run @code{gdocs-authenticate} to re-authorize.
+Authentication failures (HTTP 401 or 403) produce a clear error message @*
+directing you to run @code{gdocs-authenticate} to re-authorize. @*
 
 @node Progress indication
 @section Progress indication
 
-While API requests are in flight, the global modeline displays
-@samp{[GDocs: syncing...]} to indicate that a network operation is in
-progress.  The indicator disappears when all pending requests complete.
+While API requests are in flight, the global modeline displays @*
+@samp{[GDocs: syncing...]} to indicate that a network operation is in @*
+progress.  The indicator disappears when all pending requests complete. @*
 
 @node Format conversion
 @chapter Format conversion
@@ -888,8 +887,8 @@ progress.  The indicator disappears when all pending requests complete.
 @node Supported element mapping
 @section Supported element mapping
 
-The converter handles the following bidirectional mapping between
-org-mode elements and Google Docs constructs:
+The converter handles the following bidirectional mapping between @*
+org-mode elements and Google Docs constructs: @*
 
 @multitable {aaaaaaaaaaaaaaaaaaaaaaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
 @headitem Org element
@@ -937,68 +936,68 @@ org-mode elements and Google Docs constructs:
 @node Intermediate representation
 @section Intermediate representation
 
-All conversion passes through a flat list of IR element plists rather
-than directly translating between org-mode and Google Docs JSON@.  Each
-IR element has a @samp{:type} (e.g., @code{paragraph}, @code{table},
-@code{horizontal-rule}), a @samp{:style} (e.g., @code{normal}, @code{heading-1}), and
-@samp{:contents} (a list of text runs with formatting properties like
-@samp{:bold}, @samp{:italic}, @samp{:link}, etc.).
+All conversion passes through a flat list of IR element plists rather @*
+than directly translating between org-mode and Google Docs JSON@.  Each @*
+IR element has a @samp{:type} (e.g., @code{paragraph}, @code{table}, @*
+@code{horizontal-rule}), a @samp{:style} (e.g., @code{normal}, @code{heading-1}), and @*
+@samp{:contents} (a list of text runs with formatting properties like @*
+@samp{:bold}, @samp{:italic}, @samp{:link}, etc.). @*
 
-This architecture means the diff engine (@ref{Diff engine}) only needs to
-understand the IR format, not both org-mode and Google Docs JSON
-independently.
+This architecture means the diff engine (@ref{Diff engine}) only needs to @*
+understand the IR format, not both org-mode and Google Docs JSON @*
+independently. @*
 
 @node Org-only constructs
 @section Org-only constructs
 
-Certain org-mode constructs have no direct Google Docs equivalent.
-These are preserved as special markers in the Google Doc so they survive
-round-trips:
+Certain org-mode constructs have no direct Google Docs equivalent. @*
+These are preserved as special markers in the Google Doc so they survive @*
+round-trips: @*
 
 @itemize
 @item
-@strong{TODO keywords}: rendered as styled text with a preservation comment.
+@strong{TODO keywords}: rendered as styled text with a preservation comment. @*
 @item
-@strong{Tags}: same treatment as TODO keywords.
+@strong{Tags}: same treatment as TODO keywords. @*
 @item
-@strong{Timestamps} (@samp{SCHEDULED:}, @samp{DEADLINE:}, active/inactive): preserved
-as markers.
+@strong{Timestamps} (@samp{SCHEDULED:}, @samp{DEADLINE:}, active/inactive): preserved @*
+as markers. @*
 @item
-@strong{Properties and drawers}: preserved as markers, not rendered visually.
+@strong{Properties and drawers}: preserved as markers, not rendered visually. @*
 @item
-@strong{Source code blocks}: rendered as monospace-formatted text with the
-full org syntax in a comment.
+@strong{Source code blocks}: rendered as monospace-formatted text with the @*
+full org syntax in a comment. @*
 @item
-@strong{@LaTeX{} fragments}: rendered as monospace text with the raw @LaTeX{} in a
-comment.
+@strong{@LaTeX{} fragments}: rendered as monospace text with the raw @LaTeX{} in a @*
+comment. @*
 @item
-@strong{Org keywords} (@samp{#+AUTHOR:}, @samp{#+DATE:}, etc.): preserved as markers
-at the top of the document.
+@strong{Org keywords} (@samp{#+AUTHOR:}, @samp{#+DATE:}, etc.): preserved as markers @*
+at the top of the document. @*
 @item
-@strong{Custom IDs and anchors}: preserved as comments.
+@strong{Custom IDs and anchors}: preserved as comments. @*
 @end itemize
 
 @node Google Docs-only constructs
 @section Google Docs-only constructs
 
-Similarly, some Google Docs constructs have no org equivalent and are
-preserved as opaque org markers:
+Similarly, some Google Docs constructs have no org equivalent and are @*
+preserved as opaque org markers: @*
 
 @itemize
 @item
-Page breaks: @samp{#+GDOCS_PAGE_BREAK:}
+Page breaks: @samp{#+GDOCS_PAGE_BREAK:} @*
 @item
-Headers/footers: @samp{#+GDOCS_HEADER:} / @samp{#+GDOCS_FOOTER:}
+Headers/footers: @samp{#+GDOCS_HEADER:} / @samp{#+GDOCS_FOOTER:} @*
 @item
-Page numbers: @samp{#+GDOCS_PAGE_NUMBER:}
+Page numbers: @samp{#+GDOCS_PAGE_NUMBER:} @*
 @item
-Table of contents: @samp{#+GDOCS_TOC:}
+Table of contents: @samp{#+GDOCS_TOC:} @*
 @item
-Embedded drawings: @samp{#+GDOCS_DRAWING:}
+Embedded drawings: @samp{#+GDOCS_DRAWING:} @*
 @item
-Charts: @samp{#+GDOCS_CHART:}
+Charts: @samp{#+GDOCS_CHART:} @*
 @item
-Named styles / custom formatting: preserved as inline markers
+Named styles / custom formatting: preserved as inline markers @*
 @end itemize
 
 @node Sync engine
@@ -1013,8 +1012,8 @@ Named styles / custom formatting: preserved as inline markers
 @node Metadata storage
 @section Metadata storage
 
-Each linked org file stores sync metadata in file-local variables at
-the end of the file:
+Each linked org file stores sync metadata in file-local variables at @*
+the end of the file: @*
 
 @example
 # Local Variables:
@@ -1025,38 +1024,38 @@ the end of the file:
 # End:
 @end example
 
-These variables are declared safe for file-local use (via
-@code{safe-local-variable}) so Emacs does not prompt for confirmation when
-opening a linked file.
+These variables are declared safe for file-local use (via @*
+@code{safe-local-variable}) so Emacs does not prompt for confirmation when @*
+opening a linked file. @*
 
 @node Shadow copy
 @section Shadow copy
 
-The sync engine maintains a buffer-local @emph{shadow IR}: the intermediate
-representation of the last-synced state.  This shadow enables
-incremental diffs on push and conflict detection on pull.
+The sync engine maintains a buffer-local @emph{shadow IR}: the intermediate @*
+representation of the last-synced state.  This shadow enables @*
+incremental diffs on push and conflict detection on pull. @*
 
-On the first open of a linked file after an Emacs restart, the shadow
-is @code{nil}.  In this case, the next push performs a full document
-replacement rather than an incremental diff, and a message warns: ``No
-sync baseline in memory.''  Alternatively, if @code{gdocs-auto-pull-on-open}
-is non-nil, the pull establishes the shadow baseline automatically.
+On the first open of a linked file after an Emacs restart, the shadow @*
+is @code{nil}.  In this case, the next push performs a full document @*
+replacement rather than an incremental diff, and a message warns: ``No @*
+sync baseline in memory.''  Alternatively, if @code{gdocs-auto-pull-on-open} @*
+is non-nil, the pull establishes the shadow baseline automatically. @*
 
 @node Push serialization
 @section Push serialization
 
-Pushes are serialized to prevent race conditions.  If a push is already
-in flight when another is triggered (e.g., by a rapid save), the second
-push is queued and executes automatically when the first completes.
-This ensures that the shadow copy is always consistent with what was
-last sent to the API@.
+Pushes are serialized to prevent race conditions.  If a push is already @*
+in flight when another is triggered (e.g., by a rapid save), the second @*
+push is queued and executes automatically when the first completes. @*
+This ensures that the shadow copy is always consistent with what was @*
+last sent to the API@. @*
 
 @node Diff engine
 @chapter Diff engine
 
-The incremental diff engine computes the minimal set of Google Docs API
-@code{batchUpdate} requests to transform the remote document from its
-last-known state to the current org state.
+The incremental diff engine computes the minimal set of Google Docs API @*
+@code{batchUpdate} requests to transform the remote document from its @*
+last-known state to the current org state. @*
 
 @menu
 * Approach::
@@ -1068,93 +1067,93 @@ last-known state to the current org state.
 
 @enumerate
 @item
-Produce content-based keys for each element in the old and new IRs.
-Keys capture type, style, text content, and formatting, so elements
-with identical content produce identical keys.
+Produce content-based keys for each element in the old and new IRs. @*
+Keys capture type, style, text content, and formatting, so elements @*
+with identical content produce identical keys. @*
 
 @item
-Run a longest-common-subsequence (LCS) algorithm on the key lists to
-identify which elements are kept, deleted, inserted, or modified.
-Adjacent delete+insert pairs of the same type are collapsed into
-modify operations.
+Run a longest-common-subsequence (LCS) algorithm on the key lists to @*
+identify which elements are kept, deleted, inserted, or modified. @*
+Adjacent delete+insert pairs of the same type are collapsed into @*
+modify operations. @*
 
 @item
-Map operations to API requests:
+Map operations to API requests: @*
 @itemize
 @item
-@strong{Insert}: @code{InsertText}, @code{InsertTable}, @code{CreateParagraphBullets}, etc.
+@strong{Insert}: @code{InsertText}, @code{InsertTable}, @code{CreateParagraphBullets}, etc. @*
 @item
-@strong{Delete}: @code{DeleteContentRange}.
+@strong{Delete}: @code{DeleteContentRange}. @*
 @item
-@strong{Modify}: for style-only changes, @code{UpdateParagraphStyle}; for
-formatting-only changes, @code{UpdateTextStyle}; for content changes,
-delete + re-insert.
+@strong{Modify}: for style-only changes, @code{UpdateParagraphStyle}; for @*
+formatting-only changes, @code{UpdateTextStyle}; for content changes, @*
+delete + re-insert. @*
 @end itemize
 
 @item
-Order requests correctly: deletions in reverse index order (highest
-first), then insertions in forward order.  This is necessary because
-the Google Docs API processes requests sequentially and earlier
-operations shift later indices.
+Order requests correctly: deletions in reverse index order (highest @*
+first), then insertions in forward order.  This is necessary because @*
+the Google Docs API processes requests sequentially and earlier @*
+operations shift later indices. @*
 @end enumerate
 
 @node Fallback
 @section Fallback
 
-When more than 50% of elements have changed and the document has more
-than two elements, the diff engine falls back to a full document
-replacement (delete all + insert all) to avoid producing an overly
-complex or fragile request sequence.
+When more than 50% of elements have changed and the document has more @*
+than two elements, the diff engine falls back to a full document @*
+replacement (delete all + insert all) to avoid producing an overly @*
+complex or fragile request sequence. @*
 
 @node Conflict resolution
 @chapter Conflict resolution
 
-When a pull detects that the buffer has local modifications and the
-remote revision has changed, the conflict resolution UI opens
-automatically.  The @samp{*gdocs-merge*} buffer displays all hunks
-(computed via a line-level LCS diff), with conflicts shown in a
-@samp{<<<< LOCAL} / @samp{====/ =>>>> REMOTE} format.
+When a pull detects that the buffer has local modifications and the @*
+remote revision has changed, the conflict resolution UI opens @*
+automatically.  The @samp{*gdocs-merge*} buffer displays all hunks @*
+(computed via a line-level LCS diff), with conflicts shown in a @*
+@samp{<<<< LOCAL} / @samp{====/ =>>>> REMOTE} format. @*
 
-Common (matching) lines are displayed without highlighting.  Conflict
-hunks use color-coded overlays: @code{gdocs-merge-remote-face} for
-unresolved conflicts, @code{gdocs-merge-resolved-face} for resolved ones.
+Common (matching) lines are displayed without highlighting.  Conflict @*
+hunks use color-coded overlays: @code{gdocs-merge-remote-face} for @*
+unresolved conflicts, @code{gdocs-merge-resolved-face} for resolved ones. @*
 
-After resolving all hunks and finalizing with @samp{C-c C-c}, the merged
-content replaces the buffer, the shadow IR is updated, and the buffer
-is saved (which triggers a push if auto-push is enabled).
+After resolving all hunks and finalizing with @samp{C-c C-c}, the merged @*
+content replaces the buffer, the shadow IR is updated, and the buffer @*
+is saved (which triggers a push if auto-push is enabled). @*
 
 @node Minor mode
 @chapter Minor mode
 
 @findex gdocs-mode
-The minor mode @code{gdocs-mode} is activated on org buffers linked to a
-Google Doc.  It provides:
+The minor mode @code{gdocs-mode} is activated on org buffers linked to a @*
+Google Doc.  It provides: @*
 
 @itemize
 @item
-Automatic push on save (via @code{after-save-hook}) when
-@code{gdocs-auto-push-on-save} is non-nil.
+Automatic push on save (via @code{after-save-hook}) when @*
+@code{gdocs-auto-push-on-save} is non-nil. @*
 @item
-Modeline status display showing the sync state:
+Modeline status display showing the sync state: @*
 @itemize
 @item
-@samp{GDocs:synced} when in sync.
+@samp{GDocs:synced} when in sync. @*
 @item
-@samp{GDocs:modified} when local changes have not been pushed.
+@samp{GDocs:modified} when local changes have not been pushed. @*
 @item
-@samp{GDocs:pushing} while a push is in progress.
+@samp{GDocs:pushing} while a push is in progress. @*
 @item
-@samp{GDocs:conflict} when remote changes conflict with local ones.
+@samp{GDocs:conflict} when remote changes conflict with local ones. @*
 @item
-@samp{GDocs:error} when the last sync failed.
+@samp{GDocs:error} when the last sync failed. @*
 @end itemize
 @item
-Keybindings under the @samp{C-c g} prefix (@ref{Keybindings}).
+Keybindings under the @samp{C-c g} prefix (@ref{Keybindings}). @*
 @end itemize
 
-The mode activates automatically when you open an org file that has the
-@samp{gdocs-document-id} file-local variable set (via a hook on
-@code{org-mode-hook}).  You can also toggle it manually.
+The mode activates automatically when you open an org file that has the @*
+@samp{gdocs-document-id} file-local variable set (via a hook on @*
+@code{org-mode-hook}).  You can also toggle it manually. @*
 
 @menu
 * Keybindings::
@@ -1163,7 +1162,7 @@ The mode activates automatically when you open an org file that has the
 @node Keybindings
 @section Keybindings
 
-The @code{gdocs-mode-map} provides the following keybindings:
+The @code{gdocs-mode-map} provides the following keybindings: @*
 
 @multitable {aaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaa} {aaaaaaaaaaaaaaaaaaaaaaaa}
 @headitem Key
@@ -1189,26 +1188,26 @@ The @code{gdocs-mode-map} provides the following keybindings:
 @node Merge mode
 @chapter Merge mode
 
-@code{gdocs-merge-mode} is a major mode derived from @code{special-mode} used in
-the @samp{*gdocs-merge*} buffer during conflict resolution.  Its keybindings
-are documented in @ref{Conflict resolution (1), , Conflict resolution}.
+@code{gdocs-merge-mode} is a major mode derived from @code{special-mode} used in @*
+the @samp{*gdocs-merge*} buffer during conflict resolution.  Its keybindings @*
+are documented in @ref{Conflict resolution (1), , Conflict resolution}. @*
 
-The mode defines three faces for visual differentiation:
+The mode defines three faces for visual differentiation: @*
 
 @itemize
 @item
-@code{gdocs-merge-local-face} (green background) for local changes.
+@code{gdocs-merge-local-face} (green background) for local changes. @*
 @item
-@code{gdocs-merge-remote-face} (red background) for remote changes.
+@code{gdocs-merge-remote-face} (red background) for remote changes. @*
 @item
-@code{gdocs-merge-resolved-face} (blue background) for resolved hunks.
+@code{gdocs-merge-resolved-face} (blue background) for resolved hunks. @*
 @end itemize
 
 @node Planned features
 @chapter Planned features
 
-The following features are planned for future releases but are not yet
-implemented.
+The following features are planned for future releases but are not yet @*
+implemented. @*
 
 @menu
 * Comments and suggestions (phase 2)::
@@ -1218,9 +1217,9 @@ implemented.
 @node Comments and suggestions (phase 2)
 @section Comments and suggestions (phase 2)
 
-This phase adds full collaboration support: comments, suggestions, and
-live change awareness.  It will introduce a new module
-@samp{gdocs-comments.el} and extend the sync and diff engines.
+This phase adds full collaboration support: comments, suggestions, and @*
+live change awareness.  It will introduce a new module @*
+@samp{gdocs-comments.el} and extend the sync and diff engines. @*
 
 @menu
 * Comments system::
@@ -1232,106 +1231,106 @@ live change awareness.  It will introduce a new module
 @node Comments system
 @subsection Comments system
 
-A side buffer (@code{gdocs-comments}) for viewing and managing Google Docs
-comments.  The buffer will display in a side window (configurable via a
-planned @code{gdocs-comments-side} option, defaulting to the right) and show
-each comment with:
+A side buffer (@code{gdocs-comments}) for viewing and managing Google Docs @*
+comments.  The buffer will display in a side window (configurable via a @*
+planned @code{gdocs-comments-side} option, defaulting to the right) and show @*
+each comment with: @*
 
 @itemize
 @item
-Author name and avatar (as text initials).
+Author name and avatar (as text initials). @*
 @item
-Timestamp.
+Timestamp. @*
 @item
-The quoted text the comment is anchored to.
+The quoted text the comment is anchored to. @*
 @item
-Comment body.
+Comment body. @*
 @item
-Reply thread (indented).
+Reply thread (indented). @*
 @item
-Resolved status.
+Resolved status. @*
 @end itemize
 
-Comments will be linked to positions in the org buffer so that clicking
-a comment in the side buffer jumps to the corresponding text.
+Comments will be linked to positions in the org buffer so that clicking @*
+a comment in the side buffer jumps to the corresponding text. @*
 
-Planned commands:
+Planned commands: @*
 
 @itemize
 @item
-@code{gdocs-comments} — open or toggle the comments side buffer.
+@code{gdocs-comments} — open or toggle the comments side buffer. @*
 @item
-@code{gdocs-comment-add} — select a region in the org buffer, then type a
-comment.  Creates a comment anchored to that text in the Google Doc.
+@code{gdocs-comment-add} — select a region in the org buffer, then type a @*
+comment.  Creates a comment anchored to that text in the Google Doc. @*
 @item
-@code{gdocs-comment-reply} — reply to the comment at point in the
-comments buffer.
+@code{gdocs-comment-reply} — reply to the comment at point in the @*
+comments buffer. @*
 @item
-@code{gdocs-comment-resolve} — resolve the comment at point.
+@code{gdocs-comment-resolve} — resolve the comment at point. @*
 @item
-@code{gdocs-comment-delete} — delete the comment at point.
+@code{gdocs-comment-delete} — delete the comment at point. @*
 @end itemize
 
-Comments will be fetched when pulling and when the comments buffer is
-opened.  New comments created locally will be pushed immediately (on
-comment creation, not on buffer save).
+Comments will be fetched when pulling and when the comments buffer is @*
+opened.  New comments created locally will be pushed immediately (on @*
+comment creation, not on buffer save). @*
 
 @node Suggesting mode
 @subsection Suggesting mode
 
-A new command @code{gdocs-suggesting-mode} will toggle between direct editing
-and suggesting mode for the current buffer.  When suggesting mode is
-active:
+A new command @code{gdocs-suggesting-mode} will toggle between direct editing @*
+and suggesting mode for the current buffer.  When suggesting mode is @*
+active: @*
 
 @itemize
 @item
-The modeline will show @samp{GDocs:suggesting}.
+The modeline will show @samp{GDocs:suggesting}. @*
 @item
-On push, changes are sent as suggestions (using the Google Docs API's
-@code{InsertText} / @code{DeleteContentRange} with @code{suggestedInsertionIds} /
-@code{suggestedDeletionIds} fields) rather than direct edits.
+On push, changes are sent as suggestions (using the Google Docs API's @*
+@code{InsertText} / @code{DeleteContentRange} with @code{suggestedInsertionIds} / @*
+@code{suggestedDeletionIds} fields) rather than direct edits. @*
 @end itemize
 
-When pulling, existing suggestions from other collaborators will be
-displayed with distinct faces: green underline for suggested insertions,
-strikethrough for suggested deletions.  Each suggestion will be
-attributed to its author.
+When pulling, existing suggestions from other collaborators will be @*
+displayed with distinct faces: green underline for suggested insertions, @*
+strikethrough for suggested deletions.  Each suggestion will be @*
+attributed to its author. @*
 
-Planned commands for handling suggestions:
+Planned commands for handling suggestions: @*
 
 @itemize
 @item
-@code{gdocs-suggestion-accept} — accept the suggestion at point.
+@code{gdocs-suggestion-accept} — accept the suggestion at point. @*
 @item
-@code{gdocs-suggestion-reject} — reject the suggestion at point.
+@code{gdocs-suggestion-reject} — reject the suggestion at point. @*
 @item
-@code{gdocs-suggestion-accept-all} — accept all suggestions.
+@code{gdocs-suggestion-accept-all} — accept all suggestions. @*
 @item
-@code{gdocs-suggestion-reject-all} — reject all suggestions.
+@code{gdocs-suggestion-reject-all} — reject all suggestions. @*
 @end itemize
 
 @node Periodic polling
 @subsection Periodic polling
 
-When @code{gdocs-mode} is active, a timer will poll the Google Doc for
-changes at a configurable interval (planned option:
-@code{gdocs-poll-interval}, default 30 seconds).  Polling checks only the
-document revision ID (a lightweight API call).
+When @code{gdocs-mode} is active, a timer will poll the Google Doc for @*
+changes at a configurable interval (planned option: @*
+@code{gdocs-poll-interval}, default 30 seconds).  Polling checks only the @*
+document revision ID (a lightweight API call). @*
 
-Behavior when remote changes are detected:
+Behavior when remote changes are detected: @*
 
 @itemize
 @item
-If the local buffer has no unsaved changes: auto-pull and update
-silently, showing a brief message: ``Pulled remote changes.''
+If the local buffer has no unsaved changes: auto-pull and update @*
+silently, showing a brief message: ``Pulled remote changes.'' @*
 @item
-If the local buffer has unsaved changes: show a warning in the
-modeline (@samp{GDocs:conflict}) and notify: ``Remote changes detected.
-Save to push your changes, or run @code{gdocs-pull} to pull.''
+If the local buffer has unsaved changes: show a warning in the @*
+modeline (@samp{GDocs:conflict}) and notify: ``Remote changes detected. @*
+Save to push your changes, or run @code{gdocs-pull} to pull.'' @*
 @end itemize
 
-Polling will be paused while the buffer is in conflict resolution mode.
-A command @code{gdocs-poll-toggle} will enable or disable polling per buffer.
+Polling will be paused while the buffer is in conflict resolution mode. @*
+A command @code{gdocs-poll-toggle} will enable or disable polling per buffer. @*
 
 @node Planned configuration variables (phase 2)
 @subsection Planned configuration variables (phase 2)
@@ -1354,8 +1353,8 @@ A command @code{gdocs-poll-toggle} will enable or disable polling per buffer.
 @node Drive browser and export (phase 3)
 @section Drive browser and export (phase 3)
 
-This phase adds a Google Drive browser and an org export dispatcher
-backend, completing the integration with the Google ecosystem.
+This phase adds a Google Drive browser and an org export dispatcher @*
+backend, completing the integration with the Google ecosystem. @*
 
 @menu
 * Google Drive browser::
@@ -1366,15 +1365,15 @@ backend, completing the integration with the Google ecosystem.
 @node Google Drive browser
 @subsection Google Drive browser
 
-A new module @samp{gdocs-drive.el} will provide a dired-like buffer for
-browsing Google Drive.  The command @code{gdocs-drive} will open the browser,
-prompting for an account if multiple are configured.
+A new module @samp{gdocs-drive.el} will provide a dired-like buffer for @*
+browsing Google Drive.  The command @code{gdocs-drive} will open the browser, @*
+prompting for an account if multiple are configured. @*
 
-The buffer will list files and folders with columns for icon/type
-indicator, file name, owner, last modified, and sharing status.  Files
-are fetched asynchronously with a loading indicator.
+The buffer will list files and folders with columns for icon/type @*
+indicator, file name, owner, last modified, and sharing status.  Files @*
+are fetched asynchronously with a loading indicator. @*
 
-Planned keybindings:
+Planned keybindings: @*
 
 @multitable {aaaaa} {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
 @headitem Key
@@ -1413,28 +1412,28 @@ Planned keybindings:
 @tab Quit the Drive browser
 @end multitable
 
-By default, the browser will show only Google Docs (filtered by MIME
-type @samp{application/vnd.google-apps.document}).
+By default, the browser will show only Google Docs (filtered by MIME @*
+type @samp{application/vnd.google-apps.document}). @*
 
 @node Org export backend
 @subsection Org export backend
 
-A new module @samp{gdocs-export.el} will register as an org export backend
-so that users can use the standard org export dispatcher.  The export
-menu key will be @samp{g}, so the sequences are:
+A new module @samp{gdocs-export.el} will register as an org export backend @*
+so that users can use the standard org export dispatcher.  The export @*
+menu key will be @samp{g}, so the sequences are: @*
 
 @itemize
 @item
-@samp{C-c C-e g d} — export to Google Docs (create new or update existing
-linked Doc).
+@samp{C-c C-e g d} — export to Google Docs (create new or update existing @*
+linked Doc). @*
 @item
-@samp{C-c C-e g o} — export and open in browser.
+@samp{C-c C-e g o} — export and open in browser. @*
 @end itemize
 
-The backend will parse the buffer with @code{org-element}, convert to Google
-Docs API requests, and create or update the document.  For buffers
-already linked to a Google Doc, this is equivalent to @code{gdocs-push}.
-For unlinked buffers, it creates a new Google Doc and links the buffer.
+The backend will parse the buffer with @code{org-element}, convert to Google @*
+Docs API requests, and create or update the document.  For buffers @*
+already linked to a Google Doc, this is equivalent to @code{gdocs-push}. @*
+For unlinked buffers, it creates a new Google Doc and links the buffer. @*
 
 @node Planned configuration variables (phase 3)
 @subsection Planned configuration variables (phase 3)

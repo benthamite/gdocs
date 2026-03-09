@@ -134,6 +134,7 @@ separate OAuth credentials).
 The default value is ~nil~.  You must configure at least one account
 before using any =gdocs= commands.
 
+
 *** Obtaining credentials
 :PROPERTIES:
 :CUSTOM_ID: h:obtaining-credentials

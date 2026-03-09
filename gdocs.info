@@ -143,8 +143,10 @@ your org files and their Google Docs counterparts stay in sync.
    The package addresses three main workflows:
 
    • *Publish org to Google Docs.*  Create a Google Doc from an existing
+
      org file to share with collaborators.  The two files remain in
-     sync: edits to either propagate to the other.
+     sync:
+     edits to either propagate to the other.
 
    • *Read and edit shared Google Docs.*  Open a Google Doc shared by
      someone else as an org-mode buffer in Emacs.  Edit without leaving
@@ -170,26 +172,27 @@ The package is composed of several modules, each responsible for a
 distinct layer of functionality:
 
 ‘gdocs.el’
-     Entry point, user commands, and the ‘gdocs-mode’ minor mode (*note
-     Minor mode::).
+     Entry point, user commands, and the ‘gdocs-mode’ minor
+     mode (*note Minor mode::).
 ‘gdocs-auth.el’
-     OAuth 2.0 flow, token management, and multi-account support (*note
-     Authentication::).
+     OAuth 2.0 flow, token management, and
+     multi-account support (*note Authentication::).
 ‘gdocs-api.el’
-     Asynchronous Google Docs and Google Drive API client built on
-     ‘plz.el’ (*note API client::).
+     Asynchronous Google Docs and Google Drive API
+     client built on ‘plz.el’ (*note API client::).
 ‘gdocs-convert.el’
-     Bidirectional conversion between org-mode and Google Docs JSON via
-     an intermediate representation (IR) (*note Format conversion::).
+     Bidirectional conversion between org-mode and
+     Google Docs JSON via an intermediate representation (IR)
+     (*note Format conversion::).
 ‘gdocs-diff.el’
-     Incremental diff engine that computes the minimal set of API
-     requests to synchronize changes (*note Diff engine::).
+     Incremental diff engine that computes the minimal
+     set of API requests to synchronize changes (*note Diff engine::).
 ‘gdocs-sync.el’
-     Push/pull orchestration, shadow copy management, and conflict
-     detection (*note Sync engine::).
+     Push/pull orchestration, shadow copy management,
+     and conflict detection (*note Sync engine::).
 ‘gdocs-merge.el’
-     Side-by-side conflict resolution interface (*note Conflict
-     resolution::).
+     Side-by-side conflict resolution interface
+     (*note Conflict resolution::).
 
    All API operations are fully asynchronous via ‘plz.el’ so that Emacs
 never blocks during network requests.
@@ -214,8 +217,8 @@ File: gdocs.info,  Node: Quick start,  Prev: Dependencies,  Up: Overview
 1.3 Quick start
 ===============
 
-  1. Obtain OAuth credentials from Google Cloud Console (*note Obtaining
-     credentials::).
+  1. Obtain OAuth credentials from Google Cloud Console
+     (*note Obtaining credentials::).
 
   2. Configure your credentials in Emacs:
 
@@ -253,19 +256,19 @@ File: gdocs.info,  Node: Account configuration,  Next: Sync behavior,  Up: User 
 =========================
 
 The user option ‘gdocs-accounts’ is an alist of named Google accounts
-with their OAuth credentials.  Each entry takes the form ‘(NAME .
-((client-id . "ID") (client-secret . "SECRET")))’ where NAME is a string
-identifying the account (e.g., ‘"personal"’ or ‘"work"’), and
-‘client-id’ and ‘client-secret’ are OAuth 2.0 credentials that you
+with their OAuth credentials.  Each entry takes the form
+‘(NAME . ((client-id . "ID") (client-secret . "SECRET")))’ where NAME
+is a string identifying the account (e.g., ‘"personal"’ or ‘"work"’),
+and ‘client-id’ and ‘client-secret’ are OAuth 2.0 credentials that you
 obtain from the Google Cloud Console (*note Obtaining credentials::).
 
    When ‘gdocs-accounts’ is ‘nil’ or has only one entry, commands that
 require an account use it automatically without prompting.  When
-multiple accounts are configured, commands prompt with ‘completing-read’
-to select one.  You would configure multiple accounts when you need to
-access Google Docs from different Google Workspace organizations (for
-example, a personal account and a work account with separate OAuth
-credentials).
+multiple accounts are configured, commands prompt with
+‘completing-read’ to select one.  You would configure multiple accounts
+when you need to access Google Docs from different Google Workspace
+organizations (for example, a personal account and a work account with
+separate OAuth credentials).
 
    The default value is ‘nil’.  You must configure at least one account
 before using any ‘gdocs’ commands.
@@ -291,7 +294,8 @@ browser.
    Follow these steps to create your credentials:
 
   1. Go to the Google Cloud Console (https://console.cloud.google.com/)
-     and sign in with the Google account you want to use with ‘gdocs’.
+     and sign in with the Google account
+     you want to use with ‘gdocs’.
 
   2. Create a new project (or select an existing one):
         • Click the project dropdown at the top of the page.
@@ -304,19 +308,24 @@ browser.
         • *Google Drive API* (search for "Google Drive API").
 
   4. Configure the OAuth consent screen.  Go to *APIs & Services > OAuth
+
      consent screen*:
         • Select *External* as the user type (unless you have a Google
           Workspace organization and want to restrict access to internal
+
           users).
         • Fill in the required fields: app name (e.g., "Emacs gdocs")
-          and your email address for the support and developer contact
+          and
+          your email address for the support and developer contact
           fields.
         • On the *Scopes* page, add these two scopes:
              • ‘https://www.googleapis.com/auth/documents’
              • ‘https://www.googleapis.com/auth/drive’
         • On the *Test users* page, add your own email address.  While
-          the app is in "Testing" status (the default), only listed test
-          users can authorize it.
+          the
+          app is in "Testing" status (the default), only listed test
+          users
+          can authorize it.
         • Click *Save and Continue* through the remaining pages.
 
   5. Create the OAuth credentials.  Go to *APIs & Services >
@@ -325,7 +334,8 @@ browser.
         • Select *Desktop app* as the application type.
         • Enter a name (e.g., "Emacs gdocs") and click *Create*.
         • Google will display your *Client ID* and *Client secret*.
-          Copy both values.
+          Copy
+          both values.
 
   6. Configure ‘gdocs’ with the credentials you just obtained:
 
@@ -339,25 +349,27 @@ browser.
 
   7. Run ‘M-x gdocs-authenticate’.  Your browser will open to a Google
      consent screen.  Grant access, and ‘gdocs’ will store the resulting
-     tokens securely in ‘gdocs-token-directory’ (*note Account
-     configuration::).
+
+     tokens securely in ‘gdocs-token-directory’
+     (*note Account configuration::).
 
    Note: while the app remains in "Testing" status, Google will show a
-warning screen during authorization ("Google hasn't verified this app").
-Click *Continue* to proceed.  You do not need to publish the app for
-personal use -- "Testing" status works indefinitely for the test users
-you listed in step 4.
+warning screen during authorization ("Google hasn't verified this
+app").  Click *Continue* to proceed.  You do not need to publish the
+app for personal use -- "Testing" status works indefinitely for the
+test users you listed in step 4.
 
    The user option ‘gdocs-token-directory’ specifies the directory where
-OAuth token files are stored.  Each account's tokens are saved as a JSON
-file named ‘ACCOUNT-NAME.json’ with restrictive file permissions (600)
-to protect the sensitive token data.  Parent directories are created
-automatically when needed.
+
+OAuth token files are stored.  Each account's tokens are saved as a
+JSON file named ‘ACCOUNT-NAME.json’ with restrictive file permissions
+(600) to protect the sensitive token data.  Parent directories are
+created automatically when needed.
 
    The default value is the ‘gdocs/tokens/’ subdirectory of
 ‘user-emacs-directory’.  You would change this if you want to store
-tokens in a location managed by a secrets tool or a different directory
-structure.
+tokens in a location managed by a secrets tool or a different
+directory structure.
 
 
 File: gdocs.info,  Node: Sync behavior,  Next: File storage,  Prev: Account configuration,  Up: User options
@@ -372,18 +384,22 @@ of any changes detected since the last sync.
 
    The default value is ‘t’.  Set this to ‘nil’ if you prefer to push
 changes manually with ‘gdocs-push’ (*note Pushing and pulling::).
-Automatic pushing is suppressed when the buffer is in a conflict or
-error state, regardless of this setting.
+Automatic
+pushing is suppressed when the buffer is in a conflict or error state,
+regardless of this setting.
 
    The user option ‘gdocs-auto-pull-on-open’ controls whether a linked
-org buffer automatically pulls the latest remote content when opened.
-When non-nil, opening a file that has ‘gdocs-mode’ active triggers an
+org
+buffer automatically pulls the latest remote content when opened.  When
+non-nil, opening a file that has ‘gdocs-mode’ active triggers an
 immediate pull to ensure you start editing the most recent version.
 
    The default value is ‘nil’.  Enable this if you frequently
-collaborate on documents and want to always start with the latest remote
-state.  When disabled, the buffer shows whatever was last saved locally,
-and you must run ‘gdocs-pull’ manually to fetch updates.
+collaborate
+on documents and want to always start with the latest remote state.
+When disabled, the buffer shows whatever was last saved locally, and you
+
+must run ‘gdocs-pull’ manually to fetch updates.
 
 
 File: gdocs.info,  Node: File storage,  Prev: Sync behavior,  Up: User options
@@ -397,8 +413,8 @@ a Google Doc for the first time, the resulting org file is written to
 this directory with a filename derived from the document title.
 
    The default value is ‘~/org/gdocs/’.  The directory is created
-automatically if it does not exist.  If you already have an org file and
-use ‘gdocs-create’ or ‘gdocs-link’, the file stays at its current
+automatically if it does not exist.  If you already have an org file
+and use ‘gdocs-create’ or ‘gdocs-link’, the file stays at its current
 location regardless of this setting.
 
 
@@ -423,14 +439,16 @@ File: gdocs.info,  Node: Opening and creating documents,  Next: Pushing and pull
 ==================================
 
 The command ‘gdocs-open’ fetches a Google Doc and opens it as an
-org-mode buffer.  It prompts for a document ID or a full Google Docs URL
-(e.g., ‘https://docs.google.com/document/d/DOCUMENT-ID/edit’).  If
-multiple accounts are configured in ‘gdocs-accounts’ (*note Account
-configuration::), it prompts you to select one.  The document is
+org-mode buffer.  It prompts for a document ID or a full Google Docs
+URL (e.g., ‘https://docs.google.com/document/d/DOCUMENT-ID/edit’).  If
+multiple accounts are configured in ‘gdocs-accounts’
+(*note Account configuration::), it prompts you to select one.  The
+document is
 converted from Google Docs JSON to org-mode format via the intermediate
 representation (*note Format conversion::), saved to ‘gdocs-directory’
 (*note File storage::) with a sanitized filename, and displayed in a
-buffer with ‘gdocs-mode’ active.
+buffer
+with ‘gdocs-mode’ active.
 
    The command ‘gdocs-create’ does the reverse: it creates a new Google
 Doc from the current org buffer's content.  The title defaults to the
@@ -439,7 +457,8 @@ creating the document, the buffer is linked to it and ‘gdocs-mode’ is
 activated.  Subsequent saves push changes to the newly created Doc.
 
    Both commands are autoloaded, so they are available without
-explicitly loading the package.
+explicitly
+loading the package.
 
 
 File: gdocs.info,  Node: Pushing and pulling,  Next: Linking and unlinking,  Prev: Opening and creating documents,  Up: Commands
@@ -448,6 +467,7 @@ File: gdocs.info,  Node: Pushing and pulling,  Next: Linking and unlinking,  Pre
 =======================
 
 The command ‘gdocs-push’ pushes local changes to the linked Google Doc.
+
 If a shadow copy exists (i.e., the buffer has been synced at least once
 in the current session), the push is incremental: only the differences
 between the current buffer and the shadow are sent as Google Docs API
@@ -457,16 +477,17 @@ replacement.
 
    When ‘gdocs-auto-push-on-save’ is non-nil, ‘gdocs-push’ is called
 automatically after every save.  Pushes are serialized: if a push is
-already in progress when another is triggered, the second push is queued
-and executed after the first completes.
+already in progress when another is triggered, the second push is
+queued and executed after the first completes.
 
    The command ‘gdocs-pull’ fetches the latest version of the linked
 Google Doc.  It first checks the document's revision ID via the Google
 Drive API; if the revision matches the locally stored one, it reports
 "Already up to date."  If the revision differs, it fetches the full
-document, converts it to org-mode format, and either replaces the buffer
-content silently (when there are no local modifications) or triggers the
-conflict resolution interface (*note Conflict resolution::).
+document, converts it to org-mode format, and either replaces the
+buffer content silently (when there are no local modifications) or
+triggers the conflict resolution interface (*note Conflict
+resolution::).
 
 
 File: gdocs.info,  Node: Linking and unlinking,  Next: Status and browser,  Prev: Pushing and pulling,  Up: Commands
@@ -477,11 +498,12 @@ File: gdocs.info,  Node: Linking and unlinking,  Next: Status and browser,  Prev
 The command ‘gdocs-link’ links the current org buffer to an existing
 Google Doc.  It prompts for a document ID or URL and, if needed, an
 account.  Linking writes file-local variables (‘gdocs-document-id’ and
-‘gdocs-account’) to the end of the org file and triggers an initial pull
-to establish the sync baseline.
+‘gdocs-account’) to the end of the org file and triggers an initial
+pull to establish the sync baseline.
 
    The command ‘gdocs-unlink’ removes the file-local variables and
-clears all buffer-local sync state, turning the org file back into a
+clears
+all buffer-local sync state, turning the org file back into a
 standalone document.  The file content is preserved; only the sync
 metadata is removed.
 
@@ -498,7 +520,8 @@ timestamp of the last sync.  This is useful for quickly verifying
 whether the buffer is in sync without inspecting the modeline.
 
    The command ‘gdocs-open-in-browser’ opens the linked Google Doc in
-your default web browser using ‘browse-url’.  It constructs the URL from
+your
+default web browser using ‘browse-url’.  It constructs the URL from
 the stored document ID.  This is convenient when you need to check
 formatting, share the link with someone, or use Google Docs features
 that are not yet supported in ‘gdocs’.
@@ -511,11 +534,11 @@ File: gdocs.info,  Node: Authentication,  Next: Conflict resolution (1),  Prev: 
 
 The command ‘gdocs-authenticate’ initiates the OAuth 2.0 flow for a
 Google account (*note OAuth flow::).  If multiple accounts are
-configured, it prompts you to select one.  The command opens your
-browser to Google's consent screen, and a temporary local HTTP server
-receives the authorization callback.  Upon successful authentication,
-tokens are stored in ‘gdocs-token-directory’ (*note Account
-configuration::).
+configured, it
+prompts you to select one.  The command opens your browser to Google's
+consent screen, and a temporary local HTTP server receives the
+authorization callback.  Upon successful authentication, tokens are
+stored in ‘gdocs-token-directory’ (*note Account configuration::).
 
    The command ‘gdocs-logout’ deletes the stored token file for an
 account, effectively logging you out.  You will need to run
@@ -532,15 +555,18 @@ File: gdocs.info,  Node: Conflict resolution (1),  Prev: Authentication,  Up: Co
 When a pull detects that both local and remote changes exist, the
 conflict resolution interface opens in a dedicated ‘*gdocs-merge*’
 buffer using ‘gdocs-merge-mode’ (*note Merge mode::).  The following
-commands are available in the merge buffer:
+commands
+are available in the merge buffer:
 
    • ‘gdocs-merge-next-hunk’ (‘n’) moves to the next unresolved conflict
+
      hunk.
    • ‘gdocs-merge-previous-hunk’ (‘p’) moves to the previous unresolved
      hunk.
    • ‘gdocs-merge-accept-local’ (‘a’) accepts the local version of the
      current hunk.
    • ‘gdocs-merge-accept-remote’ (‘b’) accepts the remote version of the
+
      current hunk.
    • ‘gdocs-merge-edit-hunk’ (‘e’) opens a temporary org-mode buffer
      pre-filled with the local text so you can edit the merged result
@@ -548,11 +574,13 @@ commands are available in the merge buffer:
    • ‘gdocs-merge-accept-all-local’ (‘A’) resolves all unresolved hunks
      with the local version.
    • ‘gdocs-merge-accept-all-remote’ (‘B’) resolves all unresolved hunks
+
      with the remote version.
    • ‘gdocs-merge-finalize’ (‘C-c C-c’) finalizes the merge once all
      hunks are resolved, applies the merged content to the original
      buffer, and triggers a push.  It signals an error if any hunks
-     remain unresolved.
+     remain
+     unresolved.
    • ‘gdocs-merge-abort’ (‘C-c C-k’ or ‘q’) aborts the merge after
      confirmation, leaving the buffer unchanged.
 
@@ -585,9 +613,11 @@ internally by most commands but is also available for use in custom
 workflows or hooks.
 
    The function ‘gdocs-auth-get-access-token’ ensures a valid OAuth
-access token for a given account, then calls a callback with the token
-string.  If the token is expired or about to expire (within a 60-second
-safety margin), it refreshes the token asynchronously before calling the
+access
+token for a given account, then calls a callback with the token string.
+
+If the token is expired or about to expire (within a 60-second safety
+margin), it refreshes the token asynchronously before calling the
 callback.  If no token exists, it initiates the full OAuth flow.  This
 function is the primary entry point for all API operations that need
 authentication.
@@ -626,8 +656,8 @@ Docs document with a given title.  The callback receives the response
 JSON, which includes the new ‘documentId’.
 
    All three functions accept an optional ACCOUNT argument; when ‘nil’,
-the default account is selected automatically (*note Account
-configuration::).
+the default account is selected automatically
+(*note Account configuration::).
 
 
 File: gdocs.info,  Node: Google Drive API,  Prev: Google Docs API,  Up: API client (1)
@@ -635,24 +665,26 @@ File: gdocs.info,  Node: Google Drive API,  Prev: Google Docs API,  Up: API clie
 4.2.2 Google Drive API
 ----------------------
 
-The function ‘gdocs-api-get-file-metadata’ fetches metadata for a Google
-Drive file, including its ‘id’, ‘name’, ‘modifiedTime’, ‘version’, and
-‘headRevisionId’.  The revision ID is used by the pull mechanism to
-detect whether the remote document has changed (*note Pushing and
-pulling::).
+The function ‘gdocs-api-get-file-metadata’ fetches metadata for a
+Google Drive file, including its ‘id’, ‘name’, ‘modifiedTime’,
+‘version’, and ‘headRevisionId’.  The revision ID is used by the pull
+mechanism to detect whether the remote document has changed
+(*note Pushing and pulling::).
 
    The function ‘gdocs-api-list-files’ lists Google Drive files matching
-a query string (using Drive's query syntax).  It supports pagination via
+a
+query string (using Drive's query syntax).  It supports pagination via
 an optional PAGE-TOKEN argument.
 
    The function ‘gdocs-api-upload-image’ uploads a local image file to
-Google Drive using a multipart upload.  It determines the MIME type from
-the file extension (PNG, JPEG, GIF, WebP, and SVG are supported).  An
-optional FOLDER-ID argument specifies the parent folder in Drive.
+Google Drive using a multipart upload.  It determines the MIME type
+from the file extension (PNG, JPEG, GIF, WebP, and SVG are supported).
+An optional FOLDER-ID argument specifies the parent folder in Drive.
 
    The function ‘gdocs-api-search-files’ performs a full-text search
-across Google Drive by wrapping ‘gdocs-api-list-files’ with a ‘fullText
-contains’ query.
+across
+Google Drive by wrapping ‘gdocs-api-list-files’ with a
+‘fullText contains’ query.
 
 
 File: gdocs.info,  Node: Format conversion (1),  Next: Diff engine (1),  Prev: API client (1),  Up: Functions
@@ -660,30 +692,34 @@ File: gdocs.info,  Node: Format conversion (1),  Next: Diff engine (1),  Prev: A
 4.3 Format conversion
 =====================
 
-All conversion passes through a flat list of intermediate representation
-(IR) element plists, which serves as the canonical interchange format
-shared with the diff engine (*note Diff engine::).
+All conversion passes through a flat list of intermediate
+representation (IR) element plists, which serves as the canonical
+interchange format shared with the diff engine (*note Diff engine::).
 
    The function ‘gdocs-convert-org-buffer-to-ir’ parses the current org
 buffer using ‘org-element-parse-buffer’ and returns an IR element list.
+
 The related function ‘gdocs-convert-org-string-to-ir’ does the same but
 accepts an org-mode string rather than operating on the current buffer.
 
    The function ‘gdocs-convert-ir-to-org’ converts an IR element list
-back to a well-formatted org-mode string.  This is the inverse of
+back
+to a well-formatted org-mode string.  This is the inverse of
 ‘gdocs-convert-org-buffer-to-ir’ and is used when pulling remote
 changes.
 
    The function ‘gdocs-convert-docs-json-to-ir’ converts a Google Docs
-API JSON response (an alist with keys like ‘body’, ‘title’, ‘lists’, and
+API
+JSON response (an alist with keys like ‘body’, ‘title’, ‘lists’, and
 ‘namedRanges’) to an IR element list.  It walks the document structure
 and maps each structural element to its IR equivalent.
 
    The function ‘gdocs-convert-ir-to-docs-requests’ converts an IR
-element list to a list of Google Docs ‘batchUpdate’ request alists.  It
-tracks a running UTF-16 insertion index starting at 1 (the beginning of
-the Google Docs body).  This function is used for full document
-replacement and by the diff engine for incremental insertions.
+element
+list to a list of Google Docs ‘batchUpdate’ request alists.  It tracks
+a running UTF-16 insertion index starting at 1 (the beginning of the
+Google Docs body).  This function is used for full document replacement
+and by the diff engine for incremental insertions.
 
 
 File: gdocs.info,  Node: Diff engine (1),  Next: Conflict resolution (2),  Prev: Format conversion (1),  Up: Functions
@@ -749,7 +785,9 @@ The OAuth 2.0 flow works as follows:
   2. A temporary local HTTP server starts on a random high port to
      receive the authorization callback.
   3. The user's default browser opens to Google's OAuth consent screen.
+
   4. After the user grants consent, Google redirects to the local server
+
      with an authorization code.
   5. The package exchanges the code for access and refresh tokens.
   6. Tokens are stored in ‘gdocs-token-directory’ with 600 permissions.
@@ -757,6 +795,7 @@ The OAuth 2.0 flow works as follows:
    The package requests two OAuth scopes:
 
    • ‘https://www.googleapis.com/auth/documents’ for reading and writing
+
      Google Docs.
    • ‘https://www.googleapis.com/auth/drive’ for listing, browsing, and
      creating files in Google Drive.
@@ -767,11 +806,12 @@ File: gdocs.info,  Node: Token management,  Next: Multi-account support,  Prev: 
 5.2 Token management
 ====================
 
-Access tokens are refreshed automatically before each API call when they
-are expired or within 60 seconds of expiry.  The refresh uses the stored
-refresh token and happens asynchronously, so Emacs is never blocked.
-Each token file also stores the ‘client_id’ and ‘client_secret’ so that
-token refreshes work without re-reading ‘gdocs-accounts’.
+Access tokens are refreshed automatically before each API call when
+they are expired or within 60 seconds of expiry.  The refresh uses the
+stored refresh token and happens asynchronously, so Emacs is never
+blocked.  Each token file also stores the ‘client_id’ and
+‘client_secret’ so that token refreshes work without re-reading
+‘gdocs-accounts’.
 
    If no token file exists for an account (e.g., after running
 ‘gdocs-logout’), the next API operation triggers a fresh OAuth flow.
@@ -789,8 +829,9 @@ variable.  When you open a linked file, the stored account is used
 automatically.
 
    You would configure custom OAuth credentials per account if you want
-to avoid shared rate limits or if your organization requires its own
-OAuth application.
+to
+avoid shared rate limits or if your organization requires its own OAuth
+application.
 
 
 File: gdocs.info,  Node: API client,  Next: Format conversion,  Prev: Authentication (1),  Up: Top
@@ -817,7 +858,8 @@ exponential backoff up to three times.  If the response includes a
 delay follows the pattern 1s, 2s, 4s, capped at 30 seconds.
 
    Authentication failures (HTTP 401 or 403) produce a clear error
-message directing you to run ‘gdocs-authenticate’ to re-authorize.
+message
+directing you to run ‘gdocs-authenticate’ to re-authorize.
 
 
 File: gdocs.info,  Node: Progress indication,  Prev: Error handling and retries,  Up: API client
@@ -825,9 +867,9 @@ File: gdocs.info,  Node: Progress indication,  Prev: Error handling and retries,
 6.2 Progress indication
 =======================
 
-While API requests are in flight, the global modeline displays ‘[GDocs:
-syncing...]’ to indicate that a network operation is in progress.  The
-indicator disappears when all pending requests complete.
+While API requests are in flight, the global modeline displays
+‘[GDocs: syncing...]’ to indicate that a network operation is in
+progress.  The indicator disappears when all pending requests complete.
 
 
 File: gdocs.info,  Node: Format conversion,  Next: Sync engine,  Prev: API client,  Up: Top
@@ -887,8 +929,9 @@ IR element has a ‘:type’ (e.g., ‘paragraph’, ‘table’,
 ‘:bold’, ‘:italic’, ‘:link’, etc.).
 
    This architecture means the diff engine (*note Diff engine::) only
-needs to understand the IR format, not both org-mode and Google Docs
-JSON independently.
+needs to
+understand the IR format, not both org-mode and Google Docs JSON
+independently.
 
 
 File: gdocs.info,  Node: Org-only constructs,  Next: Google Docs-only constructs,  Prev: Intermediate representation,  Up: Format conversion
@@ -898,20 +941,25 @@ File: gdocs.info,  Node: Org-only constructs,  Next: Google Docs-only constructs
 
 Certain org-mode constructs have no direct Google Docs equivalent.
 These are preserved as special markers in the Google Doc so they survive
+
 round-trips:
 
    • *TODO keywords*: rendered as styled text with a preservation
      comment.
    • *Tags*: same treatment as TODO keywords.
    • *Timestamps* (‘SCHEDULED:’, ‘DEADLINE:’, active/inactive):
-     preserved as markers.
+     preserved
+     as markers.
    • *Properties and drawers*: preserved as markers, not rendered
      visually.
    • *Source code blocks*: rendered as monospace-formatted text with the
+
      full org syntax in a comment.
    • *LaTeX fragments*: rendered as monospace text with the raw LaTeX in
-     a comment.
+     a
+     comment.
    • *Org keywords* (‘#+AUTHOR:’, ‘#+DATE:’, etc.): preserved as markers
+
      at the top of the document.
    • *Custom IDs and anchors*: preserved as comments.
 
@@ -950,8 +998,8 @@ File: gdocs.info,  Node: Metadata storage,  Next: Shadow copy,  Up: Sync engine
 8.1 Metadata storage
 ====================
 
-Each linked org file stores sync metadata in file-local variables at the
-end of the file:
+Each linked org file stores sync metadata in file-local variables at
+the end of the file:
 
      # Local Variables:
      # gdocs-document-id: "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
@@ -975,6 +1023,7 @@ representation of the last-synced state.  This shadow enables
 incremental diffs on push and conflict detection on pull.
 
    On the first open of a linked file after an Emacs restart, the shadow
+
 is ‘nil’.  In this case, the next push performs a full document
 replacement rather than an incremental diff, and a message warns: "No
 sync baseline in memory."  Alternatively, if ‘gdocs-auto-pull-on-open’
@@ -1014,13 +1063,16 @@ File: gdocs.info,  Node: Approach,  Next: Fallback,  Up: Diff engine
 ============
 
   1. Produce content-based keys for each element in the old and new IRs.
+
      Keys capture type, style, text content, and formatting, so elements
+
      with identical content produce identical keys.
 
   2. Run a longest-common-subsequence (LCS) algorithm on the key lists
-     to identify which elements are kept, deleted, inserted, or
-     modified.  Adjacent delete+insert pairs of the same type are
-     collapsed into modify operations.
+     to
+     identify which elements are kept, deleted, inserted, or modified.
+     Adjacent delete+insert pairs of the same type are collapsed into
+     modify operations.
 
   3. Map operations to API requests:
         • *Insert*: ‘InsertText’, ‘InsertTable’,
@@ -1028,12 +1080,15 @@ File: gdocs.info,  Node: Approach,  Next: Fallback,  Up: Diff engine
         • *Delete*: ‘DeleteContentRange’.
         • *Modify*: for style-only changes, ‘UpdateParagraphStyle’; for
           formatting-only changes, ‘UpdateTextStyle’; for content
-          changes, delete + re-insert.
+          changes,
+          delete + re-insert.
 
   4. Order requests correctly: deletions in reverse index order (highest
+
      first), then insertions in forward order.  This is necessary
-     because the Google Docs API processes requests sequentially and
-     earlier operations shift later indices.
+     because
+     the Google Docs API processes requests sequentially and earlier
+     operations shift later indices.
 
 
 File: gdocs.info,  Node: Fallback,  Prev: Approach,  Up: Diff engine
@@ -1054,17 +1109,18 @@ File: gdocs.info,  Node: Conflict resolution,  Next: Minor mode,  Prev: Diff eng
 
 When a pull detects that the buffer has local modifications and the
 remote revision has changed, the conflict resolution UI opens
-automatically.  The ‘*gdocs-merge*’ buffer displays all hunks (computed
-via a line-level LCS diff), with conflicts shown in a ‘<<<< LOCAL’ /
-‘====/ =>>>> REMOTE’ format.
+automatically.  The ‘*gdocs-merge*’ buffer displays all hunks
+(computed via a line-level LCS diff), with conflicts shown in a
+‘<<<< LOCAL’ / ‘====/ =>>>> REMOTE’ format.
 
    Common (matching) lines are displayed without highlighting.  Conflict
-hunks use color-coded overlays: ‘gdocs-merge-remote-face’ for unresolved
-conflicts, ‘gdocs-merge-resolved-face’ for resolved ones.
+
+hunks use color-coded overlays: ‘gdocs-merge-remote-face’ for
+unresolved conflicts, ‘gdocs-merge-resolved-face’ for resolved ones.
 
    After resolving all hunks and finalizing with ‘C-c C-c’, the merged
-content replaces the buffer, the shadow IR is updated, and the buffer is
-saved (which triggers a push if auto-push is enabled).
+content replaces the buffer, the shadow IR is updated, and the buffer
+is saved (which triggers a push if auto-push is enabled).
 
 
 File: gdocs.info,  Node: Minor mode,  Next: Merge mode,  Prev: Conflict resolution,  Up: Top
@@ -1082,11 +1138,13 @@ Google Doc.  It provides:
         • ‘GDocs:modified’ when local changes have not been pushed.
         • ‘GDocs:pushing’ while a push is in progress.
         • ‘GDocs:conflict’ when remote changes conflict with local ones.
+
         • ‘GDocs:error’ when the last sync failed.
    • Keybindings under the ‘C-c g’ prefix (*note Keybindings::).
 
    The mode activates automatically when you open an org file that has
-the ‘gdocs-document-id’ file-local variable set (via a hook on
+the
+‘gdocs-document-id’ file-local variable set (via a hook on
 ‘org-mode-hook’).  You can also toggle it manually.
 
 * Menu:
@@ -1175,13 +1233,15 @@ each comment with:
    • Resolved status.
 
    Comments will be linked to positions in the org buffer so that
-clicking a comment in the side buffer jumps to the corresponding text.
+clicking
+a comment in the side buffer jumps to the corresponding text.
 
    Planned commands:
 
    • ‘gdocs-comments’ — open or toggle the comments side buffer.
    • ‘gdocs-comment-add’ — select a region in the org buffer, then type
-     a comment.  Creates a comment anchored to that text in the Google
+     a
+     comment.  Creates a comment anchored to that text in the Google
      Doc.
    • ‘gdocs-comment-reply’ — reply to the comment at point in the
      comments buffer.
@@ -1189,6 +1249,7 @@ clicking a comment in the side buffer jumps to the corresponding text.
    • ‘gdocs-comment-delete’ — delete the comment at point.
 
    Comments will be fetched when pulling and when the comments buffer is
+
 opened.  New comments created locally will be pushed immediately (on
 comment creation, not on buffer save).
 
@@ -1199,17 +1260,19 @@ File: gdocs.info,  Node: Suggesting mode,  Next: Periodic polling,  Prev: Commen
 ----------------------
 
 A new command ‘gdocs-suggesting-mode’ will toggle between direct editing
+
 and suggesting mode for the current buffer.  When suggesting mode is
 active:
 
    • The modeline will show ‘GDocs:suggesting’.
    • On push, changes are sent as suggestions (using the Google Docs
-     API's ‘InsertText’ / ‘DeleteContentRange’ with
-     ‘suggestedInsertionIds’ / ‘suggestedDeletionIds’ fields) rather
-     than direct edits.
+     API's
+     ‘InsertText’ / ‘DeleteContentRange’ with ‘suggestedInsertionIds’ /
+     ‘suggestedDeletionIds’ fields) rather than direct edits.
 
    When pulling, existing suggestions from other collaborators will be
 displayed with distinct faces: green underline for suggested insertions,
+
 strikethrough for suggested deletions.  Each suggestion will be
 attributed to its author.
 
@@ -1240,8 +1303,8 @@ document revision ID (a lightweight API call).
      Save to push your changes, or run ‘gdocs-pull’ to pull."
 
    Polling will be paused while the buffer is in conflict resolution
-mode.  A command ‘gdocs-poll-toggle’ will enable or disable polling per
-buffer.
+mode.
+A command ‘gdocs-poll-toggle’ will enable or disable polling per buffer.
 
 
 File: gdocs.info,  Node: Planned configuration variables (phase 2),  Prev: Periodic polling,  Up: Comments and suggestions (phase 2)
@@ -1278,6 +1341,7 @@ File: gdocs.info,  Node: Google Drive browser,  Next: Org export backend,  Up: D
 
 A new module ‘gdocs-drive.el’ will provide a dired-like buffer for
 browsing Google Drive.  The command ‘gdocs-drive’ will open the browser,
+
 prompting for an account if multiple are configured.
 
    The buffer will list files and folders with columns for icon/type
@@ -1314,19 +1378,20 @@ File: gdocs.info,  Node: Org export backend,  Next: Planned configuration variab
 13.2.2 Org export backend
 -------------------------
 
-A new module ‘gdocs-export.el’ will register as an org export backend so
-that users can use the standard org export dispatcher.  The export menu
-key will be ‘g’, so the sequences are:
+A new module ‘gdocs-export.el’ will register as an org export backend
+so that users can use the standard org export dispatcher.  The export
+menu key will be ‘g’, so the sequences are:
 
    • ‘C-c C-e g d’ — export to Google Docs (create new or update
-     existing linked Doc).
+     existing
+     linked Doc).
    • ‘C-c C-e g o’ — export and open in browser.
 
    The backend will parse the buffer with ‘org-element’, convert to
-Google Docs API requests, and create or update the document.  For
-buffers already linked to a Google Doc, this is equivalent to
-‘gdocs-push’.  For unlinked buffers, it creates a new Google Doc and
-links the buffer.
+Google
+Docs API requests, and create or update the document.  For buffers
+already linked to a Google Doc, this is equivalent to ‘gdocs-push’.
+For unlinked buffers, it creates a new Google Doc and links the buffer.
 
 
 File: gdocs.info,  Node: Planned configuration variables (phase 3),  Prev: Org export backend,  Up: Drive browser and export (phase 3)
@@ -1421,75 +1486,75 @@ File: gdocs.info,  Node: Variable index,  Prev: Function index,  Up: Indices
 
 * gdocs-accounts:                        Account configuration.
                                                                (line  6)
-* gdocs-auto-pull-on-open:               Sync behavior.        (line 16)
+* gdocs-auto-pull-on-open:               Sync behavior.        (line 17)
 * gdocs-auto-push-on-save:               Sync behavior.        (line  6)
 * gdocs-directory:                       File storage.         (line  6)
 * gdocs-token-directory:                 Obtaining credentials.
-                                                               (line 74)
+                                                               (line 82)
 
 
 Tag Table:
 Node: Top217
 Node: Overview2254
-Node: Architecture3413
-Node: Dependencies4636
-Node: Quick start5084
-Node: User options5940
-Node: Account configuration6127
-Node: Obtaining credentials7300
-Node: Sync behavior11251
-Node: File storage12479
-Node: Commands13138
-Node: Opening and creating documents13432
-Node: Pushing and pulling14666
-Node: Linking and unlinking16044
-Node: Status and browser16772
-Node: Authentication17607
-Node: Conflict resolution (1)18401
-Node: Functions19993
-Node: Authentication (2)20312
-Node: API client (1)21336
-Node: Google Docs API21534
-Node: Google Drive API22625
-Node: Format conversion (1)23717
-Node: Diff engine (1)25228
-Node: Conflict resolution (2)26361
-Node: Authentication (1)27062
-Node: OAuth flow27263
-Node: Token management28156
-Node: Multi-account support28813
-Node: API client29423
-Node: Error handling and retries29617
-Node: Progress indication30325
-Node: Format conversion30679
-Node: Supported element mapping30943
-Node: Intermediate representation32454
-Node: Org-only constructs33228
-Node: Google Docs-only constructs34263
-Node: Sync engine34904
-Node: Metadata storage35099
-Node: Shadow copy35705
-Node: Push serialization36395
-Node: Diff engine36831
-Node: Approach37179
-Node: Fallback38349
-Node: Conflict resolution38688
-Node: Minor mode39562
-Node: Keybindings40560
-Node: Merge mode41165
-Node: Planned features41800
-Node: Comments and suggestions (phase 2)42104
-Node: Comments system42620
-Node: Suggesting mode44024
-Node: Periodic polling45214
-Node: Planned configuration variables (phase 2)46216
-Node: Drive browser and export (phase 3)46872
-Node: Google Drive browser47318
-Node: Org export backend48726
-Node: Planned configuration variables (phase 3)49589
-Node: Indices50256
-Node: Function index50398
-Node: Variable index54048
+Node: Architecture3419
+Node: Dependencies4647
+Node: Quick start5095
+Node: User options5951
+Node: Account configuration6138
+Node: Obtaining credentials7311
+Node: Sync behavior11312
+Node: File storage12541
+Node: Commands13200
+Node: Opening and creating documents13494
+Node: Pushing and pulling14728
+Node: Linking and unlinking16107
+Node: Status and browser16835
+Node: Authentication17670
+Node: Conflict resolution (1)18464
+Node: Functions20064
+Node: Authentication (2)20383
+Node: API client (1)21407
+Node: Google Docs API21605
+Node: Google Drive API22696
+Node: Format conversion (1)23787
+Node: Diff engine (1)25299
+Node: Conflict resolution (2)26432
+Node: Authentication (1)27133
+Node: OAuth flow27334
+Node: Token management28230
+Node: Multi-account support28888
+Node: API client29498
+Node: Error handling and retries29692
+Node: Progress indication30400
+Node: Format conversion30754
+Node: Supported element mapping31018
+Node: Intermediate representation32529
+Node: Org-only constructs33303
+Node: Google Docs-only constructs34351
+Node: Sync engine34992
+Node: Metadata storage35187
+Node: Shadow copy35793
+Node: Push serialization36484
+Node: Diff engine36920
+Node: Approach37268
+Node: Fallback38460
+Node: Conflict resolution38799
+Node: Minor mode39674
+Node: Keybindings40673
+Node: Merge mode41278
+Node: Planned features41913
+Node: Comments and suggestions (phase 2)42217
+Node: Comments system42733
+Node: Suggesting mode44143
+Node: Periodic polling45335
+Node: Planned configuration variables (phase 2)46336
+Node: Drive browser and export (phase 3)46992
+Node: Google Drive browser47438
+Node: Org export backend48847
+Node: Planned configuration variables (phase 3)49714
+Node: Indices50381
+Node: Function index50523
+Node: Variable index54173
 
 End Tag Table
 
