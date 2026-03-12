@@ -1240,7 +1240,7 @@ Returns a plist (:requests LIST :index NEW-INDEX)."
                         . ((rows . ,nrows)
                            (columns . ,ncols)
                            (location . ((index . ,index)))))))
-         (table-overhead (+ 2 (* nrows (+ 1 (* ncols 2)))))
+         (table-overhead (+ 3 (* nrows (+ 1 (* ncols 2)))))
          (new-index (+ index table-overhead))
          (requests (list insert-req)))
     (list :requests requests

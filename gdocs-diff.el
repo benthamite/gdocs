@@ -258,15 +258,15 @@ is the UTF-16 index where the first element begins (default 1)."
 (defun gdocs-diff--table-utf16-length (element)
   "Compute UTF-16 length of a table ELEMENT.
 Tables have structural overhead: 1 for table start, 1 for table
-end, plus for each row 1 start + 1 end, plus for each cell 2
-(start + end) + content length + 1 newline."
+end, plus for each row 1 marker, plus for each cell 1 marker +
+content length + 1 newline."
   (let ((total 2)
         (rows (plist-get element :rows)))
     (dolist (row rows)
-      (setq total (+ total 2))
+      (setq total (+ total 1))
       (dolist (cell row)
         (let ((text (gdocs-diff--runs-text cell)))
-          (setq total (+ total 2
+          (setq total (+ total 1
                          (gdocs-convert--string-to-utf16-length text)
                          1)))))
     total))
