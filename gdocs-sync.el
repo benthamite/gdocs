@@ -96,7 +96,8 @@ BUF is the originating buffer."
      gdocs-sync--document-id
      requests
      (gdocs-sync--make-push-callback current-ir buf)
-     gdocs-sync--account)))
+     gdocs-sync--account
+     (gdocs-sync--make-push-error-callback buf))))
 
 (defun gdocs-sync--push-incremental (current-ir buf)
   "Push CURRENT-IR as an incremental diff against the shadow.
@@ -112,7 +113,8 @@ BUF is the originating buffer."
        gdocs-sync--document-id
        requests
        (gdocs-sync--make-push-callback current-ir buf)
-       gdocs-sync--account))))
+       gdocs-sync--account
+       (gdocs-sync--make-push-error-callback buf)))))
 
 (defun gdocs-sync--push-no-changes (buf)
   "Handle the case where push found no changes.
@@ -152,6 +154,14 @@ ERR is the error that occurred."
   (gdocs-sync--set-status 'error)
   (setq gdocs-sync--push-in-progress nil)
   (message "Push failed: %s" (error-message-string err)))
+
+(defun gdocs-sync--make-push-error-callback (buf)
+  "Return an error callback for a push API request.
+BUF is the originating buffer.  Resets push state so subsequent
+pushes are not blocked."
+  (lambda (err)
+    (with-current-buffer buf
+      (gdocs-sync--handle-push-error err))))
 
 (defun gdocs-sync--drain-push-queue ()
   "If a push is queued, trigger it now."

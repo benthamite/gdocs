@@ -58,16 +58,20 @@ is selected."
                       callback
                       :account account))
 
-(defun gdocs-api-batch-update (document-id requests callback &optional account)
+(defun gdocs-api-batch-update (document-id requests callback
+                                           &optional account on-error)
   "Send a batchUpdate to DOCUMENT-ID with REQUESTS.
 REQUESTS is a list of request alists.  CALLBACK is called with
-the parsed JSON response.  ACCOUNT is an optional account name."
+the parsed JSON response.  ACCOUNT is an optional account name.
+ON-ERROR, if non-nil, is called with the error condition instead
+of signaling; use this to clean up async state on failure."
   (gdocs-api--request 'post
                       (concat gdocs-api--docs-base-url
                               "/" document-id ":batchUpdate")
                       callback
                       :account account
-                      :body (json-encode `((requests . ,requests)))))
+                      :body (json-encode `((requests . ,requests)))
+                      :on-error on-error))
 
 (defun gdocs-api-create-document (title callback &optional account)
   "Create a new Google Docs document with TITLE.
@@ -205,29 +209,32 @@ optional account name."
 ;;;; Core request infrastructure
 
 (cl-defun gdocs-api--request (method url callback
-                                     &key account body (attempt 0))
+                                     &key account body (attempt 0) on-error)
   "Send an API request with authentication and retry logic.
 METHOD is an HTTP method symbol (get, post, etc.).  URL is the
 full API endpoint.  CALLBACK is called with the parsed JSON
 response on success.  ACCOUNT is the account name for
 authentication.  BODY is an optional JSON string for the request
 body.  ATTEMPT is the current retry attempt number, used
-internally."
+internally.  ON-ERROR, if non-nil, is called with the error
+condition instead of signaling."
   (let ((acct (gdocs-auth--resolve-account account)))
     (gdocs-api--show-progress)
     (gdocs-auth-get-access-token
      acct
      (lambda (token)
        (gdocs-api--send-request method url token callback
-                                acct body attempt)))))
+                                acct body attempt on-error)))))
 
-(defun gdocs-api--send-request (method url token callback account body attempt)
+(defun gdocs-api--send-request (method url token callback account body attempt
+                                       &optional on-error)
   "Send the actual HTTP request via plz.
 METHOD is an HTTP method symbol.  URL is the API endpoint.
 TOKEN is the OAuth access token string.  CALLBACK is called with
 parsed JSON on success.  ACCOUNT is the account name for
 re-authentication errors.  BODY is an optional JSON string.
-ATTEMPT is the current retry count."
+ATTEMPT is the current retry count.  ON-ERROR, if non-nil, is
+called with the error condition instead of signaling."
   (let ((headers (gdocs-api--build-headers token body)))
     (apply #'plz method url
            :headers headers
@@ -237,8 +244,13 @@ ATTEMPT is the current retry count."
                    (funcall callback json))
            :else (lambda (err)
                    (gdocs-api--hide-progress)
-                   (gdocs-api--handle-error
-                    err method url callback account body attempt))
+                   (condition-case api-err
+                       (gdocs-api--handle-error
+                        err method url callback account body attempt)
+                     (error
+                      (if on-error
+                          (funcall on-error api-err)
+                        (signal (car api-err) (cdr api-err))))))
            (when body (list :body body)))))
 
 (defun gdocs-api--build-headers (token body)

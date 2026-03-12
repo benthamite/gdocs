@@ -45,7 +45,7 @@
   (gdocs-sync-test-with-org-buffer "Hello world\n"
     (let ((requests-received nil))
       (cl-letf (((symbol-function 'gdocs-api-batch-update)
-                 (lambda (_doc-id requests callback &optional _account)
+                 (lambda (_doc-id requests callback &optional _account _on-error)
                    (setq requests-received requests)
                    (funcall callback
                             '((writeControl
@@ -68,7 +68,7 @@
                    (setq diff-called t)
                    (list '((replaceText . "mock")))))
                 ((symbol-function 'gdocs-api-batch-update)
-                 (lambda (_doc-id _requests callback &optional _account)
+                 (lambda (_doc-id _requests callback &optional _account _on-error)
                    (funcall callback
                             '((writeControl
                                (requiredRevisionId . "rev-2")))))))
@@ -101,7 +101,7 @@
   (gdocs-sync-test-with-org-buffer "New content\n"
     (setq gdocs-sync--shadow-ir nil)
     (cl-letf (((symbol-function 'gdocs-api-batch-update)
-               (lambda (_doc-id _requests callback &optional _account)
+               (lambda (_doc-id _requests callback &optional _account _on-error)
                  (funcall callback
                           '((writeControl
                              (requiredRevisionId . "rev-3")))))))
@@ -117,7 +117,7 @@
       (cl-letf (((symbol-function 'gdocs-diff-generate)
                  (lambda (_old _new &optional _start-index) '(((mock . t)))))
                 ((symbol-function 'gdocs-api-batch-update)
-                 (lambda (_doc-id _requests callback &optional _account)
+                 (lambda (_doc-id _requests callback &optional _account _on-error)
                    (funcall callback
                             '((writeControl
                                (requiredRevisionId . "rev-4")))))))
@@ -244,7 +244,7 @@
     (should (eq gdocs-sync--status 'synced))
     (let ((captured-status nil))
       (cl-letf (((symbol-function 'gdocs-api-batch-update)
-                 (lambda (doc-id requests callback &optional account)
+                 (lambda (doc-id requests callback &optional account _on-error)
                    (setq captured-status gdocs-sync--status)
                    (funcall callback
                             '((writeControl
