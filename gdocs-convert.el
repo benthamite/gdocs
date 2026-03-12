@@ -1252,9 +1252,11 @@ each non-empty cell, processed last-to-first so indices stay stable."
 
 (defun gdocs-convert--table-cell-requests (rows table-index ncols)
   "Generate insertText requests for non-empty cells in ROWS.
-TABLE-INDEX is the document index where the table starts.  NCOLS
-is the column count.  Iterates forward and pushes, so the result
-is in reverse order (last cell first) for stable index processing."
+TABLE-INDEX is the insertTable location index.  NCOLS is the
+column count.  The table body starts at TABLE-INDEX + 1 because
+insertTable preserves the existing paragraph at the location.
+Iterates forward and pushes, so the result is in reverse order
+\(last cell first) for stable index processing."
   (let ((reqs nil)
         (r 0))
     (dolist (row rows)
@@ -1262,7 +1264,7 @@ is in reverse order (last cell first) for stable index processing."
         (dolist (cell row)
           (let ((text (gdocs-convert--runs-to-plain-text cell)))
             (when (> (length text) 0)
-              (let ((cell-start (+ table-index 3
+              (let ((cell-start (+ table-index 4
                                    (* r (+ 1 (* ncols 2)))
                                    (* c 2))))
                 (push (gdocs-convert--make-insert-text-request
