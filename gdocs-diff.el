@@ -298,13 +298,15 @@ START-INDEX is the UTF-16 index where the first element begins."
 
 (defun gdocs-diff--delete-all-requests (old-ir start-index)
   "Generate a single delete request covering all content in OLD-IR.
-START-INDEX is the UTF-16 index where the first element begins."
+START-INDEX is the UTF-16 index where the first element begins.
+Excludes the trailing newline of the last element to avoid
+deleting structural characters that Google Docs API protects."
   (let ((indices (gdocs-diff--compute-element-indices old-ir start-index)))
     (when indices
       (let* ((first-entry (cdar indices))
              (last-entry (cdar (last indices)))
              (start (car first-entry))
-             (end (cdr last-entry)))
+             (end (1- (cdr last-entry))))
         (when (< start end)
           (list (gdocs-diff--make-delete-request start end)))))))
 
@@ -352,15 +354,18 @@ START-INDEX is the UTF-16 index where the first element begins."
 
 (defun gdocs-diff--collect-deletions (diff-ops old-indices)
   "Collect delete requests for :delete operations in DIFF-OPS.
-OLD-INDICES is the index alist."
+OLD-INDICES is the index alist.  Uses END-1 to preserve the
+trailing newline, avoiding invalid deletion when followed by a
+structural element."
   (let ((requests nil))
     (dolist (op diff-ops)
       (when (eq (plist-get op :op) 'delete)
         (let* ((oi (plist-get op :old-index))
                (range (cdr (assq oi old-indices)))
                (start (car range))
-               (end (cdr range)))
-          (push (gdocs-diff--make-delete-request start end) requests))))
+               (end (1- (cdr range))))
+          (when (< start end)
+            (push (gdocs-diff--make-delete-request start end) requests)))))
     requests))
 
 (defun gdocs-diff--make-delete-request (start end)
@@ -547,14 +552,43 @@ NEW-ELEM provides the new runs.  RANGE is (START . END)."
 
 (defun gdocs-diff--content-modification (_old-elem new-elem range)
   "Generate delete+insert requests for a content change.
-NEW-ELEM provides the new content.  RANGE is (START . END)."
+NEW-ELEM provides the new content.  RANGE is (START . END).
+For paragraphs, preserves the trailing newline to avoid breaking
+document structure (Google Docs API rejects deletion of a
+paragraph's trailing newline when followed by a structural
+element like a table or table of contents)."
   (let* ((start (car range))
-         (end (cdr range))
-         (delete-req (gdocs-diff--make-delete-request start end))
-         (insert-result (gdocs-convert--ir-element-to-requests
-                         new-elem start)))
-    (list :delete-reqs (list delete-req)
-          :insert-reqs (plist-get insert-result :requests)
+         (end (cdr range)))
+    (if (eq (plist-get new-elem :type) 'paragraph)
+        (gdocs-diff--paragraph-content-modification new-elem start end)
+      (let* ((delete-req (gdocs-diff--make-delete-request start end))
+             (insert-result (gdocs-convert--ir-element-to-requests
+                             new-elem start)))
+        (list :delete-reqs (list delete-req)
+              :insert-reqs (plist-get insert-result :requests)
+              :style-reqs nil)))))
+
+(defun gdocs-diff--paragraph-content-modification (new-elem start end)
+  "Generate requests to replace paragraph content at START to END.
+Deletes [START, END-1) to preserve the trailing newline, then
+inserts the new text (without newline) at START."
+  (let* ((text (gdocs-convert--runs-to-plain-text
+                (plist-get new-elem :contents)))
+         (text-len (gdocs-convert--string-to-utf16-length text))
+         (para-end (+ start text-len 1))
+         (delete-req (when (> (1- end) start)
+                       (gdocs-diff--make-delete-request start (1- end))))
+         (insert-req (when (> text-len 0)
+                       (gdocs-convert--make-insert-text-request text start)))
+         (style-reqs (gdocs-convert--make-paragraph-style-requests
+                      new-elem start para-end))
+         (run-reqs (gdocs-convert--make-text-style-requests
+                    (plist-get new-elem :contents) start))
+         (list-reqs (gdocs-convert--make-list-requests
+                     new-elem start para-end)))
+    (list :delete-reqs (when delete-req (list delete-req))
+          :insert-reqs (append (when insert-req (list insert-req))
+                               style-reqs run-reqs list-reqs)
           :style-reqs nil)))
 
 ;; ---------------------------------------------------------------------------

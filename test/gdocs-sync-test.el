@@ -44,7 +44,11 @@
   "First push without shadow uses full IR-to-requests conversion."
   (gdocs-sync-test-with-org-buffer "Hello world\n"
     (let ((requests-received nil))
-      (cl-letf (((symbol-function 'gdocs-api-batch-update)
+      (cl-letf (((symbol-function 'gdocs-api-get-document)
+                 (lambda (_doc-id callback &optional _account)
+                   (funcall callback
+                            '((body . ((content . [((endIndex . 2))])))))))
+                ((symbol-function 'gdocs-api-batch-update)
                  (lambda (_doc-id requests callback &optional _account _on-error)
                    (setq requests-received requests)
                    (funcall callback
@@ -100,7 +104,11 @@
   "Shadow IR is updated to current IR on successful push."
   (gdocs-sync-test-with-org-buffer "New content\n"
     (setq gdocs-sync--shadow-ir nil)
-    (cl-letf (((symbol-function 'gdocs-api-batch-update)
+    (cl-letf (((symbol-function 'gdocs-api-get-document)
+               (lambda (_doc-id callback &optional _account)
+                 (funcall callback
+                          '((body . ((content . [((endIndex . 2))])))))))
+              ((symbol-function 'gdocs-api-batch-update)
                (lambda (_doc-id _requests callback &optional _account _on-error)
                  (funcall callback
                           '((writeControl
@@ -243,7 +251,11 @@
   (gdocs-sync-test-with-org-buffer "Content\n"
     (should (eq gdocs-sync--status 'synced))
     (let ((captured-status nil))
-      (cl-letf (((symbol-function 'gdocs-api-batch-update)
+      (cl-letf (((symbol-function 'gdocs-api-get-document)
+                 (lambda (_doc-id callback &optional _account)
+                   (funcall callback
+                            '((body . ((content . [((endIndex . 2))])))))))
+                ((symbol-function 'gdocs-api-batch-update)
                  (lambda (doc-id requests callback &optional account _on-error)
                    (setq captured-status gdocs-sync--status)
                    (funcall callback

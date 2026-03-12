@@ -89,15 +89,37 @@ Return non-nil if the push was serialized (caller should abort)."
 
 (defun gdocs-sync--push-full-replacement (current-ir buf)
   "Push CURRENT-IR as a full document replacement.
-BUF is the originating buffer."
-  (let ((requests (gdocs-convert-ir-to-docs-requests
-                   (gdocs-sync--filter-title current-ir))))
-    (gdocs-api-batch-update
-     gdocs-sync--document-id
-     requests
-     (gdocs-sync--make-push-callback current-ir buf)
-     gdocs-sync--account
-     (gdocs-sync--make-push-error-callback buf))))
+BUF is the originating buffer.  Fetches the document first to
+determine the body end index so existing content can be deleted
+before inserting the new content."
+  (let ((doc-id gdocs-sync--document-id)
+        (acct gdocs-sync--account))
+    (gdocs-api-get-document
+     doc-id
+     (lambda (json)
+       (with-current-buffer buf
+         (let* ((body-end (gdocs-sync--body-end-index json))
+                (filtered-ir (gdocs-sync--filter-title current-ir))
+                (insert-reqs (gdocs-convert-ir-to-docs-requests filtered-ir))
+                (delete-req (when (> body-end 2)
+                              (list (gdocs-diff--make-delete-request
+                                     1 (1- body-end)))))
+                (requests (append delete-req insert-reqs)))
+           (gdocs-api-batch-update
+            doc-id
+            requests
+            (gdocs-sync--make-push-callback current-ir buf)
+            acct
+            (gdocs-sync--make-push-error-callback buf)))))
+     acct)))
+
+(defun gdocs-sync--body-end-index (json)
+  "Extract the body end index from document JSON.
+Returns the endIndex of the last element in the body content."
+  (let* ((body (alist-get 'body json))
+         (content (alist-get 'content body))
+         (last-elem (aref content (1- (length content)))))
+    (alist-get 'endIndex last-elem)))
 
 (defun gdocs-sync--push-incremental (current-ir buf)
   "Push CURRENT-IR as an incremental diff against the shadow.
@@ -376,13 +398,14 @@ Otherwise return ID-OR-URL as-is."
 
 (defun gdocs-sync--body-start-index (ir)
   "Compute the UTF-16 index where non-title body content starts.
-Title elements occupy space in the Google Doc but are filtered
-from the IR before diffing.  This function returns the index
-after all title elements, so that the diff engine generates
-correct document indices."
+Title paragraphs from the document body occupy space but are
+filtered from the IR before diffing.  Synthetic title elements
+created from document metadata (`:source \\='metadata') do NOT
+occupy body space and are excluded from the offset."
   (let ((offset 0))
     (dolist (element ir)
-      (when (eq (plist-get element :style) 'title)
+      (when (and (eq (plist-get element :style) 'title)
+                 (not (eq (plist-get element :source) 'metadata)))
         (setq offset (+ offset (gdocs-diff--element-utf16-length element)))))
     (+ 1 offset)))
 

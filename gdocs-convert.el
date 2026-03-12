@@ -802,6 +802,7 @@ like `body', `title', `lists', and `namedRanges'."
       (push (list :type 'paragraph
                   :style 'title
                   :contents (list (gdocs-convert--make-plain-run title))
+                  :source 'metadata
                   :id (gdocs-convert--next-id))
             result))
     (seq-doseq (structural-element content)
@@ -1238,7 +1239,7 @@ Returns a plist (:requests LIST :index NEW-INDEX)."
                         . ((rows . ,nrows)
                            (columns . ,ncols)
                            (location . ((index . ,index)))))))
-         (table-overhead (+ 4 (* nrows (+ 1 (* ncols 2)))))
+         (table-overhead (+ 2 (* nrows (+ 1 (* ncols 2)))))
          (new-index (+ index table-overhead))
          (requests (list insert-req)))
     (list :requests requests
