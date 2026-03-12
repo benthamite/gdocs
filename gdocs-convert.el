@@ -263,11 +263,13 @@ whitespace from the last.  Returns nil if no text remains."
 ;;; Objects -> text runs
 
 (defun gdocs-convert--objects-to-runs (objects)
-  "Convert a list of org-element OBJECTS to a flat list of text run plists."
+  "Convert a list of org-element OBJECTS to a flat list of text run plists.
+Adjacent runs with identical formatting are merged to match the
+coarser boundaries from Google Docs JSON conversion."
   (let ((runs nil))
     (dolist (obj (if (listp objects) objects (list objects)))
       (setq runs (nconc runs (gdocs-convert--object-to-runs obj nil))))
-    runs))
+    (gdocs-convert--merge-adjacent-runs runs)))
 
 (defun gdocs-convert--object-to-runs (object inherited-props)
   "Convert a single org-element OBJECT to text runs.
