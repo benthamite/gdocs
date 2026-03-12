@@ -186,15 +186,22 @@ name."
      (gdocs-convert-ir-to-docs-requests
       (gdocs-sync--filter-title ir))
      (lambda (_response)
-       (with-current-buffer buf
-         (gdocs-sync--write-file-local-vars doc-id account)
-         (setq gdocs-sync--shadow-ir ir)
-         (setq gdocs-sync--document-id doc-id)
-         (setq gdocs-sync--account account)
-         (gdocs-sync--update-last-sync-time)
-         (save-buffer)
-         (gdocs-mode 1)
-         (message "Created and linked Google Doc: %s" doc-id)))
+       ;; Fetch the actual document to build a shadow IR that matches
+       ;; the real document structure (insertTable creates extra
+       ;; paragraphs not present in the org buffer's IR).
+       (gdocs-api-get-document doc-id
+         (lambda (doc-json)
+           (with-current-buffer buf
+             (let ((true-ir (gdocs-convert-docs-json-to-ir doc-json)))
+               (gdocs-sync--write-file-local-vars doc-id account)
+               (setq gdocs-sync--shadow-ir true-ir)
+               (setq gdocs-sync--document-id doc-id)
+               (setq gdocs-sync--account account)
+               (gdocs-sync--update-last-sync-time)
+               (save-buffer)
+               (gdocs-mode 1)
+               (message "Created and linked Google Doc: %s" doc-id))))
+         account))
      account)))
 
 (defun gdocs-push ()
