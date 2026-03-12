@@ -239,12 +239,31 @@ pushes are not blocked."
      gdocs-sync--account)))
 
 (defun gdocs-sync--apply-pull (json)
-  "Apply the pulled document JSON to the current buffer."
+  "Apply the pulled document JSON to the current buffer.
+Uses the shadow IR to detect what actually changed remotely.
+If the remote hasn't changed, reports up-to-date without
+touching the buffer (preserving org-only metadata like property
+drawers, tags, and IDs)."
   (let* ((remote-ir (gdocs-convert-docs-json-to-ir json))
-         (remote-org (gdocs-convert-ir-to-org remote-ir)))
-    (if (gdocs-sync--has-local-modifications-p)
-        (gdocs-sync--start-conflict-resolution remote-org)
-      (gdocs-sync--replace-buffer-content remote-org remote-ir))))
+         (rev-id (alist-get 'revisionId json)))
+    (if (gdocs-sync--remote-unchanged-p remote-ir)
+        (progn
+          (when rev-id
+            (setq gdocs-sync--revision-id rev-id))
+          (gdocs-sync--set-status 'synced)
+          (message "Already up to date."))
+      (let ((remote-org (gdocs-convert-ir-to-org remote-ir)))
+        (if (gdocs-sync--has-local-modifications-p)
+            (gdocs-sync--start-conflict-resolution remote-org)
+          (gdocs-sync--replace-buffer-content remote-org remote-ir))))))
+
+(defun gdocs-sync--remote-unchanged-p (remote-ir)
+  "Return non-nil if REMOTE-IR matches the shadow IR.
+Compares filtered (title-removed) versions so that title
+representation differences don't cause false positives."
+  (when gdocs-sync--shadow-ir
+    (equal (gdocs-sync--filter-title remote-ir)
+           (gdocs-sync--filter-title gdocs-sync--shadow-ir))))
 
 (defun gdocs-sync--has-local-modifications-p ()
   "Return non-nil if the buffer has local modifications.
