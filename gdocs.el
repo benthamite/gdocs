@@ -179,13 +179,14 @@ is the account name to use; if nil, prompt."
 JSON is the create-document response.  ACCOUNT is the account
 name."
   (let ((doc-id (alist-get 'documentId json))
-        (ir (gdocs-convert-org-buffer-to-ir)))
+        (ir (gdocs-convert-org-buffer-to-ir))
+        (buf (current-buffer)))
     (gdocs-api-batch-update
      doc-id
      (gdocs-convert-ir-to-docs-requests
       (gdocs-sync--filter-title ir))
      (lambda (_response)
-       (with-current-buffer (current-buffer)
+       (with-current-buffer buf
          (gdocs-sync--write-file-local-vars doc-id account)
          (setq gdocs-sync--shadow-ir ir)
          (setq gdocs-sync--document-id doc-id)
