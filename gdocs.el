@@ -132,6 +132,7 @@ DOC-ID is the document ID.  ACCOUNT is the account name."
       (gdocs-sync--update-last-sync-time)
       (gdocs-mode 1))
     (pop-to-buffer buf)
+    (goto-char (point-min))
     (message "Opened: %s" title)))
 
 (defun gdocs--doc-file-path (title)
