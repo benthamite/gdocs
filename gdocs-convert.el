@@ -114,6 +114,166 @@ Creates a temporary buffer, inserts STRING, and calls
             (_ nil)))))
     (nreverse result)))
 
+;; ---------------------------------------------------------------------------
+;;; Segmented org -> IR (for three-way merge)
+
+(defun gdocs-convert-org-buffer-to-segments ()
+  "Parse the current org buffer into segments for three-way merge.
+Each segment pairs an IR element with its org text region,
+including non-IR text like property drawers that follows the
+element.  Returns a plist with:
+  :ir        -- the full IR element list (including title)
+  :segments  -- list of segment plists, each with :ir-element and :org-text
+  :preamble  -- buffer text before the first body IR element
+  :postamble -- buffer text after the last IR element"
+  (gdocs-convert--reset-ids)
+  (let* ((ast (org-element-parse-buffer))
+         (title (gdocs-convert--extract-title ast))
+         (entries (gdocs-convert--walk-org-data-positioned ast))
+         (ir (mapcar (lambda (e) (plist-get e :ir)) entries))
+         (full-ir (if title (cons title ir) ir))
+         (postamble-start (gdocs-convert--find-postamble-start))
+         (segments nil)
+         (len (length entries)))
+    ;; Preamble: text before the first body element
+    (let ((first-pos (if entries
+                         (plist-get (car entries) :begin)
+                       postamble-start)))
+      ;; Build segments: each segment's text runs from its :begin
+      ;; to the next entry's :begin (or postamble-start for the last)
+      (dotimes (i len)
+        (let* ((entry (nth i entries))
+               (begin (plist-get entry :begin))
+               (end (if (< (1+ i) len)
+                        (plist-get (nth (1+ i) entries) :begin)
+                      postamble-start))
+               (org-text (buffer-substring-no-properties begin end)))
+          (push (list :ir-element (plist-get entry :ir)
+                      :org-text org-text)
+                segments)))
+      (list :ir full-ir
+            :segments (nreverse segments)
+            :preamble (buffer-substring-no-properties 1 first-pos)
+            :postamble (buffer-substring-no-properties
+                        postamble-start (1+ (buffer-size)))))))
+
+(defun gdocs-convert--find-postamble-start ()
+  "Find the buffer position where the postamble begins.
+The postamble is the file-local variables block at the end of
+the buffer.  Returns `point-max' if no postamble is found."
+  (save-excursion
+    (goto-char (point-max))
+    (if (re-search-backward "^# Local Variables:" nil t)
+        ;; Include any blank lines before the block
+        (progn
+          (forward-line -1)
+          (while (and (> (point) (point-min))
+                      (looking-at-p "^[[:space:]]*$"))
+            (forward-line -1))
+          (forward-line 1)
+          (point))
+      (point-max))))
+
+(defun gdocs-convert--walk-org-data-positioned (ast)
+  "Walk AST and return IR elements with buffer positions.
+Like `gdocs-convert--walk-org-data' but each entry is a plist
+with :ir (the IR element) and :begin (buffer position).
+The result is sorted by buffer position."
+  (let ((result nil))
+    (org-element-map ast '(headline paragraph plain-list table
+                           horizontal-rule keyword src-block
+                           quote-block)
+      (lambda (el)
+        (let ((parent-type (org-element-type (org-element-parent el))))
+          (pcase (org-element-type el)
+            ('headline
+             (push (list :ir (gdocs-convert--headline-to-ir el)
+                         :begin (org-element-property :begin el))
+                   result))
+            ('paragraph
+             (when (gdocs-convert--top-level-paragraph-p el)
+               (let ((ir (gdocs-convert--paragraph-to-ir el)))
+                 (when ir
+                   (push (list :ir ir
+                               :begin (org-element-property :begin el))
+                         result)))))
+            ('plain-list
+             (when (gdocs-convert--top-level-list-p el)
+               (dolist (entry (gdocs-convert--plain-list-positioned el 0))
+                 (push entry result))))
+            ('table
+             (when (eq (org-element-property :type el) 'org)
+               (push (list :ir (gdocs-convert--table-to-ir el)
+                           :begin (org-element-property :begin el))
+                     result)))
+            ('horizontal-rule
+             (push (list :ir (list :type 'horizontal-rule
+                                   :id (gdocs-convert--next-id))
+                         :begin (org-element-property :begin el))
+                   result))
+            ('quote-block
+             (when (not (eq parent-type 'item))
+               (push (list :ir (gdocs-convert--quote-block-to-ir el)
+                           :begin (org-element-property :begin el))
+                     result)))
+            ('src-block
+             (push (list :ir (gdocs-convert--src-block-to-ir el)
+                         :begin (org-element-property :begin el))
+                   result))
+            ('keyword
+             (when (gdocs-convert--preservable-keyword-p el)
+               (push (list :ir (gdocs-convert--keyword-to-ir el)
+                           :begin (org-element-property :begin el))
+                     result)))
+            (_ nil)))))
+    (sort (nreverse result)
+          (lambda (a b) (< (plist-get a :begin) (plist-get b :begin))))))
+
+(defun gdocs-convert--plain-list-positioned (plain-list depth)
+  "Convert PLAIN-LIST to positioned IR entries at nesting DEPTH.
+Returns a list of (:ir ELEMENT :begin POS) plists."
+  (let ((list-type (gdocs-convert--org-list-type plain-list))
+        (result nil))
+    (dolist (item (org-element-contents plain-list))
+      (when (eq (org-element-type item) 'item)
+        (setq result
+              (nconc result
+                     (gdocs-convert--item-positioned
+                      item list-type depth)))))
+    result))
+
+(defun gdocs-convert--item-positioned (item list-type depth)
+  "Convert list ITEM to positioned IR entries.
+LIST-TYPE and DEPTH are as in `gdocs-convert--item-to-ir'.
+Returns a list of (:ir ELEMENT :begin POS) plists."
+  (let* ((checkbox (org-element-property :checkbox item))
+         (effective-type (if checkbox 'check list-type))
+         (checked (eq checkbox 'on))
+         (paragraph (org-element-map item 'paragraph #'identity nil t))
+         (runs (when paragraph
+                 (gdocs-convert--strip-continuation-indent
+                  (gdocs-convert--objects-to-runs
+                   (org-element-contents paragraph)))))
+         (trimmed (gdocs-convert--trim-runs runs))
+         (list-plist (append (list :type effective-type :level depth)
+                             (when (eq effective-type 'check)
+                               (list :checked checked))))
+         (ir-element (list :type 'paragraph
+                           :style 'normal
+                           :list list-plist
+                           :contents (or trimmed
+                                         (list (gdocs-convert--make-plain-run "")))
+                           :id (gdocs-convert--next-id)))
+         (result (list (list :ir ir-element
+                             :begin (org-element-property :begin item)))))
+    (dolist (child (org-element-contents item))
+      (when (eq (org-element-type child) 'plain-list)
+        (setq result
+              (nconc result
+                     (gdocs-convert--plain-list-positioned
+                      child (1+ depth))))))
+    result))
+
 (defun gdocs-convert--top-level-paragraph-p (paragraph)
   "Return non-nil if PARAGRAPH is a direct section child.
 A paragraph inside a list item is handled by the list walker, and

@@ -241,9 +241,9 @@ pushes are not blocked."
 (defun gdocs-sync--apply-pull (json)
   "Apply the pulled document JSON to the current buffer.
 Uses the shadow IR to detect what actually changed remotely.
-If the remote hasn't changed, reports up-to-date without
-touching the buffer (preserving org-only metadata like property
-drawers, tags, and IDs)."
+When a shadow exists, performs a three-way merge that preserves
+org-only metadata (property drawers, TODO keywords, tags, etc.)
+on elements that were not changed remotely."
   (let* ((remote-ir (gdocs-convert-docs-json-to-ir json))
          (rev-id (alist-get 'revisionId json)))
     (if (gdocs-sync--remote-unchanged-p remote-ir)
@@ -252,10 +252,17 @@ drawers, tags, and IDs)."
             (setq gdocs-sync--revision-id rev-id))
           (gdocs-sync--set-status 'synced)
           (message "Already up to date."))
-      (let ((remote-org (gdocs-convert-ir-to-org remote-ir)))
-        (if (gdocs-sync--has-local-modifications-p)
-            (gdocs-sync--start-conflict-resolution remote-org)
-          (gdocs-sync--replace-buffer-content remote-org remote-ir))))))
+      (if (null gdocs-sync--shadow-ir)
+          ;; No shadow (first pull after link): full replacement
+          (gdocs-sync--replace-buffer-content
+           (gdocs-convert-ir-to-org remote-ir) remote-ir)
+        ;; Have shadow: three-way merge
+        (let ((result (gdocs-sync--three-way-merge remote-ir)))
+          (if (plist-get result :has-conflicts)
+              (gdocs-sync--start-conflict-resolution
+               (plist-get result :merged-org))
+            (gdocs-sync--replace-buffer-content
+             (plist-get result :merged-org) remote-ir)))))))
 
 (defun gdocs-sync--remote-unchanged-p (remote-ir)
   "Return non-nil if REMOTE-IR matches the shadow IR.
@@ -319,6 +326,194 @@ and element IDs do not trigger false positives."
   (gdocs-sync--set-status 'synced)
   (save-buffer)
   (message "Merge complete."))
+
+;;;; Three-way merge
+
+(defun gdocs-sync--three-way-merge (remote-ir)
+  "Merge REMOTE-IR into the current buffer using three-way merge.
+Uses the shadow IR as the common ancestor.  For elements
+unchanged remotely, preserves the local org text (including
+property drawers and other org-only metadata).  For elements
+changed remotely, uses the remote version with local markers
+grafted back.  Returns a plist with :merged-org and
+:has-conflicts."
+  (let* ((shadow-ir (gdocs-sync--filter-title gdocs-sync--shadow-ir))
+         (remote-filtered (gdocs-sync--filter-title remote-ir))
+         (local-data (gdocs-convert-org-buffer-to-segments))
+         (local-ir (gdocs-sync--filter-title (plist-get local-data :ir)))
+         (local-segments (plist-get local-data :segments))
+         (preamble (plist-get local-data :preamble))
+         (postamble (plist-get local-data :postamble))
+         ;; Compute element keys for all three
+         (shadow-keys (gdocs-diff--element-keys shadow-ir))
+         (remote-keys (gdocs-diff--element-keys remote-filtered))
+         (local-keys (gdocs-diff--element-keys local-ir))
+         ;; LCS: remote vs shadow (what changed remotely)
+         (rs-lcs (gdocs-diff--lcs shadow-keys remote-keys))
+         (rs-ops (gdocs-diff--classify-operations
+                  shadow-ir remote-filtered rs-lcs))
+         ;; LCS: local vs shadow (what changed locally)
+         (ls-lcs (gdocs-diff--lcs shadow-keys local-keys))
+         ;; Build a map: shadow-index -> local-segment-index
+         (shadow-to-local (gdocs-sync--build-shadow-to-local-map
+                           ls-lcs local-ir))
+         ;; Merge
+         (merged-parts nil)
+         (has-conflicts nil))
+    ;; Walk the remote operations to build the merged output
+    (dolist (op rs-ops)
+      (let ((op-type (plist-get op :op)))
+        (pcase op-type
+          ('keep
+           ;; Remote unchanged: use local text if available
+           (let* ((si (plist-get op :old-index))
+                  (local-idx (cdr (assq si shadow-to-local))))
+             (if local-idx
+                 ;; Have corresponding local segment: use it verbatim
+                 (push (plist-get (nth local-idx local-segments) :org-text)
+                       merged-parts)
+               ;; No local match (local deleted this element):
+               ;; remote kept it, so restore from remote
+               (push (gdocs-sync--ir-element-to-org-segment
+                      (nth (plist-get op :new-index) remote-filtered)
+                      nil)
+                     merged-parts))))
+          ('insert
+           ;; Remote inserted new element
+           (push (gdocs-sync--ir-element-to-org-segment
+                  (nth (plist-get op :new-index) remote-filtered)
+                  nil)
+                 merged-parts))
+          ('delete
+           ;; Remote deleted: check if local also left it unchanged
+           (let* ((si (plist-get op :old-index))
+                  (local-idx (cdr (assq si shadow-to-local)))
+                  (local-key (when local-idx
+                               (nth local-idx local-keys)))
+                  (shadow-key (nth si shadow-keys)))
+             (if (or (null local-idx)
+                     (equal local-key shadow-key))
+                 ;; Local unchanged or also deleted: honor remote deletion
+                 nil
+               ;; Local changed what remote deleted: conflict
+               (setq has-conflicts t)
+               (push (plist-get (nth local-idx local-segments) :org-text)
+                     merged-parts))))
+          ('modify
+           ;; Remote changed this element
+           (let* ((si (plist-get op :old-index))
+                  (ni (plist-get op :new-index))
+                  (remote-elem (nth ni remote-filtered))
+                  (local-idx (cdr (assq si shadow-to-local)))
+                  (local-key (when local-idx (nth local-idx local-keys)))
+                  (shadow-key (nth si shadow-keys)))
+             (if (and local-idx
+                      (not (equal local-key shadow-key)))
+                 ;; Both changed: conflict — include both versions
+                 (progn
+                   (setq has-conflicts t)
+                   (push (concat
+                          "<<<< LOCAL\n"
+                          (plist-get (nth local-idx local-segments) :org-text)
+                          "====\n"
+                          (gdocs-sync--ir-element-to-org-segment
+                           remote-elem nil)
+                          ">>>> REMOTE\n")
+                         merged-parts))
+               ;; Only remote changed: use remote, graft local metadata
+               (let* ((local-seg (when local-idx
+                                   (nth local-idx local-segments)))
+                      (drawer (when local-seg
+                                (gdocs-sync--extract-property-drawer
+                                 (plist-get local-seg :org-text))))
+                      (local-elem (when local-idx
+                                    (nth local-idx local-ir)))
+                      (grafted (gdocs-sync--graft-markers
+                                remote-elem local-elem)))
+                 (push (gdocs-sync--ir-element-to-org-segment
+                        grafted drawer)
+                       merged-parts))))))))
+    (list :merged-org (concat preamble
+                              (apply #'concat (nreverse merged-parts))
+                              postamble)
+          :has-conflicts has-conflicts)))
+
+(defun gdocs-sync--build-shadow-to-local-map (ls-lcs local-ir)
+  "Build an alist mapping shadow indices to local segment indices.
+LS-LCS is the LCS pairs from diffing local vs shadow keys.
+LOCAL-IR is unused but accepted for API consistency."
+  (ignore local-ir)
+  (mapcar (lambda (pair)
+            ;; pair is (shadow-index . local-index)
+            (cons (car pair) (cdr pair)))
+          ls-lcs))
+
+(defun gdocs-sync--ir-element-to-org-segment (element drawer)
+  "Convert an IR ELEMENT to an org text segment.
+If DRAWER is non-nil, graft the property drawer string after the
+heading line.  Includes a trailing newline."
+  (let ((org-text (gdocs-convert--ir-element-to-org element)))
+    (if (and drawer (gdocs-sync--heading-element-p element))
+        (concat (gdocs-sync--graft-drawer-into-heading org-text drawer)
+                "\n")
+      (concat org-text "\n"))))
+
+(defun gdocs-sync--heading-element-p (element)
+  "Return non-nil if ELEMENT is a heading."
+  (and (eq (plist-get element :type) 'paragraph)
+       (let ((style (plist-get element :style)))
+         (and style
+              (string-prefix-p "heading-" (symbol-name style))))))
+
+(defun gdocs-sync--extract-property-drawer (org-text)
+  "Extract a :PROPERTIES: block from ORG-TEXT, or return nil.
+Returns the full drawer text including :PROPERTIES: and :END:
+lines with their newlines."
+  (when (string-match
+         "\\(:PROPERTIES:\n\\(?::[^\n]+\n\\)*:END:\n\\)"
+         org-text)
+    (match-string 1 org-text)))
+
+(defun gdocs-sync--graft-drawer-into-heading (heading-text drawer)
+  "Insert DRAWER after the heading line(s) in HEADING-TEXT.
+Handles planning lines (SCHEDULED, DEADLINE) that follow the
+heading line."
+  (let ((lines (split-string heading-text "\n" t)))
+    (if (null (cdr lines))
+        ;; Single line heading
+        (concat (car lines) "\n" drawer)
+      ;; Multi-line: heading + planning lines
+      ;; Planning lines start with SCHEDULED: or DEADLINE:
+      (let ((heading-part nil)
+            (rest lines)
+            (done nil))
+        (while (and rest (not done))
+          (let ((line (car rest)))
+            (if (or (null heading-part)  ; first line is always heading
+                    (string-match-p
+                     "^\\(SCHEDULED\\|DEADLINE\\):" line))
+                (progn
+                  (push line heading-part)
+                  (setq rest (cdr rest)))
+              (setq done t))))
+        (concat (mapconcat #'identity (nreverse heading-part) "\n")
+                "\n" drawer
+                (when rest
+                  (concat (mapconcat #'identity rest "\n") "\n")))))))
+
+(defun gdocs-sync--graft-markers (remote-elem local-elem)
+  "Copy :gdocs-marker from LOCAL-ELEM onto REMOTE-ELEM.
+Returns a new element plist.  If LOCAL-ELEM is nil or has no
+marker, returns REMOTE-ELEM unchanged."
+  (if (and local-elem (plist-get local-elem :gdocs-marker))
+      (append (list :type (plist-get remote-elem :type)
+                    :style (plist-get remote-elem :style)
+                    :contents (plist-get remote-elem :contents)
+                    :id (plist-get remote-elem :id)
+                    :gdocs-marker (plist-get local-elem :gdocs-marker))
+              (when (plist-get remote-elem :list)
+                (list :list (plist-get remote-elem :list))))
+    remote-elem))
 
 ;;;; Push on save
 
