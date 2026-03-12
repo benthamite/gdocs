@@ -335,15 +335,18 @@ This is the whitespace org-element strips from after an object."
 
 (defun gdocs-convert--link-to-runs (link inherited-props)
   "Convert a LINK object to text runs with :link set.
-INHERITED-PROPS carries parent formatting."
+INHERITED-PROPS carries parent formatting.  Preserves any
+formatting (e.g. italic, bold) within the link description."
   (let* ((url (gdocs-convert--link-url link))
          (children (org-element-contents link))
-         (desc (if children
-                   (gdocs-convert--objects-to-text children)
-                 url))
-         (new-props (copy-sequence inherited-props)))
-    (setq new-props (plist-put new-props :link url))
-    (list (gdocs-convert--make-run desc new-props))))
+         (new-props (plist-put (copy-sequence inherited-props) :link url)))
+    (if children
+        (let ((runs nil))
+          (dolist (child children)
+            (setq runs (nconc runs
+                              (gdocs-convert--object-to-runs child new-props))))
+          (or runs (list (gdocs-convert--make-run url new-props))))
+      (list (gdocs-convert--make-run url new-props)))))
 
 (defun gdocs-convert--link-url (link)
   "Extract the URL string from a LINK element."
@@ -860,13 +863,42 @@ named-range marker data."
 
 (defun gdocs-convert--docs-elements-to-runs (elements)
   "Convert Google Docs paragraph ELEMENTS to IR text runs.
-ELEMENTS may be a list or a vector."
+ELEMENTS may be a list or a vector.  Adjacent runs with
+identical formatting are merged, and edge whitespace on
+formatted runs is normalized."
   (let ((runs nil))
     (seq-doseq (el elements)
       (let ((text-run (alist-get 'textRun el)))
         (when text-run
           (push (gdocs-convert--docs-text-run-to-ir text-run) runs))))
-    (gdocs-convert--normalize-run-whitespace (nreverse runs))))
+    (gdocs-convert--normalize-run-whitespace
+     (gdocs-convert--merge-adjacent-runs (nreverse runs)))))
+
+(defun gdocs-convert--merge-adjacent-runs (runs)
+  "Merge adjacent RUNS that have identical formatting.
+Google Docs often fragments text into many runs with the same
+style due to editing history.  This merges them to match the
+coarser run boundaries that org-element produces."
+  (when runs
+    (let ((result (list (car runs))))
+      (dolist (run (cdr runs))
+        (let ((prev (car result)))
+          (if (gdocs-convert--runs-same-format-p prev run)
+              (setcar result
+                      (plist-put (copy-sequence prev) :text
+                                 (concat (plist-get prev :text)
+                                         (plist-get run :text))))
+            (push run result))))
+      (nreverse result))))
+
+(defun gdocs-convert--runs-same-format-p (a b)
+  "Return non-nil if runs A and B have identical formatting."
+  (and (eq (plist-get a :bold) (plist-get b :bold))
+       (eq (plist-get a :italic) (plist-get b :italic))
+       (eq (plist-get a :underline) (plist-get b :underline))
+       (eq (plist-get a :strikethrough) (plist-get b :strikethrough))
+       (eq (plist-get a :code) (plist-get b :code))
+       (equal (plist-get a :link) (plist-get b :link))))
 
 (defun gdocs-convert--normalize-run-whitespace (runs)
   "Normalize whitespace at boundaries of formatted RUNS.
@@ -920,7 +952,8 @@ within paragraphs."
     (list :text content
           :bold (eq (alist-get 'bold style) t)
           :italic (eq (alist-get 'italic style) t)
-          :underline (eq (alist-get 'underline style) t)
+          :underline (and (eq (alist-get 'underline style) t)
+                          (not url))
           :strikethrough (eq (alist-get 'strikethrough style) t)
           :code (gdocs-convert--docs-is-monospace-p style)
           :link url)))
@@ -934,17 +967,22 @@ within paragraphs."
                           "Roboto Mono" "Courier")))))
 
 (defun gdocs-convert--trim-trailing-newline-runs (runs)
-  "Remove trailing newlines from the last run in RUNS.
-Google Docs paragraphs always end with a newline character."
+  "Remove trailing whitespace from the last run(s) in RUNS.
+Google Docs paragraphs always end with a newline character, and
+may have trailing whitespace-only runs before it."
   (when runs
-    (let* ((last-run (car (last runs)))
-           (text (plist-get last-run :text))
-           (trimmed (s-trim-right text)))
-      (if (string-empty-p trimmed)
-          (butlast runs)
-        (setcar (last runs)
-                (plist-put (copy-sequence last-run) :text trimmed))
-        runs))))
+    (let ((result (copy-sequence runs))
+          (done nil))
+      (while (and result (not done))
+        (let* ((last-run (car (last result)))
+               (text (plist-get last-run :text))
+               (trimmed (s-trim-right text)))
+          (if (string-empty-p trimmed)
+              (setq result (butlast result))
+            (setcar (last result)
+                    (plist-put (copy-sequence last-run) :text trimmed))
+            (setq done t))))
+      result)))
 
 (defun gdocs-convert--docs-bullet-to-list (bullet lists-map)
   "Convert a Google Docs BULLET object to an IR :list plist.
