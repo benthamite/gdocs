@@ -17,6 +17,7 @@
 (require 'cl-lib)
 (require 'gdocs-sync)
 (require 'gdocs-convert)
+(require 'gdocs-merge)
 (require 'gdocs-test-helpers)
 
 ;;;; Test helpers

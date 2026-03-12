@@ -306,7 +306,8 @@ objects."
   "Create a text run list from plain TEXT string with INHERITED-PROPS."
   (if (string-empty-p text)
       nil
-    (list (gdocs-convert--make-run text inherited-props))))
+    (list (gdocs-convert--make-run
+           (substring-no-properties text) inherited-props))))
 
 (defun gdocs-convert--markup-to-runs (object inherited-props formatting-key)
   "Convert a markup OBJECT (bold, italic, etc.) to text runs.
@@ -320,18 +321,12 @@ keyword to set (e.g. :bold)."
                           (gdocs-convert--object-to-runs child new-props))))
       runs)))
 
-(defun gdocs-convert--code-object-to-run (object inherited-props)
+(defun gdocs-convert--code-object-to-run (object _inherited-props)
   "Convert a code or verbatim OBJECT to a text run with :code t.
-INHERITED-PROPS carries parent formatting."
+Post-blank whitespace is handled by `gdocs-convert--object-to-runs'."
   (let* ((value (org-element-property :value object))
-         (new-props (plist-put (copy-sequence inherited-props) :code t))
-         (runs (list (gdocs-convert--make-run value new-props)))
-         (post-blank (gdocs-convert--element-post-blank object)))
-    (if (> post-blank 0)
-        (append runs (list (gdocs-convert--make-run
-                            (make-string post-blank ?\s)
-                            inherited-props)))
-      runs)))
+         (new-props (list :code t)))
+    (list (gdocs-convert--make-run value new-props))))
 
 (defun gdocs-convert--element-post-blank (element)
   "Return the number of post-blank spaces for ELEMENT.
@@ -436,6 +431,20 @@ Returns `bullet', `number', or `check'."
       (org-element-property :checkbox item))
     nil t))
 
+(defun gdocs-convert--strip-continuation-indent (runs)
+  "Strip continuation line indentation from list item RUNS.
+When `org-element' parses a multi-line list item, it preserves
+the structural indentation in the text.  This function removes
+it so the IR text is clean for round-tripping."
+  (mapcar (lambda (run)
+            (let ((text (plist-get run :text)))
+              (if (string-match-p "\n" text)
+                  (plist-put (copy-sequence run) :text
+                             (replace-regexp-in-string
+                              "\n[ \t]+" "\n" text))
+                run)))
+          runs))
+
 (defun gdocs-convert--item-to-ir (item list-type depth)
   "Convert a list ITEM to IR elements.
 LIST-TYPE is `bullet', `number', or `check'.  DEPTH is the
@@ -445,8 +454,9 @@ LIST-TYPE is `bullet', `number', or `check'.  DEPTH is the
          (checked (eq checkbox 'on))
          (paragraph (org-element-map item 'paragraph #'identity nil t))
          (runs (when paragraph
-                 (gdocs-convert--objects-to-runs
-                  (org-element-contents paragraph))))
+                 (gdocs-convert--strip-continuation-indent
+                  (gdocs-convert--objects-to-runs
+                   (org-element-contents paragraph)))))
          (trimmed (gdocs-convert--trim-runs runs))
          (list-plist (append (list :type effective-type :level depth)
                              (when (eq effective-type 'check)
@@ -657,12 +667,17 @@ MARKER can be a single marker plist or a list of marker plists."
    (t nil)))
 
 (defun gdocs-convert--format-list-item (list-info text)
-  "Format a list item with LIST-INFO plist and TEXT content."
+  "Format a list item with LIST-INFO plist and TEXT content.
+If TEXT contains newlines (from vertical tabs in Google Docs),
+indent continuation lines to keep them inside the list item."
   (let* ((type (plist-get list-info :type))
          (level (plist-get list-info :level))
          (indent (make-string (* level 2) ?\s))
-         (marker (gdocs-convert--list-marker type list-info)))
-    (concat indent marker text)))
+         (marker (gdocs-convert--list-marker type list-info))
+         (cont-indent (make-string (+ (* level 2) (length marker)) ?\s))
+         (indented-text (replace-regexp-in-string
+                         "\n" (concat "\n" cont-indent) text)))
+    (concat indent marker indented-text)))
 
 (defun gdocs-convert--list-marker (type list-info)
   "Return the org list marker string for TYPE and LIST-INFO."
@@ -702,16 +717,38 @@ MARKER can be a single marker plist or a list of marker plists."
     (when code
       (setq text (format "~%s~" text)))
     (when bold
-      (setq text (format "*%s*" text)))
+      (setq text (gdocs-convert--wrap-emphasis "*" text)))
     (when italic
-      (setq text (format "/%s/" text)))
+      (setq text (gdocs-convert--wrap-emphasis "/" text)))
     (when underline
-      (setq text (format "_%s_" text)))
+      (setq text (gdocs-convert--wrap-emphasis "_" text)))
     (when strikethrough
-      (setq text (format "+%s+" text)))
+      (setq text (gdocs-convert--wrap-emphasis "+" text)))
     (when link
       (setq text (format "[[%s][%s]]" link text)))
     text))
+
+(defun gdocs-convert--wrap-emphasis (marker text)
+  "Wrap TEXT with emphasis MARKER, moving edge whitespace outside.
+Org-mode emphasis markers require a non-whitespace character
+immediately inside the opening and closing markers.  This
+function moves any leading or trailing whitespace outside the
+markers to produce valid emphasis markup."
+  (if (string-blank-p text)
+      text
+    (let ((leading "")
+          (trailing "")
+          (inner text))
+      (when (string-match "\\`\\([ \t\n]+\\)" inner)
+        (setq leading (match-string 1 inner))
+        (setq inner (substring inner (match-end 1))))
+      (when (and (not (string-empty-p inner))
+                 (string-match "\\([ \t\n]+\\)\\'" inner))
+        (setq trailing (match-string 1 inner))
+        (setq inner (substring inner 0 (match-beginning 1))))
+      (if (string-empty-p inner)
+          text
+        (concat leading marker inner marker trailing)))))
 
 ;; ---------------------------------------------------------------------------
 ;;; IR table -> org
@@ -782,7 +819,7 @@ lookup.  MARKERS is an alist of element markers from named ranges."
    ((alist-get 'table element)
     (gdocs-convert--docs-table-to-ir (alist-get 'table element)))
    ((alist-get 'sectionBreak element)
-    (list :type 'horizontal-rule :id (gdocs-convert--next-id)))
+    nil)
    (t nil)))
 
 ;; ---------------------------------------------------------------------------
@@ -829,7 +866,43 @@ ELEMENTS may be a list or a vector."
       (let ((text-run (alist-get 'textRun el)))
         (when text-run
           (push (gdocs-convert--docs-text-run-to-ir text-run) runs))))
-    (nreverse runs)))
+    (gdocs-convert--normalize-run-whitespace (nreverse runs))))
+
+(defun gdocs-convert--normalize-run-whitespace (runs)
+  "Normalize whitespace at boundaries of formatted RUNS.
+Move leading and trailing whitespace from formatted runs into
+adjacent plain runs, so that run boundaries match the org-mode
+emphasis model.  This prevents spurious diffs on round-trip."
+  (let ((result nil))
+    (dolist (run runs)
+      (if (not (gdocs-convert--run-has-formatting-p run))
+          (push run result)
+        (let ((text (plist-get run :text))
+              (leading "")
+              (trailing ""))
+          (when (string-match "\\`\\([ \t]+\\)" text)
+            (setq leading (match-string 1 text))
+            (setq text (substring text (match-end 1))))
+          (when (and (not (string-empty-p text))
+                     (string-match "\\([ \t]+\\)\\'" text))
+            (setq trailing (match-string 1 text))
+            (setq text (substring text 0 (match-beginning 1))))
+          (when (not (string-empty-p leading))
+            (push (gdocs-convert--make-plain-run leading) result))
+          (unless (string-empty-p text)
+            (push (plist-put (copy-sequence run) :text text) result))
+          (when (not (string-empty-p trailing))
+            (push (gdocs-convert--make-plain-run trailing) result)))))
+    (nreverse result)))
+
+(defun gdocs-convert--run-has-formatting-p (run)
+  "Return non-nil if RUN has any formatting beyond plain text."
+  (or (plist-get run :bold)
+      (plist-get run :italic)
+      (plist-get run :underline)
+      (plist-get run :strikethrough)
+      (plist-get run :code)
+      (plist-get run :link)))
 
 (defun gdocs-convert--strip-vertical-tabs (text)
   "Replace vertical tab characters in TEXT with newlines.
