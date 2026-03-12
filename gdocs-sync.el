@@ -259,11 +259,13 @@ drawers, tags, and IDs)."
 
 (defun gdocs-sync--remote-unchanged-p (remote-ir)
   "Return non-nil if REMOTE-IR matches the shadow IR.
-Compares filtered (title-removed) versions so that title
-representation differences don't cause false positives."
+Compares content-based element keys rather than structural
+equality, so non-content fields like element IDs and org-only
+markers do not cause false mismatches."
   (when gdocs-sync--shadow-ir
-    (equal (gdocs-sync--filter-title remote-ir)
-           (gdocs-sync--filter-title gdocs-sync--shadow-ir))))
+    (equal (gdocs-diff--element-keys (gdocs-sync--filter-title remote-ir))
+           (gdocs-diff--element-keys
+            (gdocs-sync--filter-title gdocs-sync--shadow-ir)))))
 
 (defun gdocs-sync--has-local-modifications-p ()
   "Return non-nil if the buffer has local modifications.
@@ -273,10 +275,15 @@ Emacs or if the current IR differs from the shadow IR."
       (gdocs-sync--content-differs-from-shadow-p)))
 
 (defun gdocs-sync--content-differs-from-shadow-p ()
-  "Return non-nil if the buffer content differs from the shadow IR."
+  "Return non-nil if the buffer content differs from the shadow IR.
+Uses content-based element keys so org-only metadata like markers
+and element IDs do not trigger false positives."
   (when gdocs-sync--shadow-ir
     (let ((current-ir (gdocs-convert-org-buffer-to-ir)))
-      (not (equal current-ir gdocs-sync--shadow-ir)))))
+      (not (equal (gdocs-diff--element-keys
+                   (gdocs-sync--filter-title current-ir))
+                  (gdocs-diff--element-keys
+                   (gdocs-sync--filter-title gdocs-sync--shadow-ir)))))))
 
 (defun gdocs-sync--replace-buffer-content (org-string remote-ir)
   "Replace buffer content with ORG-STRING and update shadow to REMOTE-IR."
