@@ -334,20 +334,70 @@ START-INDEX is the UTF-16 index where the first element begins
 
 (defun gdocs-diff--generate-requests (old-ir new-ir diff-ops start-index)
   "Generate batchUpdate requests from OLD-IR, NEW-IR, and DIFF-OPS.
-Returns a list of request plists with correct ordering: deletions
-in reverse index order, then insertions in forward order.
+All operations are grouped by their document index and processed
+from highest to lowest.  Each group's requests are kept together
+so that a modification's delete+insert+style sequence runs
+atomically before any lower-index operation can shift its indices.
 START-INDEX is the UTF-16 index where the first element begins."
   (let* ((old-indices (gdocs-diff--compute-element-indices old-ir start-index))
-         (deletions (gdocs-diff--collect-deletions diff-ops old-indices))
-         (modifications (gdocs-diff--collect-modifications
-                         diff-ops old-ir new-ir old-indices))
-         (insertions (gdocs-diff--collect-insertions
-                      diff-ops new-ir old-indices start-index)))
-    (append (gdocs-diff--sort-deletions-descending
-             (append deletions (plist-get modifications :delete-reqs)))
-            (plist-get modifications :style-reqs)
-            (gdocs-diff--sort-insertions-ascending
-             (append insertions (plist-get modifications :insert-reqs))))))
+         (groups nil))
+    ;; Pure deletions
+    (dolist (op diff-ops)
+      (when (eq (plist-get op :op) 'delete)
+        (let* ((oi (plist-get op :old-index))
+               (range (cdr (assq oi old-indices)))
+               (start (car range))
+               (end (1- (cdr range))))
+          (when (< start end)
+            (push (list :index start :priority 0
+                        :reqs (list (gdocs-diff--make-delete-request start end)))
+                  groups)))))
+    ;; Modifications (keep delete+insert+style together)
+    (dolist (op diff-ops)
+      (when (eq (plist-get op :op) 'modify)
+        (let* ((oi (plist-get op :old-index))
+               (ni (plist-get op :new-index))
+               (old-elem (nth oi old-ir))
+               (new-elem (nth ni new-ir))
+               (range (cdr (assq oi old-indices)))
+               (result (gdocs-diff--modification-requests
+                        old-elem new-elem range))
+               (reqs (append (plist-get result :delete-reqs)
+                             (plist-get result :insert-reqs)
+                             (plist-get result :style-reqs))))
+          (when reqs
+            (push (list :index (car range) :priority 0
+                        :reqs reqs)
+                  groups)))))
+    ;; Insertions
+    (dolist (op diff-ops)
+      (when (eq (plist-get op :op) 'insert)
+        (let* ((ni (plist-get op :new-index))
+               (element (nth ni new-ir))
+               (insert-index (gdocs-diff--insertion-point
+                              op diff-ops old-indices start-index))
+               (result (gdocs-convert--ir-element-to-requests
+                        element insert-index)))
+          (push (list :index insert-index :priority 1 :new-index ni
+                      :reqs (plist-get result :requests))
+                groups))))
+    ;; Sort: descending by index, then insertions after non-insertions
+    ;; at the same index, then higher new-index first for insertions.
+    (setq groups
+          (sort groups
+                (lambda (a b)
+                  (let ((ia (plist-get a :index))
+                        (ib (plist-get b :index)))
+                    (cond
+                     ((/= ia ib) (> ia ib))
+                     ((/= (plist-get a :priority) (plist-get b :priority))
+                      (< (plist-get a :priority) (plist-get b :priority)))
+                     ((and (= (plist-get a :priority) 1)
+                           (= (plist-get b :priority) 1))
+                      (> (or (plist-get a :new-index) 0)
+                         (or (plist-get b :new-index) 0)))
+                     (t nil))))))
+    (apply #'append (mapcar (lambda (g) (plist-get g :reqs)) groups))))
 
 ;; ---------------------------------------------------------------------------
 ;;; Deletion requests
