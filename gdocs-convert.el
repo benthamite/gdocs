@@ -72,6 +72,7 @@ Creates a temporary buffer, inserts STRING, and calls
       (list :type 'paragraph
             :style 'title
             :contents (list (gdocs-convert--make-plain-run title-kw))
+            :source 'metadata
             :id (gdocs-convert--next-id)))))
 
 (defun gdocs-convert--walk-org-data (ast)
