@@ -383,16 +383,15 @@ structural element."
              (gdocs-diff--request-start-index b)))))
 
 (defun gdocs-diff--request-start-index (request)
-  "Extract the startIndex from a REQUEST plist."
-  (let ((entry (car request)))
-    (cond
-     ((alist-get 'deleteContentRange entry)
-      (alist-get 'startIndex
-                 (alist-get 'range (alist-get 'deleteContentRange entry))))
-     ((alist-get 'insertText entry)
-      (alist-get 'index
-                 (alist-get 'location (alist-get 'insertText entry))))
-     (t 0))))
+  "Extract the startIndex from a REQUEST alist."
+  (cond
+   ((alist-get 'deleteContentRange request)
+    (alist-get 'startIndex
+               (alist-get 'range (alist-get 'deleteContentRange request))))
+   ((alist-get 'insertText request)
+    (alist-get 'index
+               (alist-get 'location (alist-get 'insertText request))))
+   (t 0)))
 
 ;; ---------------------------------------------------------------------------
 ;;; Insertion requests
