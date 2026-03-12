@@ -1065,12 +1065,12 @@ Returns an alist mapping element IDs to marker plists."
 ;; ---------------------------------------------------------------------------
 ;;; Public API: IR -> Google Docs batchUpdate requests
 
-(defun gdocs-convert-ir-to-docs-requests (ir)
+(defun gdocs-convert-ir-to-docs-requests (ir &optional start-index)
   "Convert an IR element list to Google Docs batchUpdate requests.
 Returns a list of request alists suitable for
-`gdocs-api-batch-update'.  Tracks a running UTF-16 insertion
-index starting at 1 (Google Docs body start)."
-  (let ((index 1)
+`gdocs-api-batch-update'.  START-INDEX is the UTF-16 index where
+the first element begins (default 1)."
+  (let ((index (or start-index 1))
         (requests nil))
     (dolist (element ir)
       (let ((result (gdocs-convert--ir-element-to-requests element index)))

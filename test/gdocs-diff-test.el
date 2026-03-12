@@ -294,5 +294,38 @@ ROWS is a list of lists of lists of run plists."
     (should (= (car range) 1))
     (should (= (cdr range) 6))))
 
+;;;; Start-index offset tests
+
+(ert-deftest gdocs-diff-test-start-index-offset ()
+  "Start-index shifts all generated indices."
+  (let* ((old-ir (list (gdocs-diff-test--make-paragraph "e1" "old")))
+         (new-ir (list (gdocs-diff-test--make-paragraph "e1" "new")))
+         (result (gdocs-diff-generate old-ir new-ir 20))
+         (delete-req (cl-find-if (lambda (req)
+                                   (alist-get 'deleteContentRange req))
+                                 result))
+         (insert-req (cl-find-if (lambda (req)
+                                   (alist-get 'insertText req))
+                                 result))
+         (del-range (alist-get 'range
+                               (alist-get 'deleteContentRange delete-req)))
+         (ins-loc (alist-get 'location
+                             (alist-get 'insertText insert-req))))
+    (should (= (alist-get 'startIndex del-range) 20))
+    (should (= (alist-get 'index ins-loc) 20))))
+
+(ert-deftest gdocs-diff-test-start-index-default ()
+  "Default start-index is 1."
+  (let* ((ir (list (gdocs-diff-test--make-paragraph "e1" "hello")))
+         (indices (gdocs-diff--compute-element-indices ir)))
+    (should (= (cadr (assq 0 indices)) 1))))
+
+(ert-deftest gdocs-diff-test-start-index-element-indices ()
+  "Custom start-index shifts element index computation."
+  (let* ((ir (list (gdocs-diff-test--make-paragraph "e1" "hello")))
+         (indices (gdocs-diff--compute-element-indices ir 10)))
+    (should (= (cadr (assq 0 indices)) 10))
+    (should (= (cddr (assq 0 indices)) 16))))
+
 (provide 'gdocs-diff-test)
 ;;; gdocs-diff-test.el ends here

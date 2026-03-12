@@ -27,19 +27,23 @@
 ;; ---------------------------------------------------------------------------
 ;;; Public API
 
-(defun gdocs-diff-generate (old-ir new-ir)
+(defun gdocs-diff-generate (old-ir new-ir &optional start-index)
   "Compare OLD-IR and NEW-IR and return batchUpdate request plists.
 OLD-IR and NEW-IR are flat lists of IR element plists.  Returns a
 list of request plists suitable for `gdocs-api-batch-update'.
-Falls back to full replacement when the diff is too complex."
-  (let* ((old-keys (gdocs-diff--element-keys old-ir))
+Falls back to full replacement when the diff is too complex.
+START-INDEX is the UTF-16 index where the first element begins in
+the document (default 1).  This should account for title elements
+or other content that precedes the IR."
+  (let* ((idx (or start-index 1))
+         (old-keys (gdocs-diff--element-keys old-ir))
          (new-keys (gdocs-diff--element-keys new-ir))
          (lcs-pairs (gdocs-diff--lcs old-keys new-keys))
          (diff-ops (gdocs-diff--classify-operations
                     old-ir new-ir lcs-pairs)))
     (if (gdocs-diff--should-use-full-replace-p old-ir new-ir diff-ops)
-        (gdocs-diff--full-replace-requests old-ir new-ir)
-      (gdocs-diff--generate-requests old-ir new-ir diff-ops))))
+        (gdocs-diff--full-replace-requests old-ir new-ir idx)
+      (gdocs-diff--generate-requests old-ir new-ir diff-ops idx))))
 
 ;; ---------------------------------------------------------------------------
 ;;; Element keys
@@ -225,11 +229,11 @@ They must be adjacent delete+insert operations."
 ;; ---------------------------------------------------------------------------
 ;;; Element index computation
 
-(defun gdocs-diff--compute-element-indices (ir)
+(defun gdocs-diff--compute-element-indices (ir &optional start-index)
   "Compute start and end UTF-16 indices for each element in IR.
-Returns an alist of (ELEMENT-INDEX . (START . END)).  The
-document body starts at index 1."
-  (let ((index 1)
+Returns an alist of (ELEMENT-INDEX . (START . END)).  START-INDEX
+is the UTF-16 index where the first element begins (default 1)."
+  (let ((index (or start-index 1))
         (result nil)
         (i 0))
     (dolist (element ir)
@@ -285,15 +289,17 @@ elements changed and there are enough elements to justify it."
 ;; ---------------------------------------------------------------------------
 ;;; Full replacement requests
 
-(defun gdocs-diff--full-replace-requests (old-ir new-ir)
-  "Generate delete-all + insert-all requests for OLD-IR to NEW-IR."
-  (let ((delete-reqs (gdocs-diff--delete-all-requests old-ir))
-        (insert-reqs (gdocs-diff--insert-all-requests new-ir)))
+(defun gdocs-diff--full-replace-requests (old-ir new-ir start-index)
+  "Generate delete-all + insert-all requests for OLD-IR to NEW-IR.
+START-INDEX is the UTF-16 index where the first element begins."
+  (let ((delete-reqs (gdocs-diff--delete-all-requests old-ir start-index))
+        (insert-reqs (gdocs-diff--insert-all-requests new-ir start-index)))
     (append delete-reqs insert-reqs)))
 
-(defun gdocs-diff--delete-all-requests (old-ir)
-  "Generate a single delete request covering all content in OLD-IR."
-  (let ((indices (gdocs-diff--compute-element-indices old-ir)))
+(defun gdocs-diff--delete-all-requests (old-ir start-index)
+  "Generate a single delete request covering all content in OLD-IR.
+START-INDEX is the UTF-16 index where the first element begins."
+  (let ((indices (gdocs-diff--compute-element-indices old-ir start-index)))
     (when indices
       (let* ((first-entry (cdar indices))
              (last-entry (cdar (last indices)))
@@ -302,10 +308,11 @@ elements changed and there are enough elements to justify it."
         (when (< start end)
           (list (gdocs-diff--make-delete-request start end)))))))
 
-(defun gdocs-diff--insert-all-requests (new-ir)
-  "Generate insert requests for all elements in NEW-IR starting at index 1."
+(defun gdocs-diff--insert-all-requests (new-ir start-index)
+  "Generate insert requests for all elements in NEW-IR.
+START-INDEX is the UTF-16 index where the first element begins."
   (let ((requests nil)
-        (index 1))
+        (index start-index))
     (dolist (element new-ir)
       (let ((result (gdocs-convert--ir-element-to-requests element index)))
         (setq requests (append requests (plist-get result :requests)))
@@ -315,22 +322,25 @@ elements changed and there are enough elements to justify it."
 ;; ---------------------------------------------------------------------------
 ;;; Request generation from diff operations
 
-(defun gdocs-diff-generate-requests (old-ir new-ir diff-ops)
+(defun gdocs-diff-generate-requests (old-ir new-ir diff-ops &optional start-index)
   "Generate batchUpdate requests from OLD-IR, NEW-IR, and DIFF-OPS.
 Returns a list of request plists with correct ordering: deletions
-in reverse index order, then insertions in forward order."
-  (gdocs-diff--generate-requests old-ir new-ir diff-ops))
+in reverse index order, then insertions in forward order.
+START-INDEX is the UTF-16 index where the first element begins
+\(default 1)."
+  (gdocs-diff--generate-requests old-ir new-ir diff-ops (or start-index 1)))
 
-(defun gdocs-diff--generate-requests (old-ir new-ir diff-ops)
+(defun gdocs-diff--generate-requests (old-ir new-ir diff-ops start-index)
   "Generate batchUpdate requests from OLD-IR, NEW-IR, and DIFF-OPS.
 Returns a list of request plists with correct ordering: deletions
-in reverse index order, then insertions in forward order."
-  (let* ((old-indices (gdocs-diff--compute-element-indices old-ir))
+in reverse index order, then insertions in forward order.
+START-INDEX is the UTF-16 index where the first element begins."
+  (let* ((old-indices (gdocs-diff--compute-element-indices old-ir start-index))
          (deletions (gdocs-diff--collect-deletions diff-ops old-indices))
          (modifications (gdocs-diff--collect-modifications
                          diff-ops old-ir new-ir old-indices))
          (insertions (gdocs-diff--collect-insertions
-                      diff-ops new-ir old-indices)))
+                      diff-ops new-ir old-indices start-index)))
     (append (gdocs-diff--sort-deletions-descending
              (append deletions (plist-get modifications :delete-reqs)))
             (plist-get modifications :style-reqs)
@@ -382,17 +392,19 @@ OLD-INDICES is the index alist."
 ;; ---------------------------------------------------------------------------
 ;;; Insertion requests
 
-(defun gdocs-diff--collect-insertions (diff-ops new-ir old-indices)
+(defun gdocs-diff--collect-insertions (diff-ops new-ir old-indices start-index)
   "Collect insert requests for :insert operations in DIFF-OPS.
 NEW-IR is the new element list.  OLD-INDICES is the index alist.
-Computes insertion points based on preceding kept elements."
+START-INDEX is the fallback insertion index when inserting before
+all kept elements.  Computes insertion points based on preceding
+kept elements."
   (let ((requests nil))
     (dolist (op diff-ops)
       (when (eq (plist-get op :op) 'insert)
         (let* ((ni (plist-get op :new-index))
                (element (nth ni new-ir))
                (insert-index (gdocs-diff--insertion-point
-                              op diff-ops old-indices)))
+                              op diff-ops old-indices start-index)))
           (setq requests
                 (append requests
                         (plist-get
@@ -401,17 +413,17 @@ Computes insertion points based on preceding kept elements."
                          :requests))))))
     requests))
 
-(defun gdocs-diff--insertion-point (op diff-ops old-indices)
+(defun gdocs-diff--insertion-point (op diff-ops old-indices start-index)
   "Determine the document index at which to insert for OP.
 DIFF-OPS is the full operation list.  OLD-INDICES maps old
-element indices to document ranges.  Finds the preceding kept
-element's end index, or 1 if inserting at the start."
+element indices to document ranges.  START-INDEX is the fallback
+index when inserting before all kept elements."
   (let ((preceding-old-index (gdocs-diff--preceding-kept-old-index
                               op diff-ops)))
     (if preceding-old-index
         (let ((range (cdr (assq preceding-old-index old-indices))))
           (cdr range))
-      1)))
+      start-index)))
 
 (defun gdocs-diff--preceding-kept-old-index (op diff-ops)
   "Find the old-index of the nearest preceding :keep operation before OP.

@@ -101,9 +101,11 @@ BUF is the originating buffer."
 (defun gdocs-sync--push-incremental (current-ir buf)
   "Push CURRENT-IR as an incremental diff against the shadow.
 BUF is the originating buffer."
-  (let ((requests (gdocs-diff-generate
-                   (gdocs-sync--filter-title gdocs-sync--shadow-ir)
-                   (gdocs-sync--filter-title current-ir))))
+  (let* ((start-index (gdocs-sync--body-start-index gdocs-sync--shadow-ir))
+         (requests (gdocs-diff-generate
+                    (gdocs-sync--filter-title gdocs-sync--shadow-ir)
+                    (gdocs-sync--filter-title current-ir)
+                    start-index)))
     (if (null requests)
         (gdocs-sync--push-no-changes buf)
       (gdocs-api-batch-update
@@ -361,6 +363,18 @@ Otherwise return ID-OR-URL as-is."
     (setq gdocs-sync--last-sync-time gdocs-last-sync)))
 
 ;;;; Title filtering
+
+(defun gdocs-sync--body-start-index (ir)
+  "Compute the UTF-16 index where non-title body content starts.
+Title elements occupy space in the Google Doc but are filtered
+from the IR before diffing.  This function returns the index
+after all title elements, so that the diff engine generates
+correct document indices."
+  (let ((offset 0))
+    (dolist (element ir)
+      (when (eq (plist-get element :style) 'title)
+        (setq offset (+ offset (gdocs-diff--element-utf16-length element)))))
+    (+ 1 offset)))
 
 (defun gdocs-sync--filter-title (ir)
   "Return IR with title elements removed.
