@@ -831,9 +831,16 @@ ELEMENTS may be a list or a vector."
           (push (gdocs-convert--docs-text-run-to-ir text-run) runs))))
     (nreverse runs)))
 
+(defun gdocs-convert--strip-vertical-tabs (text)
+  "Replace vertical tab characters in TEXT with newlines.
+Google Docs uses vertical tabs (^K, U+000B) for soft line breaks
+within paragraphs."
+  (replace-regexp-in-string "\v" "\n" text))
+
 (defun gdocs-convert--docs-text-run-to-ir (text-run)
   "Convert a Google Docs TEXT-RUN to an IR text run plist."
-  (let* ((content (alist-get 'content text-run))
+  (let* ((content (gdocs-convert--strip-vertical-tabs
+                   (alist-get 'content text-run)))
          (style (alist-get 'textStyle text-run))
          (link-obj (alist-get 'link style))
          (url (when link-obj (alist-get 'url link-obj))))

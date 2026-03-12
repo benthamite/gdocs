@@ -90,7 +90,8 @@ Return non-nil if the push was serialized (caller should abort)."
 (defun gdocs-sync--push-full-replacement (current-ir buf)
   "Push CURRENT-IR as a full document replacement.
 BUF is the originating buffer."
-  (let ((requests (gdocs-convert-ir-to-docs-requests current-ir)))
+  (let ((requests (gdocs-convert-ir-to-docs-requests
+                   (gdocs-sync--filter-title current-ir))))
     (gdocs-api-batch-update
      gdocs-sync--document-id
      requests
@@ -100,7 +101,9 @@ BUF is the originating buffer."
 (defun gdocs-sync--push-incremental (current-ir buf)
   "Push CURRENT-IR as an incremental diff against the shadow.
 BUF is the originating buffer."
-  (let ((requests (gdocs-diff-generate gdocs-sync--shadow-ir current-ir)))
+  (let ((requests (gdocs-diff-generate
+                   (gdocs-sync--filter-title gdocs-sync--shadow-ir)
+                   (gdocs-sync--filter-title current-ir))))
     (if (null requests)
         (gdocs-sync--push-no-changes buf)
       (gdocs-api-batch-update
@@ -356,6 +359,16 @@ Otherwise return ID-OR-URL as-is."
     (setq gdocs-sync--revision-id gdocs-revision-id))
   (when (bound-and-true-p gdocs-last-sync)
     (setq gdocs-sync--last-sync-time gdocs-last-sync)))
+
+;;;; Title filtering
+
+(defun gdocs-sync--filter-title (ir)
+  "Return IR with title elements removed.
+The document title comes from metadata, not the body.  Including
+it in the IR causes index misalignment during diff and push."
+  (cl-remove-if (lambda (element)
+                  (eq (plist-get element :style) 'title))
+                ir))
 
 (provide 'gdocs-sync)
 ;;; gdocs-sync.el ends here

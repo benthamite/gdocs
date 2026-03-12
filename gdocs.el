@@ -181,7 +181,8 @@ name."
         (ir (gdocs-convert-org-buffer-to-ir)))
     (gdocs-api-batch-update
      doc-id
-     (gdocs-convert-ir-to-docs-requests ir)
+     (gdocs-convert-ir-to-docs-requests
+      (gdocs-sync--filter-title ir))
      (lambda (_response)
        (with-current-buffer (current-buffer)
          (gdocs-sync--write-file-local-vars doc-id account)
