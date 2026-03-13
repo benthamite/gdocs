@@ -202,7 +202,8 @@ MIME-TYPE is the file's MIME type."
 CALLBACK is called with the parsed JSON response.  ACCOUNT is an
 optional account name."
   (gdocs-api-list-files
-   (format "fullText contains '%s'" query)
+   (format "fullText contains '%s'"
+           (replace-regexp-in-string "'" "\\\\'" query))
    callback
    account))
 
@@ -339,6 +340,18 @@ Return the value as an integer, or nil if the header is absent."
 (defvar gdocs-api--active-requests 0
   "Count of currently active API requests.")
 
+(defvar gdocs-api--modeline-string ""
+  "String shown in the global mode line during API requests.")
+
+(defun gdocs-api--init-modeline ()
+  "Register `gdocs-api--modeline-string' in `global-mode-string'."
+  (unless (memq 'gdocs-api--modeline-string global-mode-string)
+    (or global-mode-string (setq global-mode-string '("")))
+    (setq global-mode-string
+          (append global-mode-string '(gdocs-api--modeline-string)))))
+
+(gdocs-api--init-modeline)
+
 (defun gdocs-api--show-progress ()
   "Increment the active request count and update the modeline."
   (cl-incf gdocs-api--active-requests)
@@ -353,10 +366,10 @@ Return the value as an integer, or nil if the header is absent."
 
 (defun gdocs-api--update-modeline ()
   "Update the modeline to reflect active API request status."
-  (setq global-mode-string
+  (setq gdocs-api--modeline-string
         (if (> gdocs-api--active-requests 0)
-            (list (format " [GDocs: syncing...]"))
-          nil))
+            " [GDocs: syncing...]"
+          ""))
   (force-mode-line-update t))
 
 (provide 'gdocs-api)

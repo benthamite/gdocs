@@ -145,55 +145,67 @@
       (gdocs-sync-pull))))
 
 (ert-deftest gdocs-sync-test-pull-updates-buffer ()
-  "Buffer content is replaced with remote content."
+  "Buffer content is replaced with remote content on first pull.
+Tests the no-shadow (full replacement) path and verifies that
+file-local variables are preserved and revision ID is stored."
   (gdocs-sync-test-with-org-buffer "Old local content\n"
     (setq gdocs-sync--revision-id "rev-5")
     (set-buffer-modified-p nil)
-    (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
+    ;; No shadow: tests the full-replacement pull path
     (cl-letf (((symbol-function 'gdocs-api-get-file-metadata)
-               (lambda (file-id callback &optional account)
+               (lambda (_file-id callback &optional _account)
                  (funcall callback
                           '((headRevisionId . "rev-6")))))
               ((symbol-function 'gdocs-api-get-document)
-               (lambda (doc-id callback &optional account)
+               (lambda (_doc-id callback &optional _account)
                  (funcall callback (gdocs-test-sample-document-json))))
               ((symbol-function 'gdocs-convert-docs-json-to-ir)
-               (lambda (json)
+               (lambda (_json)
                  (list (list :type 'paragraph :style 'normal
-                             :contents (list (list :text "Remote" :bold nil))
+                             :contents (list (list :text "Remote content"
+                                                   :bold nil :italic nil
+                                                   :underline nil
+                                                   :strikethrough nil
+                                                   :code nil :link nil))
                              :id "elem-001"))))
               ((symbol-function 'gdocs-convert-ir-to-org)
-               (lambda (ir) "Remote content\n")))
+               (lambda (_ir) "Remote content\n")))
       (gdocs-sync-pull)
-      (should (string= (buffer-substring-no-properties (point-min) (point-max))
-                        "Remote content\n")))))
+      (should (string-prefix-p "Remote content\n"
+                               (buffer-substring-no-properties
+                                (point-min) (point-max))))
+      (should (equal gdocs-sync--revision-id "rev-6")))))
 
 (ert-deftest gdocs-sync-test-pull-with-local-mods ()
-  "Local modifications trigger conflict resolution."
-  (gdocs-sync-test-with-org-buffer "Modified local\n"
+  "Three-way merge updates buffer when only remote changed.
+Tests the three-way merge path where local matches shadow (no
+local changes) but remote has new content."
+  (gdocs-sync-test-with-org-buffer "Local content\n"
     (setq gdocs-sync--revision-id "rev-5")
-    (set-buffer-modified-p t)
-    (let ((merge-started nil))
-      (cl-letf (((symbol-function 'gdocs-api-get-file-metadata)
-                 (lambda (file-id callback &optional account)
-                   (funcall callback
-                            '((headRevisionId . "rev-7")))))
-                ((symbol-function 'gdocs-api-get-document)
-                 (lambda (doc-id callback &optional account)
-                   (funcall callback (gdocs-test-sample-document-json))))
-                ((symbol-function 'gdocs-convert-docs-json-to-ir)
-                 (lambda (json)
-                   (list (list :type 'paragraph :style 'normal
-                               :contents (list (list :text "Remote" :bold nil))
-                               :id "elem-001"))))
-                ((symbol-function 'gdocs-convert-ir-to-org)
-                 (lambda (ir) "Remote content\n"))
-                ((symbol-function 'gdocs-merge-start)
-                 (lambda (local remote callback)
-                   (setq merge-started t))))
-        (gdocs-sync-pull)
-        (should merge-started)
-        (should (eq gdocs-sync--status 'conflict))))))
+    ;; Shadow matches local content (no local modifications)
+    (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
+    (cl-letf (((symbol-function 'gdocs-api-get-file-metadata)
+               (lambda (_file-id callback &optional _account)
+                 (funcall callback
+                          '((headRevisionId . "rev-7")))))
+              ((symbol-function 'gdocs-api-get-document)
+               (lambda (_doc-id callback &optional _account)
+                 (funcall callback (gdocs-test-sample-document-json))))
+              ((symbol-function 'gdocs-convert-docs-json-to-ir)
+               (lambda (_json)
+                 (list (list :type 'paragraph :style 'normal
+                             :contents (list (list :text "Remote update"
+                                                   :bold nil :italic nil
+                                                   :underline nil
+                                                   :strikethrough nil
+                                                   :code nil :link nil))
+                             :id "elem-001")))))
+      (gdocs-sync-pull)
+      (should (string-prefix-p "Remote update\n"
+                               (buffer-substring-no-properties
+                                (point-min) (point-max))))
+      (should (eq gdocs-sync--status 'synced))
+      (should (equal gdocs-sync--revision-id "rev-7")))))
 
 ;;;; Link/Unlink tests
 

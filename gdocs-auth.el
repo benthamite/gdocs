@@ -166,10 +166,12 @@ otherwise."
 (defun gdocs-auth--write-token-file (account data)
   "Write token DATA to the token file for ACCOUNT.
 DATA is an alist that will be serialized as JSON.  The file is
-created with 600 permissions.  Parent directories are created as
-needed."
-  (let ((path (gdocs-auth--token-file-path account)))
-    (make-directory (file-name-directory path) t)
+created with 600 permissions inside a 700 directory.  Parent
+directories are created as needed."
+  (let ((path (gdocs-auth--token-file-path account))
+        (dir (file-name-directory (gdocs-auth--token-file-path account))))
+    (make-directory dir t)
+    (set-file-modes dir #o700)
     (with-temp-file path
       (insert (json-encode data)))
     (set-file-modes path #o600)))

@@ -221,48 +221,50 @@ pushes are not blocked."
   (let ((remote-rev (alist-get 'headRevisionId metadata)))
     (if (gdocs-sync--revision-matches-p remote-rev)
         (message "Already up to date.")
-      (gdocs-sync--fetch-document-for-pull))))
+      (gdocs-sync--fetch-document-for-pull remote-rev))))
 
 (defun gdocs-sync--revision-matches-p (remote-rev)
   "Return non-nil if REMOTE-REV matches the stored revision."
   (and gdocs-sync--revision-id
        (equal gdocs-sync--revision-id remote-rev)))
 
-(defun gdocs-sync--fetch-document-for-pull ()
-  "Fetch the full document for a pull operation."
-  (let ((buf (current-buffer)))
+(defun gdocs-sync--fetch-document-for-pull (revision-id)
+  "Fetch the full document for a pull operation.
+REVISION-ID is the remote revision to store on success."
+  (let ((buf (current-buffer))
+        (rev revision-id))
     (gdocs-api-get-document
      gdocs-sync--document-id
      (lambda (json)
        (with-current-buffer buf
-         (gdocs-sync--apply-pull json)))
+         (gdocs-sync--apply-pull json rev)))
      gdocs-sync--account)))
 
-(defun gdocs-sync--apply-pull (json)
+(defun gdocs-sync--apply-pull (json revision-id)
   "Apply the pulled document JSON to the current buffer.
+REVISION-ID is the remote revision to store on success.
 Uses the shadow IR to detect what actually changed remotely.
 When a shadow exists, performs a three-way merge that preserves
 org-only metadata (property drawers, TODO keywords, tags, etc.)
 on elements that were not changed remotely."
-  (let* ((remote-ir (gdocs-convert-docs-json-to-ir json))
-         (rev-id (alist-get 'revisionId json)))
+  (let ((remote-ir (gdocs-convert-docs-json-to-ir json)))
     (if (gdocs-sync--remote-unchanged-p remote-ir)
         (progn
-          (when rev-id
-            (setq gdocs-sync--revision-id rev-id))
+          (when revision-id
+            (setq gdocs-sync--revision-id revision-id))
           (gdocs-sync--set-status 'synced)
           (message "Already up to date."))
       (if (null gdocs-sync--shadow-ir)
           ;; No shadow (first pull after link): full replacement
           (gdocs-sync--replace-buffer-content
-           (gdocs-convert-ir-to-org remote-ir) remote-ir)
+           (gdocs-convert-ir-to-org remote-ir) remote-ir revision-id)
         ;; Have shadow: three-way merge
         (let ((result (gdocs-sync--three-way-merge remote-ir)))
           (if (plist-get result :has-conflicts)
               (gdocs-sync--start-conflict-resolution
                (plist-get result :merged-org))
             (gdocs-sync--replace-buffer-content
-             (plist-get result :merged-org) remote-ir)))))))
+             (plist-get result :merged-org) remote-ir revision-id)))))))
 
 (defun gdocs-sync--remote-unchanged-p (remote-ir)
   "Return non-nil if REMOTE-IR matches the shadow IR.
@@ -292,13 +294,23 @@ and element IDs do not trigger false positives."
                   (gdocs-diff--element-keys
                    (gdocs-sync--filter-title gdocs-sync--shadow-ir)))))))
 
-(defun gdocs-sync--replace-buffer-content (org-string remote-ir)
-  "Replace buffer content with ORG-STRING and update shadow to REMOTE-IR."
-  (let ((inhibit-modification-hooks t))
+(defun gdocs-sync--replace-buffer-content (org-string remote-ir
+                                                      &optional revision-id)
+  "Replace buffer content with ORG-STRING and update shadow to REMOTE-IR.
+REVISION-ID, if non-nil, is stored as the current revision."
+  (let ((inhibit-modification-hooks t)
+        (doc-id gdocs-sync--document-id)
+        (acct gdocs-sync--account))
     (erase-buffer)
     (insert org-string)
+    ;; Ensure file-local variables are present (idempotent if
+    ;; org-string already contains them via the postamble).
+    (when doc-id
+      (gdocs-sync--write-file-local-vars doc-id acct))
     (set-buffer-modified-p nil))
   (setq gdocs-sync--shadow-ir remote-ir)
+  (when revision-id
+    (setq gdocs-sync--revision-id revision-id))
   (gdocs-sync--update-last-sync-time)
   (gdocs-sync--set-status 'synced)
   (message "Pulled remote changes."))

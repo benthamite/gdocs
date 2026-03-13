@@ -113,27 +113,21 @@ Each hunk is a plist with :local-text, :remote-text, :choice nil,
         (push (gdocs-merge--make-common-hunk common-line) hunks)
         (cl-incf li)
         (cl-incf ri)))
-    (gdocs-merge--collect-trailing-hunks hunks local-lines remote-lines li ri)
+    ;; Collect trailing lines after the last LCS match
+    (let ((local-tail nil)
+          (remote-tail nil))
+      (while (< li (length local-lines))
+        (push (nth li local-lines) local-tail)
+        (cl-incf li))
+      (while (< ri (length remote-lines))
+        (push (nth ri remote-lines) remote-tail)
+        (cl-incf ri))
+      (when (or local-tail remote-tail)
+        (push (gdocs-merge--make-hunk
+               (s-join "\n" (nreverse local-tail))
+               (s-join "\n" (nreverse remote-tail)))
+              hunks)))
     (nreverse hunks)))
-
-(defun gdocs-merge--collect-trailing-hunks (hunks local-lines remote-lines li ri)
-  "Collect remaining lines after LCS processing into HUNKS.
-LOCAL-LINES and REMOTE-LINES are the original line lists.  LI
-and RI are the current indices.  Modifies HUNKS in place by
-pushing."
-  (let ((local-tail nil)
-        (remote-tail nil))
-    (while (< li (length local-lines))
-      (push (nth li local-lines) local-tail)
-      (cl-incf li))
-    (while (< ri (length remote-lines))
-      (push (nth ri remote-lines) remote-tail)
-      (cl-incf ri))
-    (when (or local-tail remote-tail)
-      (push (gdocs-merge--make-hunk
-             (s-join "\n" (nreverse local-tail))
-             (s-join "\n" (nreverse remote-tail)))
-            hunks))))
 
 (defun gdocs-merge--make-hunk (local-text remote-text)
   "Create a conflict hunk plist from LOCAL-TEXT and REMOTE-TEXT."
@@ -171,21 +165,24 @@ Elements are compared with `equal'.  Return a list."
                      (aref (aref table (1+ i)) j))))))
     (gdocs-merge--lcs-backtrack table xs ys m n)))
 
-(defun gdocs-merge--lcs-backtrack (table xs ys i j)
+(defun gdocs-merge--lcs-backtrack (table xs ys m n)
   "Backtrack through TABLE to extract the LCS.
-XS and YS are the original lists.  I and J are the current
-table indices."
-  (cond
-   ((or (= i 0) (= j 0))
-    nil)
-   ((equal (nth (1- i) xs) (nth (1- j) ys))
-    (append (gdocs-merge--lcs-backtrack table xs ys (1- i) (1- j))
-            (list (nth (1- i) xs))))
-   ((> (aref (aref table (1- i)) j)
-       (aref (aref table i) (1- j)))
-    (gdocs-merge--lcs-backtrack table xs ys (1- i) j))
-   (t
-    (gdocs-merge--lcs-backtrack table xs ys i (1- j)))))
+XS and YS are the original lists.  M and N are their lengths."
+  (let ((result nil)
+        (i m)
+        (j n))
+    (while (and (> i 0) (> j 0))
+      (cond
+       ((equal (nth (1- i) xs) (nth (1- j) ys))
+        (push (nth (1- i) xs) result)
+        (setq i (1- i)
+              j (1- j)))
+       ((> (aref (aref table (1- i)) j)
+           (aref (aref table i) (1- j)))
+        (setq i (1- i)))
+       (t
+        (setq j (1- j)))))
+    result))
 
 ;;;; Buffer setup
 
