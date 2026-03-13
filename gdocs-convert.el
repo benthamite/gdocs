@@ -80,7 +80,7 @@ Creates a temporary buffer, inserts STRING, and calls
   (let ((result nil))
     (org-element-map ast '(headline paragraph plain-list table
                            horizontal-rule keyword src-block
-                           quote-block)
+                           example-block quote-block)
       (lambda (el)
         (let ((parent-type (org-element-type (org-element-parent el))))
           (pcase (org-element-type el)
@@ -109,6 +109,10 @@ Creates a temporary buffer, inserts STRING, and calls
                (push (gdocs-convert--quote-block-to-ir el) result)))
             ('src-block
              (push (gdocs-convert--src-block-to-ir el) result))
+            ('example-block
+             (setq result (nconc (nreverse
+                                  (gdocs-convert--example-block-to-ir el))
+                                 result)))
             ('keyword
              (when (gdocs-convert--preservable-keyword-p el)
                (push (gdocs-convert--keyword-to-ir el) result)))
@@ -183,7 +187,7 @@ The result is sorted by buffer position."
   (let ((result nil))
     (org-element-map ast '(headline paragraph plain-list table
                            horizontal-rule keyword src-block
-                           quote-block)
+                           example-block quote-block)
       (lambda (el)
         (let ((parent-type (org-element-type (org-element-parent el))))
           (pcase (org-element-type el)
@@ -221,6 +225,10 @@ The result is sorted by buffer position."
              (push (list :ir (gdocs-convert--src-block-to-ir el)
                          :begin (org-element-property :begin el))
                    result))
+            ('example-block
+             (let ((begin (org-element-property :begin el)))
+               (dolist (ir-elem (gdocs-convert--example-block-to-ir el))
+                 (push (list :ir ir-elem :begin begin) result))))
             ('keyword
              (when (gdocs-convert--preservable-keyword-p el)
                (push (list :ir (gdocs-convert--keyword-to-ir el)
@@ -693,6 +701,20 @@ Skips horizontal rule rows."
                               :data (list :language language
                                           :value value))
           :id (gdocs-convert--next-id))))
+
+(defun gdocs-convert--example-block-to-ir (example-block)
+  "Convert an EXAMPLE-BLOCK to a list of monospace paragraph IR elements.
+Each line becomes a separate paragraph with a code run, matching
+the Google Docs representation."
+  (let* ((value (or (org-element-property :value example-block) ""))
+         (lines (split-string (s-trim-right value) "\n")))
+    (mapcar (lambda (line)
+              (list :type 'paragraph
+                    :style 'normal
+                    :contents (list (gdocs-convert--make-run
+                                    line (list :code t)))
+                    :id (gdocs-convert--next-id)))
+            lines)))
 
 (defun gdocs-convert--keyword-to-ir (keyword)
   "Convert a preservable org KEYWORD to an IR element with a marker."
