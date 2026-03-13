@@ -743,22 +743,29 @@ grouped into a single =#+BEGIN_EXAMPLE= block."
         (len (length ir)))
     (while (< i len)
       (let ((element (aref elements i)))
-        (if (gdocs-convert--all-code-paragraph-p element)
-            ;; Collect consecutive all-code paragraphs into an example block
-            (let ((code-lines nil))
-              (while (and (< i len)
-                          (gdocs-convert--all-code-paragraph-p
-                           (aref elements i)))
-                (push (gdocs-convert--plain-text (aref elements i))
-                      code-lines)
-                (setq i (1+ i)))
-              (when (and parts prev-type)
-                (push "" parts))
-              (push (format "#+BEGIN_EXAMPLE\n%s\n#+END_EXAMPLE"
-                            (s-join "\n" (nreverse code-lines)))
-                    parts)
-              (setq prev-type 'paragraph))
-          ;; Normal element
+        (cond
+         ;; Empty paragraph (nil contents): skip in org output but
+         ;; preserve in IR for correct index computation.
+         ((and (eq (plist-get element :type) 'paragraph)
+               (null (plist-get element :contents)))
+          (setq i (1+ i)))
+         ;; Collect consecutive all-code paragraphs into an example block
+         ((gdocs-convert--all-code-paragraph-p element)
+          (let ((code-lines nil))
+            (while (and (< i len)
+                        (gdocs-convert--all-code-paragraph-p
+                         (aref elements i)))
+              (push (gdocs-convert--plain-text (aref elements i))
+                    code-lines)
+              (setq i (1+ i)))
+            (when (and parts prev-type)
+              (push "" parts))
+            (push (format "#+BEGIN_EXAMPLE\n%s\n#+END_EXAMPLE"
+                          (s-join "\n" (nreverse code-lines)))
+                  parts)
+            (setq prev-type 'paragraph)))
+         ;; Normal element
+         (t
           (let* ((type (plist-get element :type))
                  (needs-blank (gdocs-convert--needs-blank-line-p
                                prev-type element))
@@ -767,7 +774,7 @@ grouped into a single =#+BEGIN_EXAMPLE= block."
               (push "" parts))
             (push org-text parts)
             (setq prev-type type))
-          (setq i (1+ i)))))
+          (setq i (1+ i))))))
     (concat (s-join "\n" (nreverse parts)) "\n")))
 
 (defun gdocs-convert--all-code-paragraph-p (element)
@@ -1054,12 +1061,11 @@ named-range marker data."
          (list-info (when bullet
                       (gdocs-convert--docs-bullet-to-list
                        bullet lists-map))))
-    (when trimmed
-      (append (list :type 'paragraph
-                    :style (if list-info 'normal ir-style)
-                    :contents trimmed
-                    :id (gdocs-convert--next-id))
-              (when list-info (list :list list-info))))))
+    (append (list :type 'paragraph
+                  :style (if list-info 'normal ir-style)
+                  :contents (or trimmed nil)
+                  :id (gdocs-convert--next-id))
+            (when list-info (list :list list-info)))))
 
 (defun gdocs-convert--docs-style-to-ir (named-style)
   "Convert a Google Docs NAMED-STYLE string to an IR style symbol."
