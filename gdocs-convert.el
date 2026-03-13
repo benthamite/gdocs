@@ -88,9 +88,8 @@ Creates a temporary buffer, inserts STRING, and calls
              (push (gdocs-convert--headline-to-ir el) result))
             ('paragraph
              (when (gdocs-convert--top-level-paragraph-p el)
-               (let ((ir (gdocs-convert--paragraph-to-ir el)))
-                 (when ir
-                   (push ir result)))))
+               (dolist (ir (gdocs-convert--paragraph-to-ir el))
+                 (push ir result))))
             ('plain-list
              (when (gdocs-convert--top-level-list-p el)
                ;; Prepend reversed sub-list; final nreverse restores order
@@ -197,11 +196,9 @@ The result is sorted by buffer position."
                    result))
             ('paragraph
              (when (gdocs-convert--top-level-paragraph-p el)
-               (let ((ir (gdocs-convert--paragraph-to-ir el)))
-                 (when ir
-                   (push (list :ir ir
-                               :begin (org-element-property :begin el))
-                         result)))))
+               (let ((begin (org-element-property :begin el)))
+                 (dolist (ir (gdocs-convert--paragraph-to-ir el))
+                   (push (list :ir ir :begin begin) result)))))
             ('plain-list
              (when (gdocs-convert--top-level-list-p el)
                (dolist (entry (gdocs-convert--plain-list-positioned el 0))
@@ -364,16 +361,21 @@ Returns nil if the headline has no preservable metadata."
 ;;; Paragraph -> IR
 
 (defun gdocs-convert--paragraph-to-ir (paragraph)
-  "Convert an org PARAGRAPH element to an IR element.
-Returns nil if the paragraph contains only whitespace."
+  "Convert an org PARAGRAPH element to a list of IR elements.
+Multi-line inline code paragraphs (consecutive ~...~ lines) are
+split into individual monospace paragraphs.  Returns nil if the
+paragraph contains only whitespace."
   (let* ((contents (org-element-contents paragraph))
          (runs (gdocs-convert--objects-to-runs contents))
          (trimmed (gdocs-convert--trim-runs runs)))
-    (when trimmed
-      (list :type 'paragraph
-            :style (gdocs-convert--paragraph-style paragraph)
-            :contents trimmed
-            :id (gdocs-convert--next-id)))))
+    (cond
+     ((null trimmed) nil)
+     ((gdocs-convert--multiline-code-paragraph-p trimmed)
+      (gdocs-convert--split-code-paragraph-runs trimmed))
+     (t (list (list :type 'paragraph
+                    :style (gdocs-convert--paragraph-style paragraph)
+                    :contents trimmed
+                    :id (gdocs-convert--next-id)))))))
 
 (defun gdocs-convert--paragraph-style (paragraph)
   "Determine the IR style for PARAGRAPH based on its context."
@@ -381,6 +383,39 @@ Returns nil if the paragraph contains only whitespace."
     (if (eq (org-element-type parent) 'quote-block)
         'quote
       'normal)))
+
+(defun gdocs-convert--multiline-code-paragraph-p (runs)
+  "Return non-nil if RUNS represent consecutive inline code lines.
+Detected when all non-code runs are whitespace-only and at least
+one contains a newline, indicating multiple ~...~ lines parsed as
+one paragraph by org-element."
+  (and runs
+       (cl-some (lambda (r)
+                  (and (not (plist-get r :code))
+                       (string-match-p "\n" (plist-get r :text))))
+                runs)
+       (cl-every (lambda (r)
+                   (or (plist-get r :code)
+                       (string-blank-p (plist-get r :text))))
+                 runs)))
+
+(defun gdocs-convert--split-code-paragraph-runs (runs)
+  "Split multi-line inline code RUNS into individual code paragraphs.
+Concatenates all run text and splits by newlines.  Each line
+becomes a separate paragraph with a single code run, matching the
+Google Docs representation of monospace blocks."
+  (let* ((full-text (mapconcat (lambda (r) (plist-get r :text)) runs ""))
+         (lines (split-string full-text "\n"))
+         (lines (if (and lines (string-empty-p (car (last lines))))
+                    (butlast lines)
+                  lines)))
+    (mapcar (lambda (line)
+              (list :type 'paragraph
+                    :style 'normal
+                    :contents (list (gdocs-convert--make-run
+                                    line (list :code t)))
+                    :id (gdocs-convert--next-id)))
+            lines)))
 
 (defun gdocs-convert--trim-runs (runs)
   "Trim leading and trailing whitespace from RUNS.
