@@ -47,7 +47,7 @@ The `gdocs-mode` minor mode activates automatically on linked buffers, providing
 
 ## Quick start
 
-1. Obtain OAuth credentials from the [Google Cloud Console](https://console.cloud.google.com/) (see the [manual](README.org) for a detailed walkthrough).
+1. Obtain OAuth credentials from the [Google Cloud Console](https://console.cloud.google.com/) (see [Obtaining credentials](README.org#h:obtaining-credentials) in the manual for a detailed walkthrough).
 
 2. Configure your credentials:
 
