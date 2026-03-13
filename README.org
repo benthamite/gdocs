@@ -517,6 +517,7 @@ Google Drive by wrapping ~gdocs-api-list-files~ with a
 
 #+findex: gdocs-convert-org-buffer-to-ir
 #+findex: gdocs-convert-org-string-to-ir
+#+findex: gdocs-convert-org-buffer-to-segments
 #+findex: gdocs-convert-ir-to-org
 #+findex: gdocs-convert-docs-json-to-ir
 #+findex: gdocs-convert-ir-to-docs-requests
@@ -528,6 +529,18 @@ The function ~gdocs-convert-org-buffer-to-ir~ parses the current org
 buffer using ~org-element-parse-buffer~ and returns an IR element list.
 The related function ~gdocs-convert-org-string-to-ir~ does the same but
 accepts an org-mode string rather than operating on the current buffer.
+
+The function ~gdocs-convert-org-buffer-to-segments~ is a variant of
+~gdocs-convert-org-buffer-to-ir~ designed for the three-way merge.
+Instead of returning a flat IR list, it returns a plist with four keys:
+~:ir~ (the full IR element list), ~:segments~ (a list of segment plists,
+each pairing an ~:ir-element~ with its ~:org-text~ region), ~:preamble~
+(buffer text before the first body element, such as the =#+TITLE:=
+line), and ~:postamble~ (text after the last element, typically the
+file-local variables block).  By preserving the mapping between IR
+elements and their original org text, the three-way merge can retain
+org-only metadata (property drawers, TODO keywords, tags) that would
+otherwise be lost during conversion ([[#h:sync-engine][Sync engine]]).
 
 The function ~gdocs-convert-ir-to-org~ converts an IR element list back
 to a well-formatted org-mode string.  This is the inverse of
@@ -551,7 +564,6 @@ and by the diff engine for incremental insertions.
 :END:
 
 #+findex: gdocs-diff-generate
-#+findex: gdocs-diff-generate-requests
 The function ~gdocs-diff-generate~ is the main entry point of the diff
 engine.  It compares two IR element lists (OLD-IR and NEW-IR) and
 returns a list of ~batchUpdate~ request plists representing the minimal
@@ -562,12 +574,13 @@ appropriate API requests.  When more than 50% of elements have changed,
 it falls back to a full document replacement to avoid overly complex
 request sequences.
 
-The function ~gdocs-diff-generate-requests~ is a lower-level entry
-point that takes pre-classified diff operations (from the LCS phase)
-along with the old and new IRs.  It returns requests with correct
-ordering: deletions in reverse index order (highest first), then
-insertions in forward order, which is required by the Google Docs API
-because indices shift as operations are applied.
+An optional START-INDEX argument specifies the UTF-16 code unit offset
+where the first IR element begins in the document body (default 1).
+The sync engine uses this to account for title elements that precede the
+diffable body content ([[#h:sync-engine][Sync engine]]).  Requests are ordered for correct
+index stability: deletions and modifications processed from highest
+index to lowest, with insertions interleaved so that earlier operations
+do not shift indices of later ones.
 
 ** Conflict resolution
 :PROPERTIES:
@@ -707,6 +720,16 @@ org-mode elements and Google Docs constructs:
 | Block quotes                   | Indented paragraph or custom style   |
 | Footnotes (=[fn:1]=)          | Google Docs footnote                 |
 | Images (=[[file:img.png]]=)   | Inline image (uploaded to Drive)     |
+
+#+vindex: gdocs-convert-monospace-font-families
+Google Docs has no native "code" text style, so the converter uses a
+font-based heuristic: when pulling, any text run whose font family
+appears in the variable ~gdocs-convert-monospace-font-families~ is
+treated as code (mapped to =~code~= in org-mode).  When pushing, code
+runs are set to the first font in the list (=Courier New= by default).
+The recognized families are =Courier New=, =Consolas=, =Source Code
+Pro=, =Roboto Mono=, and =Courier=.  You can customize this list if
+your documents use a different monospace font.
 
 ** Intermediate representation
 :PROPERTIES:
