@@ -286,9 +286,11 @@ REVISION-ID, if non-nil, is stored as the current revision."
   ;; Suppress modification hooks to prevent recursive push-on-save
   (let ((inhibit-modification-hooks t)
         (doc-id gdocs-sync--document-id)
-        (acct gdocs-sync--account))
+        (acct gdocs-sync--account)
+        (saved-point (point)))
     (erase-buffer)
     (insert org-string)
+    (goto-char (min saved-point (point-max)))
     ;; Ensure file-local variables are present (idempotent if
     ;; org-string already contains them via the postamble).
     (when doc-id
@@ -318,9 +320,11 @@ REVISION-ID, if non-nil, is stored as the current revision."
 (defun gdocs-sync--apply-merge-result (merged-org)
   "Apply MERGED-ORG as the resolved content and push."
   ;; Suppress modification hooks to prevent recursive push-on-save
-  (let ((inhibit-modification-hooks t))
+  (let ((inhibit-modification-hooks t)
+        (saved-point (point)))
     (erase-buffer)
-    (insert merged-org))
+    (insert merged-org)
+    (goto-char (min saved-point (point-max))))
   (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
   (gdocs-sync--update-last-sync-time)
   (gdocs-sync--set-status 'synced)
