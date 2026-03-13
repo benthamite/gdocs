@@ -19,6 +19,7 @@
 (require 'dash)
 (require 's)
 (require 'diff)
+(require 'gdocs-diff)
 
 ;;;; Faces
 
@@ -91,36 +92,43 @@ Each hunk is a plist with :local-text, :remote-text, :choice nil,
     (gdocs-merge--diff-lines-to-hunks local-lines remote-lines)))
 
 (defun gdocs-merge--diff-lines-to-hunks (local-lines remote-lines)
-  "Diff LOCAL-LINES against REMOTE-LINES and return a list of hunks."
-  (let* ((lcs (gdocs-merge--lcs local-lines remote-lines))
+  "Diff LOCAL-LINES against REMOTE-LINES and return a list of hunks.
+Uses `gdocs-diff--lcs' to compute the longest common subsequence
+as index pairs, then walks both line lists collecting differing
+chunks and common lines."
+  (let* ((lcs-pairs (gdocs-diff--lcs local-lines remote-lines))
+         (local-vec (vconcat local-lines))
+         (remote-vec (vconcat remote-lines))
          (hunks nil)
          (li 0)
          (ri 0))
-    (dolist (common-line lcs)
-      (let ((local-chunk nil)
+    (dolist (pair lcs-pairs)
+      (let ((local-idx (car pair))
+            (remote-idx (cdr pair))
+            (local-chunk nil)
             (remote-chunk nil))
-        (while (not (equal (nth li local-lines) common-line))
-          (push (nth li local-lines) local-chunk)
+        (while (< li local-idx)
+          (push (aref local-vec li) local-chunk)
           (cl-incf li))
-        (while (not (equal (nth ri remote-lines) common-line))
-          (push (nth ri remote-lines) remote-chunk)
+        (while (< ri remote-idx)
+          (push (aref remote-vec ri) remote-chunk)
           (cl-incf ri))
         (when (or local-chunk remote-chunk)
           (push (gdocs-merge--make-hunk
                  (s-join "\n" (nreverse local-chunk))
                  (s-join "\n" (nreverse remote-chunk)))
                 hunks))
-        (push (gdocs-merge--make-common-hunk common-line) hunks)
+        (push (gdocs-merge--make-common-hunk (aref local-vec li)) hunks)
         (cl-incf li)
         (cl-incf ri)))
     ;; Collect trailing lines after the last LCS match
     (let ((local-tail nil)
           (remote-tail nil))
-      (while (< li (length local-lines))
-        (push (nth li local-lines) local-tail)
+      (while (< li (length local-vec))
+        (push (aref local-vec li) local-tail)
         (cl-incf li))
-      (while (< ri (length remote-lines))
-        (push (nth ri remote-lines) remote-tail)
+      (while (< ri (length remote-vec))
+        (push (aref remote-vec ri) remote-tail)
         (cl-incf ri))
       (when (or local-tail remote-tail)
         (push (gdocs-merge--make-hunk
@@ -144,45 +152,6 @@ Each hunk is a plist with :local-text, :remote-text, :choice nil,
         :choice 'both
         :edited-text nil
         :overlay nil))
-
-;;;; LCS (longest common subsequence)
-
-(defun gdocs-merge--lcs (xs ys)
-  "Compute the longest common subsequence of lists XS and YS.
-Elements are compared with `equal'.  Return a list."
-  (let* ((m (length xs))
-         (n (length ys))
-         (table (make-vector (1+ m) nil)))
-    (dotimes (i (1+ m))
-      (aset table i (make-vector (1+ n) 0)))
-    (dotimes (i m)
-      (dotimes (j n)
-        (if (equal (nth i xs) (nth j ys))
-            (aset (aref table (1+ i)) (1+ j)
-                  (1+ (aref (aref table i) j)))
-          (aset (aref table (1+ i)) (1+ j)
-                (max (aref (aref table i) (1+ j))
-                     (aref (aref table (1+ i)) j))))))
-    (gdocs-merge--lcs-backtrack table xs ys m n)))
-
-(defun gdocs-merge--lcs-backtrack (table xs ys m n)
-  "Backtrack through TABLE to extract the LCS.
-XS and YS are the original lists.  M and N are their lengths."
-  (let ((result nil)
-        (i m)
-        (j n))
-    (while (and (> i 0) (> j 0))
-      (cond
-       ((equal (nth (1- i) xs) (nth (1- j) ys))
-        (push (nth (1- i) xs) result)
-        (setq i (1- i)
-              j (1- j)))
-       ((> (aref (aref table (1- i)) j)
-           (aref (aref table i) (1- j)))
-        (setq i (1- i)))
-       (t
-        (setq j (1- j)))))
-    result))
 
 ;;;; Buffer setup
 

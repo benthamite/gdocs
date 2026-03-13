@@ -67,7 +67,7 @@ identical keys."
   "Compute a content key for a paragraph ELEMENT.
 Includes type, style, list info, and full run details."
   (let ((style (symbol-name (or (plist-get element :style) 'normal)))
-        (text (gdocs-diff--runs-text (plist-get element :contents)))
+        (text (gdocs-convert--runs-to-plain-text (plist-get element :contents)))
         (formatting (gdocs-diff--runs-formatting-key
                      (plist-get element :contents)))
         (list-key (gdocs-diff--list-key (plist-get element :list))))
@@ -79,12 +79,8 @@ Concatenates all cell text across all rows."
   (let ((cell-texts nil))
     (dolist (row (plist-get element :rows))
       (dolist (cell row)
-        (push (gdocs-diff--runs-text cell) cell-texts)))
+        (push (gdocs-convert--runs-to-plain-text cell) cell-texts)))
     (format "table:%s" (s-join "|" (nreverse cell-texts)))))
-
-(defun gdocs-diff--runs-text (runs)
-  "Concatenate the :text values from RUNS."
-  (mapconcat (lambda (run) (plist-get run :text)) runs ""))
 
 (defun gdocs-diff--runs-formatting-key (runs)
   "Produce a string capturing the formatting of each run in RUNS."
@@ -252,7 +248,7 @@ is the UTF-16 index where the first element begins (default 1)."
 
 (defun gdocs-diff--paragraph-utf16-length (element)
   "Compute UTF-16 length of a paragraph ELEMENT including trailing newline."
-  (let ((text (gdocs-diff--runs-text (plist-get element :contents))))
+  (let ((text (gdocs-convert--runs-to-plain-text (plist-get element :contents))))
     (+ (gdocs-convert--string-to-utf16-length text) 1)))
 
 (defun gdocs-diff--table-utf16-length (element)
@@ -265,7 +261,7 @@ content length + 1 newline."
     (dolist (row rows)
       (setq total (+ total 1))
       (dolist (cell row)
-        (let ((text (gdocs-diff--runs-text cell)))
+        (let ((text (gdocs-convert--runs-to-plain-text cell)))
           (setq total (+ total 1
                          (gdocs-convert--string-to-utf16-length text)
                          1)))))
@@ -323,14 +319,6 @@ START-INDEX is the UTF-16 index where the first element begins."
 
 ;; ---------------------------------------------------------------------------
 ;;; Request generation from diff operations
-
-(defun gdocs-diff-generate-requests (old-ir new-ir diff-ops &optional start-index)
-  "Generate batchUpdate requests from OLD-IR, NEW-IR, and DIFF-OPS.
-Returns a list of request plists with correct ordering: deletions
-in reverse index order, then insertions in forward order.
-START-INDEX is the UTF-16 index where the first element begins
-\(default 1)."
-  (gdocs-diff--generate-requests old-ir new-ir diff-ops (or start-index 1)))
 
 (defun gdocs-diff--generate-requests (old-ir new-ir diff-ops start-index)
   "Generate batchUpdate requests from OLD-IR, NEW-IR, and DIFF-OPS.
@@ -402,35 +390,12 @@ START-INDEX is the UTF-16 index where the first element begins."
 ;; ---------------------------------------------------------------------------
 ;;; Deletion requests
 
-(defun gdocs-diff--collect-deletions (diff-ops old-indices)
-  "Collect delete requests for :delete operations in DIFF-OPS.
-OLD-INDICES is the index alist.  Uses END-1 to preserve the
-trailing newline, avoiding invalid deletion when followed by a
-structural element."
-  (let ((requests nil))
-    (dolist (op diff-ops)
-      (when (eq (plist-get op :op) 'delete)
-        (let* ((oi (plist-get op :old-index))
-               (range (cdr (assq oi old-indices)))
-               (start (car range))
-               (end (1- (cdr range))))
-          (when (< start end)
-            (push (gdocs-diff--make-delete-request start end) requests)))))
-    requests))
-
 (defun gdocs-diff--make-delete-request (start end)
   "Create a deleteContentRange request from START to END."
   `((deleteContentRange
      . ((range . ((startIndex . ,start)
                   (endIndex . ,end)
                   (segmentId . "")))))))
-
-(defun gdocs-diff--sort-deletions-descending (requests)
-  "Sort deletion REQUESTS by startIndex in descending order."
-  (sort requests
-        (lambda (a b)
-          (> (gdocs-diff--request-start-index a)
-             (gdocs-diff--request-start-index b)))))
 
 (defun gdocs-diff--request-start-index (request)
   "Extract the startIndex from a REQUEST alist."
@@ -445,27 +410,6 @@ structural element."
 
 ;; ---------------------------------------------------------------------------
 ;;; Insertion requests
-
-(defun gdocs-diff--collect-insertions (diff-ops new-ir old-indices start-index)
-  "Collect insert requests for :insert operations in DIFF-OPS.
-NEW-IR is the new element list.  OLD-INDICES is the index alist.
-START-INDEX is the fallback insertion index when inserting before
-all kept elements.  Computes insertion points based on preceding
-kept elements."
-  (let ((requests nil))
-    (dolist (op diff-ops)
-      (when (eq (plist-get op :op) 'insert)
-        (let* ((ni (plist-get op :new-index))
-               (element (nth ni new-ir))
-               (insert-index (gdocs-diff--insertion-point
-                              op diff-ops old-indices start-index)))
-          (setq requests
-                (append requests
-                        (plist-get
-                         (gdocs-convert--ir-element-to-requests
-                          element insert-index)
-                         :requests))))))
-    requests))
 
 (defun gdocs-diff--insertion-point (op diff-ops old-indices start-index)
   "Determine the document index at which to insert for OP.
@@ -493,42 +437,8 @@ preceding kept element."
             (setq found (plist-get other :old-index))))))
     found))
 
-(defun gdocs-diff--sort-insertions-ascending (requests)
-  "Sort insertion REQUESTS by index in ascending order."
-  (sort requests
-        (lambda (a b)
-          (< (gdocs-diff--request-start-index a)
-             (gdocs-diff--request-start-index b)))))
-
 ;; ---------------------------------------------------------------------------
 ;;; Modification requests
-
-(defun gdocs-diff--collect-modifications (diff-ops old-ir new-ir old-indices)
-  "Collect requests for :modify operations in DIFF-OPS.
-OLD-IR and NEW-IR are the element lists.  OLD-INDICES is the
-index alist.  Returns a plist with :delete-reqs, :insert-reqs,
-and :style-reqs."
-  (let ((delete-reqs nil)
-        (insert-reqs nil)
-        (style-reqs nil))
-    (dolist (op diff-ops)
-      (when (eq (plist-get op :op) 'modify)
-        (let* ((oi (plist-get op :old-index))
-               (ni (plist-get op :new-index))
-               (old-elem (nth oi old-ir))
-               (new-elem (nth ni new-ir))
-               (range (cdr (assq oi old-indices)))
-               (result (gdocs-diff--modification-requests
-                        old-elem new-elem range)))
-          (setq delete-reqs (append delete-reqs
-                                    (plist-get result :delete-reqs)))
-          (setq insert-reqs (append insert-reqs
-                                    (plist-get result :insert-reqs)))
-          (setq style-reqs (append style-reqs
-                                   (plist-get result :style-reqs))))))
-    (list :delete-reqs delete-reqs
-          :insert-reqs insert-reqs
-          :style-reqs style-reqs)))
 
 (defun gdocs-diff--modification-requests (old-elem new-elem range)
   "Generate requests to modify OLD-ELEM into NEW-ELEM at RANGE.
@@ -550,8 +460,8 @@ content and formatting but different :style."
        (eq (plist-get new-elem :type) 'paragraph)
        (not (equal (plist-get old-elem :style)
                    (plist-get new-elem :style)))
-       (equal (gdocs-diff--runs-text (plist-get old-elem :contents))
-              (gdocs-diff--runs-text (plist-get new-elem :contents)))
+       (equal (gdocs-convert--runs-to-plain-text (plist-get old-elem :contents))
+              (gdocs-convert--runs-to-plain-text (plist-get new-elem :contents)))
        (equal (gdocs-diff--runs-formatting-key
                (plist-get old-elem :contents))
               (gdocs-diff--runs-formatting-key
@@ -565,8 +475,8 @@ style but different run formatting."
        (eq (plist-get new-elem :type) 'paragraph)
        (equal (plist-get old-elem :style)
               (plist-get new-elem :style))
-       (equal (gdocs-diff--runs-text (plist-get old-elem :contents))
-              (gdocs-diff--runs-text (plist-get new-elem :contents)))
+       (equal (gdocs-convert--runs-to-plain-text (plist-get old-elem :contents))
+              (gdocs-convert--runs-to-plain-text (plist-get new-elem :contents)))
        (not (equal (gdocs-diff--runs-formatting-key
                     (plist-get old-elem :contents))
                    (gdocs-diff--runs-formatting-key
@@ -639,30 +549,6 @@ inserts the new text (without newline) at START."
           :insert-reqs (append (when insert-req (list insert-req))
                                style-reqs run-reqs list-reqs)
           :style-reqs nil)))
-
-;; ---------------------------------------------------------------------------
-;;; List change requests
-
-(defun gdocs-diff--list-change-requests (old-elem new-elem range)
-  "Generate requests for list property changes between OLD-ELEM and NEW-ELEM.
-RANGE is (START . END)."
-  (let ((old-list (plist-get old-elem :list))
-        (new-list (plist-get new-elem :list))
-        (start (car range))
-        (end (cdr range)))
-    (cond
-     ((and (null old-list) new-list)
-      (let ((preset (gdocs-convert--list-type-to-preset
-                     (plist-get new-list :type))))
-        (list `((createParagraphBullets
-                 . ((range . ((startIndex . ,start)
-                              (endIndex . ,(1- end))))
-                    (bulletPreset . ,preset)))))))
-     ((and old-list (null new-list))
-      (list `((deleteParagraphBullets
-               . ((range . ((startIndex . ,start)
-                            (endIndex . ,(1- end)))))))))
-     (t nil))))
 
 (provide 'gdocs-diff)
 ;;; gdocs-diff.el ends here

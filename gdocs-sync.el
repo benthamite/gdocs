@@ -276,24 +276,6 @@ markers do not cause false mismatches."
            (gdocs-diff--element-keys
             (gdocs-sync--filter-title gdocs-sync--shadow-ir)))))
 
-(defun gdocs-sync--has-local-modifications-p ()
-  "Return non-nil if the buffer has local modifications.
-A buffer is considered modified if it is marked as modified by
-Emacs or if the current IR differs from the shadow IR."
-  (or (buffer-modified-p)
-      (gdocs-sync--content-differs-from-shadow-p)))
-
-(defun gdocs-sync--content-differs-from-shadow-p ()
-  "Return non-nil if the buffer content differs from the shadow IR.
-Uses content-based element keys so org-only metadata like markers
-and element IDs do not trigger false positives."
-  (when gdocs-sync--shadow-ir
-    (let ((current-ir (gdocs-convert-org-buffer-to-ir)))
-      (not (equal (gdocs-diff--element-keys
-                   (gdocs-sync--filter-title current-ir))
-                  (gdocs-diff--element-keys
-                   (gdocs-sync--filter-title gdocs-sync--shadow-ir)))))))
-
 (defun gdocs-sync--replace-buffer-content (org-string remote-ir
                                                       &optional revision-id)
   "Replace buffer content with ORG-STRING and update shadow to REMOTE-IR.

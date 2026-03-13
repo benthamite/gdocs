@@ -491,11 +491,6 @@ Post-blank whitespace is handled by `gdocs-convert--object-to-runs'."
          (new-props (list :code t)))
     (list (gdocs-convert--make-run value new-props))))
 
-(defun gdocs-convert--element-post-blank (element)
-  "Return the number of post-blank spaces for ELEMENT.
-This is the whitespace org-element strips from after an object."
-  (or (org-element-property :post-blank element) 0))
-
 (defun gdocs-convert--link-to-runs (link inherited-props)
   "Convert a LINK object to text runs with :link set.
 INHERITED-PROPS carries parent formatting.  Preserves any
@@ -518,19 +513,6 @@ formatting (e.g. italic, bold) within the link description."
     (if (member type '("http" "https" "ftp" "mailto"))
         (concat type ":" path)
       path)))
-
-(defun gdocs-convert--objects-to-text (objects)
-  "Extract plain text from a list of org-element OBJECTS."
-  (mapconcat
-   (lambda (obj)
-     (if (stringp obj)
-         obj
-       (or (org-element-property :value obj)
-           (gdocs-convert--objects-to-text
-            (org-element-contents obj))
-           "")))
-   objects
-   ""))
 
 (defun gdocs-convert--timestamp-to-runs (timestamp inherited-props)
   "Convert a TIMESTAMP object to a text run with a marker.
