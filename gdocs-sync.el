@@ -446,7 +446,6 @@ grafted back.  Returns a plist with :merged-org and
 LS-LCS is the LCS pairs from diffing local vs shadow keys, already
 in (SHADOW-INDEX . LOCAL-INDEX) form.  LOCAL-IR is unused but
 accepted for API consistency."
-  (ignore _local-ir)
   ls-lcs)
 
 (defun gdocs-sync--ir-element-to-org-segment (element drawer)

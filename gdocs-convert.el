@@ -1459,7 +1459,8 @@ Iterates forward and pushes, so the result is in reverse order
 (defun gdocs-convert--horizontal-rule-to-requests (index)
   "Create requests for a horizontal rule at INDEX.
 Google Docs has no native horizontal rule element, so we represent
-it as a bare newline paragraph.  Returns a plist (:requests LIST :index NEW-INDEX)."
+it as a bare newline paragraph.
+Returns a plist (:requests LIST :index NEW-INDEX)."
   (let* ((text "\n")
          (len (gdocs-convert--string-to-utf16-length text))
          (insert-req (gdocs-convert--make-insert-text-request text index)))
