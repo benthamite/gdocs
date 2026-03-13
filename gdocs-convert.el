@@ -93,6 +93,7 @@ Creates a temporary buffer, inserts STRING, and calls
                    (push ir result)))))
             ('plain-list
              (when (gdocs-convert--top-level-list-p el)
+               ;; Prepend reversed sub-list; final nreverse restores order
                (setq result (nconc (nreverse
                                     (gdocs-convert--plain-list-to-ir el 0))
                                    result))))
@@ -318,7 +319,10 @@ Levels above 6 are clamped to heading-6."
 
 (defun gdocs-convert--headline-marker (headline)
   "Extract org-only marker data from HEADLINE, or return nil.
-Preserves TODO keywords, tags, priority, and scheduling info."
+Preserves TODO keywords, tags, priority, and scheduling info.
+Returns a single marker plist when there is exactly one marker
+part, or a list of marker plists when there are multiple.
+Returns nil if the headline has no preservable metadata."
   (let* ((todo (org-element-property :todo-keyword headline))
          (tags (org-element-property :tags headline))
          (priority (org-element-property :priority headline))
@@ -806,6 +810,7 @@ MARKER can be a single marker plist or a list of marker plists."
    ((and (plist-get marker :type)
          (eq (plist-get marker :type) type-sym))
     (plist-get marker :data))
+   ;; List-of-plists shape: first element is itself a list
    ((listp (car marker))
     (let ((found nil))
       (dolist (m marker)
@@ -1098,19 +1103,28 @@ within paragraphs."
     (list :text content
           :bold (eq (alist-get 'bold style) t)
           :italic (eq (alist-get 'italic style) t)
+          ;; Suppress underline when a URL is present: Google Docs
+          ;; automatically underlines hyperlinks, so the underline is
+          ;; presentational rather than semantic org emphasis.
           :underline (and (eq (alist-get 'underline style) t)
                           (not url))
           :strikethrough (eq (alist-get 'strikethrough style) t)
           :code (gdocs-convert--docs-is-monospace-p style)
           :link url)))
 
+(defvar gdocs-convert-monospace-font-families
+  '("Courier New" "Consolas" "Source Code Pro" "Roboto Mono" "Courier")
+  "Font families recognized as monospace for code detection.
+Google Docs does not have a native code style, so we use font
+heuristics.  When pushing, code is set to `Courier New'; when
+pulling, any of these families is treated as code.")
+
 (defun gdocs-convert--docs-is-monospace-p (style)
   "Return non-nil if STYLE indicates a monospace/code font."
   (let* ((font (alist-get 'weightedFontFamily style))
          (family (when font (alist-get 'fontFamily font))))
     (and family
-         (member family '("Courier New" "Consolas" "Source Code Pro"
-                          "Roboto Mono" "Courier")))))
+         (member family gdocs-convert-monospace-font-families))))
 
 (defun gdocs-convert--trim-trailing-newline-runs (runs)
   "Remove trailing whitespace from the last run(s) in RUNS.
@@ -1160,7 +1174,10 @@ LISTS-MAP is the document's lists property for type lookup."
 
 (defun gdocs-convert--parse-named-range-markers (named-ranges)
   "Parse NAMED-RANGES for gdocs-org-marker entries.
-Returns an alist mapping element IDs to marker plists."
+Named ranges encode org-only metadata in the format
+\"gdocs-org-marker:TYPE:ID\" or \"gdocs-org-marker:TYPE:ID:DATA\"
+where TYPE is the marker kind (e.g. todo, tags) and ID links to
+the IR element.  Returns an alist mapping element IDs to marker plists."
   (let ((result nil))
     (when named-ranges
       (dolist (entry named-ranges)
@@ -1214,6 +1231,7 @@ Returns an alist mapping element IDs to marker plists."
 Returns a list of request alists suitable for
 `gdocs-api-batch-update'.  START-INDEX is the UTF-16 index where
 the first element begins (default 1)."
+  ;; Default 1: Google Docs index 0 is the document root
   (let ((index (or start-index 1))
         (requests nil))
     (dolist (element ir)
@@ -1319,7 +1337,7 @@ Returns nil if no formatting is applied."
     (when (plist-get run :link)
       (push `(link . ((url . ,(plist-get run :link)))) style))
     (when (plist-get run :code)
-      (push `(weightedFontFamily . ((fontFamily . "Courier New"))) style))
+      (push `(weightedFontFamily . ((fontFamily . ,(car gdocs-convert-monospace-font-families)))) style))
     (when (plist-get run :strikethrough)
       (push `(strikethrough . t) style))
     (when (plist-get run :underline)
@@ -1385,6 +1403,12 @@ each non-empty cell, processed last-to-first so indices stay stable."
                            (columns . ,ncols)
                            (location . ((index . ,index)))))))
          (cell-text-len (gdocs-convert--table-total-cell-text-length rows))
+         ;; Table UTF-16 overhead: 1 for the preserved paragraph (insertTable
+         ;; keeps the paragraph at the insertion point), 1 for table-start,
+         ;; 1 for table-end, plus per-row and per-cell structural markers.
+         ;; See `gdocs-diff--table-utf16-length' for the corresponding
+         ;; read-side formula (which uses 2 instead of 3 because the
+         ;; preserved paragraph is not part of the table itself).
          (table-overhead (+ 3 (* nrows (+ 1 (* ncols 2))) cell-text-len))
          (new-index (+ index table-overhead))
          (cell-reqs (gdocs-convert--table-cell-requests rows index ncols))
@@ -1406,6 +1430,10 @@ Iterates forward and pushes, so the result is in reverse order
         (dolist (cell row)
           (let ((text (gdocs-convert--runs-to-plain-text cell)))
             (when (> (length text) 0)
+              ;; Cell content index: table-index + 4 accounts for the preserved
+              ;; paragraph (+1), table-start (+1), first row-start (+1), and
+              ;; first cell-start (+1).  Each subsequent row adds 1 + ncols*2
+              ;; structural markers; each subsequent cell adds 2.
               (let ((cell-start (+ table-index 4
                                    (* r (+ 1 (* ncols 2)))
                                    (* c 2))))
@@ -1430,7 +1458,8 @@ Iterates forward and pushes, so the result is in reverse order
 
 (defun gdocs-convert--horizontal-rule-to-requests (index)
   "Create requests for a horizontal rule at INDEX.
-Returns a plist (:requests LIST :index NEW-INDEX)."
+Google Docs has no native horizontal rule element, so we represent
+it as a bare newline paragraph.  Returns a plist (:requests LIST :index NEW-INDEX)."
   (let* ((text "\n")
          (len (gdocs-convert--string-to-utf16-length text))
          (insert-req (gdocs-convert--make-insert-text-request text index)))
