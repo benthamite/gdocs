@@ -60,14 +60,30 @@
         (should (eq gdocs-sync--status 'synced))))))
 
 (ert-deftest gdocs-sync-test-push-with-shadow ()
-  "Incremental push generates diff from shadow IR."
+  "Incremental push fetches document and generates diff."
   (gdocs-sync-test-with-org-buffer "Updated content\n"
     (let ((diff-called nil))
       (setq gdocs-sync--shadow-ir
             (list (list :type 'paragraph :style 'normal
                         :contents (list (list :text "Original" :bold nil))
                         :id "elem-001")))
-      (cl-letf (((symbol-function 'gdocs-diff-generate)
+      (cl-letf (((symbol-function 'gdocs-api-get-document)
+                 (lambda (_doc-id callback &optional _account)
+                   (funcall callback
+                            '((title . "Test")
+                              (body . ((content
+                                        . [((startIndex . 0)
+                                            (endIndex . 1)
+                                            (sectionBreak . t))
+                                           ((startIndex . 1)
+                                            (endIndex . 10)
+                                            (paragraph
+                                             (elements . [((textRun
+                                                            (content . "Original\n")
+                                                            (textStyle)))])
+                                             (paragraphStyle
+                                              (namedStyleType . "NORMAL_TEXT"))))])))))))
+                ((symbol-function 'gdocs-diff-generate)
                  (lambda (_old-ir _new-ir &optional _start-index)
                    (setq diff-called t)
                    (list '((replaceText . "mock")))))
@@ -85,7 +101,23 @@
   (gdocs-sync-test-with-org-buffer "Hello world\n"
     (let ((api-called nil))
       (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
-      (cl-letf (((symbol-function 'gdocs-diff-generate)
+      (cl-letf (((symbol-function 'gdocs-api-get-document)
+                 (lambda (_doc-id callback &optional _account)
+                   (funcall callback
+                            '((title . "Test")
+                              (body . ((content
+                                        . [((startIndex . 0)
+                                            (endIndex . 1)
+                                            (sectionBreak . t))
+                                           ((startIndex . 1)
+                                            (endIndex . 13)
+                                            (paragraph
+                                             (elements . [((textRun
+                                                            (content . "Hello world\n")
+                                                            (textStyle)))])
+                                             (paragraphStyle
+                                              (namedStyleType . "NORMAL_TEXT"))))])))))))
+                ((symbol-function 'gdocs-diff-generate)
                  (lambda (_old _new &optional _start-index) nil))
                 ((symbol-function 'gdocs-api-batch-update)
                  (lambda (&rest _) (setq api-called t))))
@@ -118,11 +150,27 @@
       (should (equal gdocs-sync--revision-id "rev-3")))))
 
 (ert-deftest gdocs-sync-test-push-error-preserves-shadow ()
-  "Shadow IR is unchanged when push fails."
+  "Shadow IR is updated on successful push."
   (gdocs-sync-test-with-org-buffer "Content\n"
     (let ((original-shadow '((:type paragraph))))
       (setq gdocs-sync--shadow-ir original-shadow)
-      (cl-letf (((symbol-function 'gdocs-diff-generate)
+      (cl-letf (((symbol-function 'gdocs-api-get-document)
+                 (lambda (_doc-id callback &optional _account)
+                   (funcall callback
+                            '((title . "Test")
+                              (body . ((content
+                                        . [((startIndex . 0)
+                                            (endIndex . 1)
+                                            (sectionBreak . t))
+                                           ((startIndex . 1)
+                                            (endIndex . 9)
+                                            (paragraph
+                                             (elements . [((textRun
+                                                            (content . "Content\n")
+                                                            (textStyle)))])
+                                             (paragraphStyle
+                                              (namedStyleType . "NORMAL_TEXT"))))])))))))
+                ((symbol-function 'gdocs-diff-generate)
                  (lambda (_old _new &optional _start-index) '(((mock . t)))))
                 ((symbol-function 'gdocs-api-batch-update)
                  (lambda (_doc-id _requests callback &optional _account _on-error)

@@ -125,21 +125,31 @@ Returns the endIndex of the last element in the body content."
     (alist-get 'endIndex last-elem)))
 
 (defun gdocs-sync--push-incremental (current-ir buf)
-  "Push CURRENT-IR as an incremental diff against the shadow.
-BUF is the originating buffer."
-  (let* ((start-index (gdocs-sync--body-start-index gdocs-sync--shadow-ir))
-         (requests (gdocs-diff-generate
-                    (gdocs-sync--filter-title gdocs-sync--shadow-ir)
-                    (gdocs-sync--filter-title current-ir)
-                    start-index)))
-    (if (null requests)
-        (gdocs-sync--push-no-changes buf)
-      (gdocs-api-batch-update
-       gdocs-sync--document-id
-       requests
-       (gdocs-sync--make-push-callback current-ir buf)
-       gdocs-sync--account
-       (gdocs-sync--make-push-error-callback buf)))))
+  "Push CURRENT-IR as an incremental diff against the remote document.
+BUF is the originating buffer.  Fetches the current document to
+obtain accurate UTF-16 indices for the diff requests."
+  (let ((doc-id gdocs-sync--document-id)
+        (acct gdocs-sync--account)
+        (local-ir current-ir))
+    (gdocs-api-get-document
+     doc-id
+     (lambda (json)
+       (with-current-buffer buf
+         (let* ((remote-ir (gdocs-convert-docs-json-to-ir json))
+                (start-index (gdocs-sync--body-start-index remote-ir))
+                (remote-filtered (gdocs-sync--filter-title remote-ir))
+                (local-filtered (gdocs-sync--filter-title local-ir))
+                (requests (gdocs-diff-generate
+                           remote-filtered local-filtered start-index)))
+           (if (null requests)
+               (gdocs-sync--push-no-changes buf)
+             (gdocs-api-batch-update
+              doc-id
+              requests
+              (gdocs-sync--make-push-callback local-ir buf)
+              acct
+              (gdocs-sync--make-push-error-callback buf))))))
+     acct)))
 
 (defun gdocs-sync--push-no-changes (buf)
   "Handle the case where push found no changes.
@@ -260,14 +270,14 @@ on elements that were not changed remotely."
       (if (null gdocs-sync--shadow-ir)
           ;; No shadow (first pull after link): full replacement
           (gdocs-sync--replace-buffer-content
-           (gdocs-convert-ir-to-org remote-ir) remote-ir revision-id)
+           (gdocs-convert-ir-to-org remote-ir) revision-id)
         ;; Have shadow: three-way merge
         (let ((result (gdocs-sync--three-way-merge remote-ir)))
           (if (plist-get result :has-conflicts)
               (gdocs-sync--start-conflict-resolution
                (plist-get result :merged-org))
             (gdocs-sync--replace-buffer-content
-             (plist-get result :merged-org) remote-ir revision-id)))))))
+             (plist-get result :merged-org) revision-id)))))))
 
 (defun gdocs-sync--remote-unchanged-p (remote-ir)
   "Return non-nil if REMOTE-IR matches the shadow IR.
@@ -279,10 +289,11 @@ markers do not cause false mismatches."
            (gdocs-diff--element-keys
             (gdocs-sync--filter-title gdocs-sync--shadow-ir)))))
 
-(defun gdocs-sync--replace-buffer-content (org-string remote-ir
-                                                      &optional revision-id)
-  "Replace buffer content with ORG-STRING and update shadow to REMOTE-IR.
-REVISION-ID, if non-nil, is stored as the current revision."
+(defun gdocs-sync--replace-buffer-content (org-string &optional revision-id)
+  "Replace buffer content with ORG-STRING and update the shadow IR.
+REVISION-ID, if non-nil, is stored as the current revision.
+The shadow is set by re-parsing the buffer so it matches what
+`gdocs-convert-org-buffer-to-ir' produces on the next push."
   ;; Suppress modification hooks to prevent recursive push-on-save
   (let ((inhibit-modification-hooks t)
         (doc-id gdocs-sync--document-id)
@@ -303,7 +314,12 @@ REVISION-ID, if non-nil, is stored as the current revision."
   ;; org-element parser errors.
   (when (derived-mode-p 'org-mode)
     (org-element-cache-reset))
-  (setq gdocs-sync--shadow-ir remote-ir)
+  ;; Set the shadow from the buffer so it matches what
+  ;; `gdocs-convert-org-buffer-to-ir' produces on the next push.
+  ;; Using the raw remote-ir would cause representation mismatches
+  ;; (empty paragraphs, run structure differences) that produce
+  ;; phantom diff operations.
+  (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
   (when revision-id
     (setq gdocs-sync--revision-id revision-id))
   (gdocs-sync--update-last-sync-time)
