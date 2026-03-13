@@ -294,9 +294,9 @@ REVISION-ID, if non-nil, is stored as the current revision."
     ;; Ensure file-local variables are present (idempotent if
     ;; org-string already contains them via the postamble).
     (when doc-id
-      (gdocs-sync--write-file-local-vars doc-id acct))
-    ;; Mark clean without saving — caller or user decides when to persist
-    (set-buffer-modified-p nil))
+      (gdocs-sync--write-file-local-vars doc-id acct)))
+  ;; Persist pulled content to disk so it survives buffer kill.
+  (save-buffer)
   ;; The cache is stale after a full buffer replacement with
   ;; `inhibit-modification-hooks' bound — reset it to avoid
   ;; org-element parser errors.
