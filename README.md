@@ -47,17 +47,23 @@ The `gdocs-mode` minor mode activates automatically on linked buffers, providing
 
 ## Quick start
 
-1. Obtain OAuth credentials from the [Google Cloud Console](https://console.cloud.google.com/) (see [Obtaining credentials](README.org#h:obtaining-credentials) in the manual for a detailed walkthrough).
+1. Obtain OAuth credentials:
+
+   1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and sign in.
+   2. Create a new project (or select an existing one).
+   3. Go to **APIs & Services > Library** and enable the **Google Docs API** and the **Google Drive API**.
+   4. Go to **APIs & Services > OAuth consent screen**. Select **External** as the user type. Fill in the required fields (app name, your email). On the **Scopes** page, add `https://www.googleapis.com/auth/documents` and `https://www.googleapis.com/auth/drive`. On the **Test users** page, add your own email address.
+   5. Go to **APIs & Services > Credentials**. Click **Create Credentials > OAuth client ID**. Select **Desktop app**, enter a name, and click **Create**. Copy the **Client ID** and **Client secret**.
 
 2. Configure your credentials:
 
    ```emacs-lisp
    (setopt gdocs-accounts
-         '(("personal" . ((client-id . "YOUR-CLIENT-ID")
-                          (client-secret . "YOUR-CLIENT-SECRET")))))
+           '(("personal" . ((client-id . "YOUR-CLIENT-ID")
+                            (client-secret . "YOUR-CLIENT-SECRET")))))
    ```
 
-3. Authenticate: `M-x gdocs-authenticate`.
+3. Authenticate: `M-x gdocs-authenticate`. Your browser will open to Google's consent screen. Grant access and the tokens will be stored locally.
 
 4. Open an existing Google Doc: `M-x gdocs-open`.
 
