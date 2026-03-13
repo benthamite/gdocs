@@ -711,19 +711,58 @@ Skips horizontal rule rows."
 
 (defun gdocs-convert-ir-to-org (ir)
   "Convert an IR element list to an org-mode string.
-Returns a well-formatted org string."
+Returns a well-formatted org string.  Consecutive all-code
+paragraphs (monospace lines without a src-block marker) are
+grouped into a single =#+BEGIN_EXAMPLE= block."
   (let ((parts nil)
-        (prev-type nil))
-    (dolist (element ir)
-      (let* ((type (plist-get element :type))
-             (needs-blank (gdocs-convert--needs-blank-line-p
-                           prev-type element))
-             (org-text (gdocs-convert--ir-element-to-org element)))
-        (when (and needs-blank parts)
-          (push "" parts))
-        (push org-text parts)
-        (setq prev-type type)))
+        (prev-type nil)
+        (elements (seq-into ir 'vector))
+        (i 0)
+        (len (length ir)))
+    (while (< i len)
+      (let ((element (aref elements i)))
+        (if (gdocs-convert--all-code-paragraph-p element)
+            ;; Collect consecutive all-code paragraphs into an example block
+            (let ((code-lines nil))
+              (while (and (< i len)
+                          (gdocs-convert--all-code-paragraph-p
+                           (aref elements i)))
+                (push (gdocs-convert--plain-text (aref elements i))
+                      code-lines)
+                (setq i (1+ i)))
+              (when (and parts prev-type)
+                (push "" parts))
+              (push (format "#+BEGIN_EXAMPLE\n%s\n#+END_EXAMPLE"
+                            (s-join "\n" (nreverse code-lines)))
+                    parts)
+              (setq prev-type 'paragraph))
+          ;; Normal element
+          (let* ((type (plist-get element :type))
+                 (needs-blank (gdocs-convert--needs-blank-line-p
+                               prev-type element))
+                 (org-text (gdocs-convert--ir-element-to-org element)))
+            (when (and needs-blank parts)
+              (push "" parts))
+            (push org-text parts)
+            (setq prev-type type))
+          (setq i (1+ i)))))
     (concat (s-join "\n" (nreverse parts)) "\n")))
+
+(defun gdocs-convert--all-code-paragraph-p (element)
+  "Return non-nil if ELEMENT is a normal paragraph with all-code runs.
+Paragraphs that carry a src-block marker are excluded, since they
+already round-trip via named ranges."
+  (and (eq (plist-get element :type) 'paragraph)
+       (eq (plist-get element :style) 'normal)
+       (not (plist-get element :list))
+       (not (plist-get element :gdocs-marker))
+       (let ((runs (plist-get element :contents)))
+         (and runs (seq-every-p (lambda (r) (plist-get r :code)) runs)))))
+
+(defun gdocs-convert--plain-text (element)
+  "Return the concatenated plain text of ELEMENT's runs."
+  (mapconcat (lambda (r) (plist-get r :text))
+             (plist-get element :contents) ""))
 
 (defun gdocs-convert--needs-blank-line-p (prev-type element)
   "Return non-nil if a blank line is needed before ELEMENT.

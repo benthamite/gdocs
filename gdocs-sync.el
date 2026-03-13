@@ -296,7 +296,8 @@ REVISION-ID, if non-nil, is stored as the current revision."
       (gdocs-sync--write-file-local-vars doc-id acct))
     (goto-char (min saved-point (point-max))))
   ;; Persist pulled content to disk so it survives buffer kill.
-  (save-buffer)
+  (when buffer-file-name
+    (save-buffer))
   ;; The cache is stale after a full buffer replacement with
   ;; `inhibit-modification-hooks' bound — reset it to avoid
   ;; org-element parser errors.
