@@ -17,8 +17,8 @@
 ;;
 ;; Quick start:
 ;; 1. Configure your Google Cloud OAuth credentials:
-;;    (setq gdocs-accounts '(("personal" . ((client-id . "YOUR-ID")
-;;                                           (client-secret . "YOUR-SECRET")))))
+;;    (setopt gdocs-accounts '(("personal" . ((client-id . "YOUR-ID")
+;;                                             (client-secret . "YOUR-SECRET")))))
 ;; 2. Authenticate: M-x gdocs-authenticate
 ;; 3. Open a Google Doc: M-x gdocs-open
 ;; 4. Or create one from an org file: M-x gdocs-create

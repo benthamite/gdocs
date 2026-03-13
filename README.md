@@ -52,7 +52,7 @@ The `gdocs-mode` minor mode activates automatically on linked buffers, providing
 2. Configure your credentials:
 
    ```emacs-lisp
-   (setq gdocs-accounts
+   (setopt gdocs-accounts
          '(("personal" . ((client-id . "YOUR-CLIENT-ID")
                           (client-secret . "YOUR-CLIENT-SECRET")))))
    ```

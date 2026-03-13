@@ -89,9 +89,9 @@ external packages:
 2. Configure your credentials in Emacs:
 
    #+begin_src emacs-lisp
-   (setq gdocs-accounts
-         '(("personal" . ((client-id . "YOUR-CLIENT-ID")
-                          (client-secret . "YOUR-CLIENT-SECRET")))))
+   (setopt gdocs-accounts
+           '(("personal" . ((client-id . "YOUR-CLIENT-ID")
+                            (client-secret . "YOUR-CLIENT-SECRET")))))
    #+end_src
 
 3. Authenticate: =M-x gdocs-authenticate=.
@@ -189,9 +189,9 @@ Follow these steps to create your credentials:
 6. Configure =gdocs= with the credentials you just obtained:
 
    #+begin_src emacs-lisp
-   (setq gdocs-accounts
-         '(("personal" . ((client-id . "123456789-abcdef.apps.googleusercontent.com")
-                          (client-secret . "GOCSPX-abcdefghijklmnop")))))
+   (setopt gdocs-accounts
+           '(("personal" . ((client-id . "123456789-abcdef.apps.googleusercontent.com")
+                            (client-secret . "GOCSPX-abcdefghijklmnop")))))
    #+end_src
 
    Replace the example values with your actual client ID and client
