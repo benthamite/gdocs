@@ -35,6 +35,7 @@ Falls back to full replacement when the diff is too complex.
 START-INDEX is the UTF-16 index where the first element begins in
 the document (default 1).  This should account for title elements
 or other content that precedes the IR."
+  ;; Default 1: Google Docs index 0 is the document root
   (let* ((idx (or start-index 1))
          (old-keys (gdocs-diff--element-keys old-ir))
          (new-keys (gdocs-diff--element-keys new-ir))
@@ -244,6 +245,7 @@ is the UTF-16 index where the first element begins (default 1)."
   (pcase (plist-get element :type)
     ('paragraph (gdocs-diff--paragraph-utf16-length element))
     ('table (gdocs-diff--table-utf16-length element))
+    ;; A horizontal rule is a bare newline in the document (1 UTF-16 unit)
     ('horizontal-rule 1)))
 
 (defun gdocs-diff--paragraph-utf16-length (element)
@@ -252,10 +254,13 @@ is the UTF-16 index where the first element begins (default 1)."
     (+ (gdocs-convert--string-to-utf16-length text) 1)))
 
 (defun gdocs-diff--table-utf16-length (element)
-  "Compute UTF-16 length of a table ELEMENT.
+  "Compute UTF-16 length of a table ELEMENT in the document.
 Tables have structural overhead: 1 for table start, 1 for table
 end, plus for each row 1 marker, plus for each cell 1 marker +
-content length + 1 newline."
+content length + 1 newline.
+Note: `gdocs-convert--table-to-requests' uses 3 as the base
+instead of 2 because insertTable preserves the existing paragraph
+at the insertion point (an extra +1 not part of the table itself)."
   (let ((total 2)
         (rows (plist-get element :rows)))
     (dolist (row rows)
@@ -279,6 +284,8 @@ elements changed and there are enough elements to justify it."
          (kept (cl-count-if
                 (lambda (op) (eq (plist-get op :op) 'keep))
                 diff-ops)))
+    ;; Skip for tiny documents (<=2 elements) where incremental is
+    ;; always cheaper; use full replacement when >50% changed.
     (and (> total 2)
          (< (* 2 kept) total))))
 
@@ -337,7 +344,7 @@ START-INDEX is the UTF-16 index where the first element begins."
                (start (car range))
                (end (1- (cdr range))))
           (when (< start end)
-            (push (list :index start :priority 0
+            (push (list :index start :sort-phase 0
                         :reqs (list (gdocs-diff--make-delete-request start end)))
                   groups)))))
     ;; Modifications (keep delete+insert+style together)
@@ -354,7 +361,7 @@ START-INDEX is the UTF-16 index where the first element begins."
                              (plist-get result :insert-reqs)
                              (plist-get result :style-reqs))))
           (when reqs
-            (push (list :index (car range) :priority 0
+            (push (list :index (car range) :sort-phase 0
                         :reqs reqs)
                   groups)))))
     ;; Insertions
@@ -366,11 +373,17 @@ START-INDEX is the UTF-16 index where the first element begins."
                               op diff-ops old-indices start-index))
                (result (gdocs-convert--ir-element-to-requests
                         element insert-index)))
-          (push (list :index insert-index :priority 1 :new-index ni
+          (push (list :index insert-index :sort-phase 1 :new-index ni
                       :reqs (plist-get result :requests))
                 groups))))
-    ;; Sort: descending by index, then insertions after non-insertions
-    ;; at the same index, then higher new-index first for insertions.
+    ;; Sort groups for correct index stability:
+    ;; 1. Descending by index — process from end to start so earlier
+    ;;    indices are not shifted by later operations.
+    ;; 2. At the same index, deletions/modifications (:sort-phase 0)
+    ;;    before insertions (:sort-phase 1) — delete first, then insert
+    ;;    at the freed location.
+    ;; 3. Among insertions at the same index, higher :new-index first
+    ;;    so they stack in the correct forward order after reversal.
     (setq groups
           (sort groups
                 (lambda (a b)
@@ -378,10 +391,10 @@ START-INDEX is the UTF-16 index where the first element begins."
                         (ib (plist-get b :index)))
                     (cond
                      ((/= ia ib) (> ia ib))
-                     ((/= (plist-get a :priority) (plist-get b :priority))
-                      (< (plist-get a :priority) (plist-get b :priority)))
-                     ((and (= (plist-get a :priority) 1)
-                           (= (plist-get b :priority) 1))
+                     ((/= (plist-get a :sort-phase) (plist-get b :sort-phase))
+                      (< (plist-get a :sort-phase) (plist-get b :sort-phase)))
+                     ((and (= (plist-get a :sort-phase) 1)
+                           (= (plist-get b :sort-phase) 1))
                       (> (or (plist-get a :new-index) 0)
                          (or (plist-get b :new-index) 0)))
                      (t nil))))))
@@ -395,18 +408,9 @@ START-INDEX is the UTF-16 index where the first element begins."
   `((deleteContentRange
      . ((range . ((startIndex . ,start)
                   (endIndex . ,end)
+                  ;; Empty segmentId targets the document body
+                  ;; (as opposed to headers, footers, or footnotes)
                   (segmentId . "")))))))
-
-(defun gdocs-diff--request-start-index (request)
-  "Extract the startIndex from a REQUEST alist."
-  (cond
-   ((alist-get 'deleteContentRange request)
-    (alist-get 'startIndex
-               (alist-get 'range (alist-get 'deleteContentRange request))))
-   ((alist-get 'insertText request)
-    (alist-get 'index
-               (alist-get 'location (alist-get 'insertText request))))
-   (t 0)))
 
 ;; ---------------------------------------------------------------------------
 ;;; Insertion requests
@@ -528,9 +532,10 @@ element like a table or table of contents)."
               :style-reqs nil)))))
 
 (defun gdocs-diff--paragraph-content-modification (new-elem start end)
-  "Generate requests to replace paragraph content at START to END.
-Deletes [START, END-1) to preserve the trailing newline, then
-inserts the new text (without newline) at START."
+  "Generate all requests to replace a paragraph at START to END.
+Handles text deletion and insertion, paragraph style, text
+formatting, and list properties.  Deletes [START, END-1) to
+preserve the trailing newline, then inserts new text at START."
   (let* ((text (gdocs-convert--runs-to-plain-text
                 (plist-get new-elem :contents)))
          (text-len (gdocs-convert--string-to-utf16-length text))
@@ -545,6 +550,9 @@ inserts the new text (without newline) at START."
                     (plist-get new-elem :contents) start))
          (list-reqs (gdocs-convert--make-list-requests
                      new-elem start para-end)))
+    ;; Pack style, run, and list requests into :insert-reqs so the
+    ;; caller groups them with the text insertion at the same index,
+    ;; keeping the whole modification atomic.
     (list :delete-reqs (when delete-req (list delete-req))
           :insert-reqs (append (when insert-req (list insert-req))
                                style-reqs run-reqs list-reqs)
