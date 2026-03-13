@@ -327,5 +327,31 @@ ROWS is a list of lists of lists of run plists."
     (should (= (cadr (assq 0 indices)) 10))
     (should (= (cddr (assq 0 indices)) 16))))
 
+;;;; Empty paragraph deletion tests
+
+(ert-deftest gdocs-diff-test-delete-empty-paragraph ()
+  "Deleting an empty paragraph (nil contents) generates a delete request.
+Empty paragraphs occupy exactly 1 UTF-16 unit (the trailing newline).
+The delete must include the trailing newline to actually remove the
+paragraph from the document."
+  (let* ((empty (list :type 'paragraph :style 'normal
+                      :contents nil :list nil :id "e0"))
+         (kept (gdocs-diff-test--make-paragraph "e1" "hello"))
+         (old-ir (list empty kept))
+         (new-ir (list kept))
+         (result (gdocs-diff-generate old-ir new-ir)))
+    ;; Should produce a delete request
+    (should (cl-some (lambda (req)
+                       (alist-get 'deleteContentRange req))
+                     result))
+    ;; The delete range should be [1, 2) — the full empty paragraph
+    (let* ((del-req (cl-find-if (lambda (req)
+                                  (alist-get 'deleteContentRange req))
+                                result))
+           (range (alist-get 'range
+                             (alist-get 'deleteContentRange del-req))))
+      (should (= (alist-get 'startIndex range) 1))
+      (should (= (alist-get 'endIndex range) 2)))))
+
 (provide 'gdocs-diff-test)
 ;;; gdocs-diff-test.el ends here

@@ -335,14 +335,20 @@ so that a modification's delete+insert+style sequence runs
 atomically before any lower-index operation can shift its indices.
 START-INDEX is the UTF-16 index where the first element begins."
   (let* ((old-indices (gdocs-diff--compute-element-indices old-ir start-index))
+         (last-old-index (1- (length old-ir)))
          (groups nil))
-    ;; Pure deletions
+    ;; Pure deletions — delete the full paragraph range including the
+    ;; trailing newline so the paragraph is actually removed.  The
+    ;; last element in old-ir preserves its trailing newline (the
+    ;; mandatory body newline that Google Docs API protects).
     (dolist (op diff-ops)
       (when (eq (plist-get op :op) 'delete)
         (let* ((oi (plist-get op :old-index))
                (range (cdr (assq oi old-indices)))
                (start (car range))
-               (end (1- (cdr range))))
+               (end (if (= oi last-old-index)
+                        (1- (cdr range))
+                      (cdr range))))
           (when (< start end)
             (push (list :index start :sort-phase 0
                         :reqs (list (gdocs-diff--make-delete-request start end)))
