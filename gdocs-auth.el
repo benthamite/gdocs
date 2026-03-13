@@ -66,7 +66,9 @@ ACCOUNT-NAME.json with 600 permissions."
   "Google OAuth 2.0 token endpoint.")
 
 (defconst gdocs-auth--token-expiry-margin 60
-  "Seconds before actual expiry to consider a token expired.")
+  "Seconds before actual expiry to consider a token expired.
+Provides a safety margin for network latency and clock skew
+so API calls don't fail mid-flight with an expired token.")
 
 ;;;; Public API
 
@@ -74,7 +76,9 @@ ACCOUNT-NAME.json with 600 permissions."
   "Select a Google account from `gdocs-accounts'.
 PROMPT is the string to display when multiple accounts are
 configured.  If only one account exists, return its name without
-prompting.  Signal an error if `gdocs-accounts' is nil."
+prompting.  Signal an error if `gdocs-accounts' is nil.
+See also `gdocs-auth--resolve-account' which additionally accepts
+an already-known ACCOUNT argument."
   (gdocs-auth--validate-accounts-configured)
   (if (= 1 (length gdocs-accounts))
       (caar gdocs-accounts)
@@ -127,7 +131,9 @@ If ACCOUNT is nil, prompt the user to select one."
 If ACCOUNT is non-nil, return it.  If nil and only one account
 exists in `gdocs-accounts', return that account's name.  If nil
 and multiple accounts exist, prompt with `completing-read'.
-Signal an error if `gdocs-accounts' is nil."
+Signal an error if `gdocs-accounts' is nil.
+See also `gdocs-auth-select-account' for the interactive-only
+variant that always prompts when multiple accounts exist."
   (gdocs-auth--validate-accounts-configured)
   (cond
    (account account)
@@ -287,6 +293,7 @@ on success.  Return the server process."
            :host "127.0.0.1"
            :service t
            :family 'ipv4
+           ;; No accumulation needed: localhost OAuth redirects arrive in one segment
            :filter (lambda (proc data)
                      (gdocs-auth--handle-callback
                       proc data server
@@ -326,6 +333,7 @@ Return the code string, or nil if not found."
                       "<h1>Authentication successful!</h1>"
                       "<p>You can close this tab and return to Emacs.</p>"
                       "</body></html>")))
+    ;; Content-Length uses character count; safe here since body is ASCII-only
     (process-send-string
      proc
      (format (concat "HTTP/1.1 200 OK\r\n"
@@ -382,8 +390,9 @@ non-nil, is called with the access token string on success."
 
 (defun gdocs-auth--build-token-data (response client-id client-secret)
   "Build a token data alist from token endpoint RESPONSE.
-CLIENT-ID and CLIENT-SECRET are included so they are available
-for future token refreshes."
+CLIENT-ID and CLIENT-SECRET are stored alongside tokens so that
+token refresh can proceed without re-reading `gdocs-accounts',
+which may have changed or may not be loaded yet."
   (let ((access-token (alist-get 'access_token response))
         (refresh-token (alist-get 'refresh_token response))
         (expires-in (alist-get 'expires_in response)))

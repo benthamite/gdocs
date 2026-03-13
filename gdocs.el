@@ -41,6 +41,14 @@
 
 ;;;; File-local variable safety
 
+;; File-local variables set in the Local Variables block of linked
+;; org files.  Declared here so `bound-and-true-p' checks have a
+;; known symbol and grep can find the definitions.
+(defvar gdocs-document-id nil "Google Docs document ID (file-local).")
+(defvar gdocs-account nil "Google account name (file-local).")
+(defvar gdocs-revision-id nil "Last known Drive revision ID (file-local).")
+(defvar gdocs-last-sync nil "ISO 8601 timestamp of last sync (file-local).")
+
 (put 'gdocs-document-id 'safe-local-variable #'stringp)
 (put 'gdocs-account 'safe-local-variable #'stringp)
 (put 'gdocs-revision-id 'safe-local-variable #'stringp)
@@ -53,7 +61,7 @@
 (defun gdocs--update-modeline ()
   "Update the modeline lighter based on sync status."
   (setq gdocs--modeline-lighter
-        (format " GDocs:%s" (or gdocs-sync--status "off")))
+        (format " GDocs:%s" (or gdocs-sync--status 'off)))
   (force-mode-line-update))
 
 ;;;; Keymap
@@ -122,16 +130,19 @@ DOC-ID is the document ID.  ACCOUNT is the account name."
          (file-path (gdocs--doc-file-path title))
          (buf (find-file-noselect file-path)))
     (with-current-buffer buf
+      ;; Write content and set up file-local variables
       (erase-buffer)
       (insert org-string)
       (gdocs-sync--write-file-local-vars doc-id account)
       (setq gdocs-sync--shadow-ir ir)
       (let ((gdocs-auto-push-on-save nil))
         (save-buffer))
+      ;; Initialize sync state
       (setq gdocs-sync--document-id doc-id)
       (setq gdocs-sync--account account)
       (gdocs-sync--update-last-sync-time)
       (gdocs-mode 1))
+    ;; Display to user
     (pop-to-buffer buf)
     (goto-char (point-min))
     (message "Opened: %s" title)))
@@ -145,7 +156,8 @@ Creates `gdocs-directory' if it does not exist."
 
 (defun gdocs--sanitize-filename (name)
   "Sanitize NAME for use as a filename.
-Replace problematic characters with hyphens and collapse runs."
+Strips non-ASCII characters and filesystem-unsafe characters,
+replacing them with hyphens.  Collapses consecutive hyphens."
   (let ((cleaned (replace-regexp-in-string "[^a-zA-Z0-9_.-]" "-" name)))
     (replace-regexp-in-string "-\\{2,\\}" "-" cleaned)))
 
@@ -181,6 +193,7 @@ name."
   (let ((doc-id (alist-get 'documentId json))
         (ir (gdocs-convert-org-buffer-to-ir))
         (buf (current-buffer)))
+    ;; Push org content to the new document
     (gdocs-api-batch-update
      doc-id
      (gdocs-convert-ir-to-docs-requests
@@ -236,7 +249,7 @@ ACCOUNT is the account name to use; if nil, prompt."
   (message "Doc: %s | Account: %s | Status: %s | Rev: %s | Last sync: %s"
            (or gdocs-sync--document-id "none")
            (or gdocs-sync--account "none")
-           (or gdocs-sync--status "off")
+           (or gdocs-sync--status 'off)
            (or gdocs-sync--revision-id "unknown")
            (or gdocs-sync--last-sync-time "never")))
 

@@ -93,6 +93,7 @@ optional account name."
   (gdocs-api--request
    'get
    (concat gdocs-api--drive-base-url "/" file-id
+           ;; Minimum fields needed for sync state tracking
            "?fields=id,name,modifiedTime,version,headRevisionId")
    callback
    :account account))
@@ -113,6 +114,7 @@ PAGE-TOKEN, if non-nil, is used for pagination."
 QUERY is the search query.  PAGE-TOKEN, if non-nil, is appended
 for pagination."
   (concat "?q=" (url-hexify-string query)
+          ;; Minimum fields for file listing and pagination
           "&fields=files(id,name,mimeType,modifiedTime),nextPageToken"
           (when page-token
             (concat "&pageToken=" (url-hexify-string page-token)))))
@@ -161,6 +163,10 @@ TOKEN is the OAuth access token.  FILE-PATH is the local file.
 MIME-TYPE is the file's MIME type.  METADATA is the JSON metadata
 string.  CALLBACK receives the parsed JSON response.  ACCOUNT is
 the account name for error reporting."
+  ;; Uploads go through plz directly (not gdocs-api--request) because
+  ;; multipart bodies cannot be transparently retried.  On failure,
+  ;; the error handler reports but does not retry.
+  ;; Generate a unique boundary unlikely to appear in the file content
   (let* ((boundary (format "gdocs-boundary-%s" (sha1 (format "%s%s" file-path (float-time)))))
          (body (gdocs-api--build-multipart-body
                 boundary metadata file-path mime-type)))
@@ -252,6 +258,7 @@ called with the error condition instead of signaling."
                       (if on-error
                           (funcall on-error api-err)
                         (signal (car api-err) (cdr api-err))))))
+           ;; Conditionally append :body via apply's final-arg spreading
            (when body (list :body body)))))
 
 (defun gdocs-api--build-headers (token body)
@@ -350,6 +357,8 @@ Return the value as an integer, or nil if the header is absent."
     (setq global-mode-string
           (append global-mode-string '(gdocs-api--modeline-string)))))
 
+;; Register at load time so the modeline segment is available
+;; before any API call; gdocs-mode activation is not required.
 (gdocs-api--init-modeline)
 
 (defun gdocs-api--show-progress ()
@@ -360,6 +369,7 @@ Return the value as an integer, or nil if the header is absent."
 (defun gdocs-api--hide-progress ()
   "Decrement the active request count and update the modeline."
   (cl-decf gdocs-api--active-requests)
+  ;; Guard against underflow from orphaned hide-progress calls
   (when (< gdocs-api--active-requests 0)
     (setq gdocs-api--active-requests 0))
   (gdocs-api--update-modeline))
