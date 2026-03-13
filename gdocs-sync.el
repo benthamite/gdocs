@@ -101,9 +101,12 @@ before inserting the new content."
          (let* ((body-end (gdocs-sync--body-end-index json))
                 (filtered-ir (gdocs-sync--filter-title current-ir))
                 (insert-reqs (gdocs-convert-ir-to-docs-requests filtered-ir))
+                ;; body-end > 2 means the document has content beyond the
+                ;; mandatory trailing newline (body with only a newline has
+                ;; endIndex = 2: index 1 = body start, index 2 = after newline)
                 (delete-req (when (> body-end 2)
                               (list (gdocs-diff--make-delete-request
-                                     1 (1- body-end)))))
+                                     1 (1- body-end))))) ;; 1 = body start index
                 (requests (append delete-req insert-reqs)))
            (gdocs-api-batch-update
             doc-id
@@ -280,6 +283,7 @@ markers do not cause false mismatches."
                                                       &optional revision-id)
   "Replace buffer content with ORG-STRING and update shadow to REMOTE-IR.
 REVISION-ID, if non-nil, is stored as the current revision."
+  ;; Suppress modification hooks to prevent recursive push-on-save
   (let ((inhibit-modification-hooks t)
         (doc-id gdocs-sync--document-id)
         (acct gdocs-sync--account))
@@ -289,6 +293,7 @@ REVISION-ID, if non-nil, is stored as the current revision."
     ;; org-string already contains them via the postamble).
     (when doc-id
       (gdocs-sync--write-file-local-vars doc-id acct))
+    ;; Mark clean without saving — caller or user decides when to persist
     (set-buffer-modified-p nil))
   (setq gdocs-sync--shadow-ir remote-ir)
   (when revision-id
@@ -312,6 +317,7 @@ REVISION-ID, if non-nil, is stored as the current revision."
 
 (defun gdocs-sync--apply-merge-result (merged-org)
   "Apply MERGED-ORG as the resolved content and push."
+  ;; Suppress modification hooks to prevent recursive push-on-save
   (let ((inhibit-modification-hooks t))
     (erase-buffer)
     (insert merged-org))
@@ -331,6 +337,7 @@ property drawers and other org-only metadata).  For elements
 changed remotely, uses the remote version with local markers
 grafted back.  Returns a plist with :merged-org and
 :has-conflicts."
+  ;; Prepare three-way data and compute LCS
   (let* ((shadow-ir (gdocs-sync--filter-title gdocs-sync--shadow-ir))
          (remote-filtered (gdocs-sync--filter-title remote-ir))
          (local-data (gdocs-convert-org-buffer-to-segments))
@@ -406,6 +413,7 @@ grafted back.  Returns a plist with :merged-org and
                  ;; Both changed: conflict — include both versions
                  (progn
                    (setq has-conflicts t)
+                   ;; Same shortened conflict markers as `gdocs-merge--insert-conflict'
                    (push (concat
                           "<<<< LOCAL\n"
                           (plist-get (nth local-idx local-segments) :org-text)
@@ -427,20 +435,19 @@ grafted back.  Returns a plist with :merged-org and
                  (push (gdocs-sync--ir-element-to-org-segment
                         grafted drawer)
                        merged-parts))))))))
+    ;; Assemble final result
     (list :merged-org (concat preamble
                               (apply #'concat (nreverse merged-parts))
                               postamble)
           :has-conflicts has-conflicts)))
 
-(defun gdocs-sync--build-shadow-to-local-map (ls-lcs local-ir)
+(defun gdocs-sync--build-shadow-to-local-map (ls-lcs _local-ir)
   "Build an alist mapping shadow indices to local segment indices.
-LS-LCS is the LCS pairs from diffing local vs shadow keys.
-LOCAL-IR is unused but accepted for API consistency."
-  (ignore local-ir)
-  (mapcar (lambda (pair)
-            ;; pair is (shadow-index . local-index)
-            (cons (car pair) (cdr pair)))
-          ls-lcs))
+LS-LCS is the LCS pairs from diffing local vs shadow keys, already
+in (SHADOW-INDEX . LOCAL-INDEX) form.  LOCAL-IR is unused but
+accepted for API consistency."
+  (ignore _local-ir)
+  ls-lcs)
 
 (defun gdocs-sync--ir-element-to-org-segment (element drawer)
   "Convert an IR ELEMENT to an org text segment.
@@ -497,8 +504,10 @@ heading line."
 
 (defun gdocs-sync--graft-markers (remote-elem local-elem)
   "Copy :gdocs-marker from LOCAL-ELEM onto REMOTE-ELEM.
-Returns a new element plist.  If LOCAL-ELEM is nil or has no
-marker, returns REMOTE-ELEM unchanged."
+Markers carry org-only metadata (TODO state, tags, timestamps, etc.)
+that cannot be represented in Google Docs.  They survive round-trips
+via named ranges.  Returns a new element plist.  If LOCAL-ELEM is
+nil or has no marker, returns REMOTE-ELEM unchanged."
   (if (and local-elem (plist-get local-elem :gdocs-marker))
       (append (list :type (plist-get remote-elem :type)
                     :style (plist-get remote-elem :style)
@@ -622,6 +631,7 @@ occupy body space and are excluded from the offset."
       (when (and (eq (plist-get element :style) 'title)
                  (not (eq (plist-get element :source) 'metadata)))
         (setq offset (+ offset (gdocs-diff--element-utf16-length element)))))
+    ;; 1 = Google Docs body start index (index 0 is the document root)
     (+ 1 offset)))
 
 (defun gdocs-sync--filter-title (ir)
