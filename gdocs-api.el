@@ -203,6 +203,17 @@ MIME-TYPE is the file's MIME type."
     (base64-encode-region (point-min) (point-max) t)
     (buffer-string)))
 
+(defun gdocs-api-rename-file (file-id new-name callback &optional account)
+  "Rename the Google Drive file FILE-ID to NEW-NAME.
+CALLBACK is called with the parsed JSON response on success.
+ACCOUNT is an optional account name."
+  (gdocs-api--request
+   'patch
+   (concat gdocs-api--drive-base-url "/" file-id)
+   callback
+   :account account
+   :body (json-encode `((name . ,new-name)))))
+
 (defun gdocs-api-search-files (query callback &optional account)
   "Search Google Drive files with full-text QUERY.
 CALLBACK is called with the parsed JSON response.  ACCOUNT is an

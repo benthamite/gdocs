@@ -99,6 +99,7 @@ before inserting the new content."
      (lambda (json)
        (with-current-buffer buf
          (let* ((body-end (gdocs-sync--body-end-index json))
+                (remote-title (alist-get 'title json))
                 (filtered-ir (gdocs-sync--filter-title current-ir))
                 (insert-reqs (gdocs-convert-ir-to-docs-requests filtered-ir))
                 ;; body-end > 2 means the document has content beyond the
@@ -108,6 +109,8 @@ before inserting the new content."
                               (list (gdocs-diff--make-delete-request
                                      1 (1- body-end))))) ;; 1 = body start index
                 (requests (append delete-req insert-reqs)))
+           (gdocs-sync--maybe-rename-document
+            current-ir remote-title doc-id acct)
            (gdocs-api-batch-update
             doc-id
             requests
@@ -136,11 +139,14 @@ obtain accurate UTF-16 indices for the diff requests."
      (lambda (json)
        (with-current-buffer buf
          (let* ((remote-ir (gdocs-convert-docs-json-to-ir json))
+                (remote-title (alist-get 'title json))
                 (start-index (gdocs-sync--body-start-index remote-ir))
                 (remote-filtered (gdocs-sync--filter-title remote-ir))
                 (local-filtered (gdocs-sync--filter-title local-ir))
                 (requests (gdocs-diff-generate
                            remote-filtered local-filtered start-index)))
+           (gdocs-sync--maybe-rename-document
+            local-ir remote-title doc-id acct)
            (if (null requests)
                (gdocs-sync--push-no-changes buf)
              (gdocs-api-batch-update
@@ -668,6 +674,27 @@ it in the IR causes index misalignment during diff and push."
   (cl-remove-if (lambda (element)
                   (eq (plist-get element :style) 'title))
                 ir))
+
+(defun gdocs-sync--extract-title (ir)
+  "Return the title text from IR, or nil if no title element exists."
+  (cl-loop for element in ir
+           when (eq (plist-get element :style) 'title)
+           return (gdocs-convert--runs-to-plain-text
+                   (plist-get element :contents))))
+
+(defun gdocs-sync--maybe-rename-document (local-ir remote-title
+                                                   doc-id account)
+  "Rename the Google Doc if the local title differs from REMOTE-TITLE.
+LOCAL-IR is the current org buffer's IR.  DOC-ID and ACCOUNT
+identify the document."
+  (let ((local-title (gdocs-sync--extract-title local-ir)))
+    (when (and local-title
+               (not (equal local-title remote-title)))
+      (gdocs-api-rename-file
+       doc-id local-title
+       (lambda (_response)
+         (message "Renamed document to: %s" local-title))
+       account))))
 
 (provide 'gdocs-sync)
 ;;; gdocs-sync.el ends here
