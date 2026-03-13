@@ -290,11 +290,11 @@ REVISION-ID, if non-nil, is stored as the current revision."
         (saved-point (point)))
     (erase-buffer)
     (insert org-string)
-    (goto-char (min saved-point (point-max)))
     ;; Ensure file-local variables are present (idempotent if
     ;; org-string already contains them via the postamble).
     (when doc-id
-      (gdocs-sync--write-file-local-vars doc-id acct)))
+      (gdocs-sync--write-file-local-vars doc-id acct))
+    (goto-char (min saved-point (point-max))))
   ;; Persist pulled content to disk so it survives buffer kill.
   (save-buffer)
   ;; The cache is stale after a full buffer replacement with
