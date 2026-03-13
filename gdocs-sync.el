@@ -297,6 +297,11 @@ REVISION-ID, if non-nil, is stored as the current revision."
       (gdocs-sync--write-file-local-vars doc-id acct))
     ;; Mark clean without saving — caller or user decides when to persist
     (set-buffer-modified-p nil))
+  ;; The cache is stale after a full buffer replacement with
+  ;; `inhibit-modification-hooks' bound — reset it to avoid
+  ;; org-element parser errors.
+  (when (derived-mode-p 'org-mode)
+    (org-element-cache-reset))
   (setq gdocs-sync--shadow-ir remote-ir)
   (when revision-id
     (setq gdocs-sync--revision-id revision-id))
@@ -325,6 +330,8 @@ REVISION-ID, if non-nil, is stored as the current revision."
     (erase-buffer)
     (insert merged-org)
     (goto-char (min saved-point (point-max))))
+  (when (derived-mode-p 'org-mode)
+    (org-element-cache-reset))
   (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
   (gdocs-sync--update-last-sync-time)
   (gdocs-sync--set-status 'synced)
