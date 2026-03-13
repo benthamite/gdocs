@@ -278,5 +278,265 @@ local changes) but remote has new content."
         (should (eq captured-status 'pushing))
         (should (eq gdocs-sync--status 'synced))))))
 
+;;;; Three-way merge internals: graft-markers
+
+(ert-deftest gdocs-sync-test-graft-markers-copies-marker ()
+  "Graft-markers copies :gdocs-marker from local to remote element."
+  (let ((remote (list :type 'paragraph :style 'heading-1
+                      :contents (list (list :text "Hello"))
+                      :id "r-001"))
+        (local (list :type 'paragraph :style 'heading-1
+                     :contents (list (list :text "Hello"))
+                     :id "l-001"
+                     :gdocs-marker (list :type 'todo :data "TODO"))))
+    (let ((result (gdocs-sync--graft-markers remote local)))
+      (should (equal (plist-get result :gdocs-marker)
+                     (list :type 'todo :data "TODO")))
+      ;; Remote content should be preserved
+      (should (eq (plist-get result :style) 'heading-1)))))
+
+(ert-deftest gdocs-sync-test-graft-markers-nil-local ()
+  "Graft-markers with nil local returns remote unchanged."
+  (let ((remote (list :type 'paragraph :style 'normal
+                      :contents (list (list :text "Hello"))
+                      :id "r-001")))
+    (should (eq (gdocs-sync--graft-markers remote nil) remote))))
+
+(ert-deftest gdocs-sync-test-graft-markers-local-without-marker ()
+  "Graft-markers with local that has no marker returns remote unchanged."
+  (let ((remote (list :type 'paragraph :style 'normal
+                      :contents (list (list :text "Hello"))
+                      :id "r-001"))
+        (local (list :type 'paragraph :style 'normal
+                     :contents (list (list :text "Hello"))
+                     :id "l-001")))
+    (should (eq (gdocs-sync--graft-markers remote local) remote))))
+
+;;;; Property drawer extraction
+
+(ert-deftest gdocs-sync-test-extract-property-drawer ()
+  "Extracts :PROPERTIES: block from heading text."
+  (let ((text "* Heading\n:PROPERTIES:\n:ID: abc-123\n:END:\nBody text\n"))
+    (let ((drawer (gdocs-sync--extract-property-drawer text)))
+      (should drawer)
+      (should (string-match-p ":PROPERTIES:" drawer))
+      (should (string-match-p ":ID: abc-123" drawer))
+      (should (string-match-p ":END:" drawer)))))
+
+(ert-deftest gdocs-sync-test-extract-property-drawer-nil ()
+  "Returns nil when no property drawer is present."
+  (should-not (gdocs-sync--extract-property-drawer "* Simple heading\nBody\n")))
+
+;;;; Heading detection
+
+(ert-deftest gdocs-sync-test-heading-element-p-heading ()
+  "Returns non-nil for heading elements."
+  (let ((elem (list :type 'paragraph :style 'heading-1
+                    :contents (list (list :text "Title")))))
+    (should (gdocs-sync--heading-element-p elem))))
+
+(ert-deftest gdocs-sync-test-heading-element-p-normal-paragraph ()
+  "Returns nil for normal paragraphs."
+  (let ((elem (list :type 'paragraph :style 'normal
+                    :contents (list (list :text "Body text")))))
+    (should-not (gdocs-sync--heading-element-p elem))))
+
+(ert-deftest gdocs-sync-test-heading-element-p-table ()
+  "Returns nil for table elements."
+  (let ((elem (list :type 'table :rows '())))
+    (should-not (gdocs-sync--heading-element-p elem))))
+
+;;;; Push-on-save conditions
+
+(ert-deftest gdocs-sync-test-should-auto-push-enabled ()
+  "Returns t when auto-push enabled, document linked, and status ok."
+  (gdocs-sync-test-with-org-buffer "Content\n"
+    (let ((gdocs-auto-push-on-save t))
+      (setq gdocs-sync--status 'synced)
+      (should (gdocs-sync--should-auto-push-p)))))
+
+(ert-deftest gdocs-sync-test-should-auto-push-disabled ()
+  "Returns nil when auto-push is disabled."
+  (gdocs-sync-test-with-org-buffer "Content\n"
+    (let ((gdocs-auto-push-on-save nil))
+      (should-not (gdocs-sync--should-auto-push-p)))))
+
+(ert-deftest gdocs-sync-test-should-auto-push-conflict ()
+  "Returns nil when in conflict status."
+  (gdocs-sync-test-with-org-buffer "Content\n"
+    (let ((gdocs-auto-push-on-save t))
+      (setq gdocs-sync--status 'conflict)
+      (should-not (gdocs-sync--should-auto-push-p)))))
+
+(ert-deftest gdocs-sync-test-should-auto-push-error ()
+  "Returns nil when in error status."
+  (gdocs-sync-test-with-org-buffer "Content\n"
+    (let ((gdocs-auto-push-on-save t))
+      (setq gdocs-sync--status 'error)
+      (should-not (gdocs-sync--should-auto-push-p)))))
+
+(ert-deftest gdocs-sync-test-should-auto-push-no-document-id ()
+  "Returns nil when no document ID is set."
+  (with-temp-buffer
+    (org-mode)
+    (insert "Content\n")
+    (setq gdocs-sync--document-id nil)
+    (let ((gdocs-auto-push-on-save t))
+      (setq gdocs-sync--status 'synced)
+      (should-not (gdocs-sync--should-auto-push-p)))))
+
+;;;; Title filtering
+
+(ert-deftest gdocs-sync-test-filter-title-removes-titles ()
+  "Removes title elements from IR."
+  (let ((ir (list (list :type 'paragraph :style 'title
+                        :contents (list (list :text "My Doc"))
+                        :id "e1")
+                  (list :type 'paragraph :style 'normal
+                        :contents (list (list :text "Body"))
+                        :id "e2"))))
+    (let ((filtered (gdocs-sync--filter-title ir)))
+      (should (= (length filtered) 1))
+      (should (eq (plist-get (car filtered) :style) 'normal)))))
+
+(ert-deftest gdocs-sync-test-filter-title-preserves-non-title ()
+  "Preserves non-title elements unchanged."
+  (let ((ir (list (list :type 'paragraph :style 'heading-1
+                        :contents (list (list :text "Heading"))
+                        :id "e1")
+                  (list :type 'paragraph :style 'normal
+                        :contents (list (list :text "Body"))
+                        :id "e2"))))
+    (let ((filtered (gdocs-sync--filter-title ir)))
+      (should (= (length filtered) 2)))))
+
+;;;; Body start index
+
+(ert-deftest gdocs-sync-test-body-start-index-no-title ()
+  "Returns 1 when no title elements are present."
+  (let ((ir (list (list :type 'paragraph :style 'normal
+                        :contents (list (list :text "Body"))
+                        :id "e1"))))
+    (should (= (gdocs-sync--body-start-index ir) 1))))
+
+(ert-deftest gdocs-sync-test-body-start-index-with-title ()
+  "Returns offset when a non-metadata title exists."
+  (let ((ir (list (list :type 'paragraph :style 'title
+                        :contents (list (list :text "My Title"))
+                        :id "e1")
+                  (list :type 'paragraph :style 'normal
+                        :contents (list (list :text "Body"))
+                        :id "e2"))))
+    ;; Title "My Title" = 8 UTF-16 units + 1 newline = 9, plus body start 1
+    (should (> (gdocs-sync--body-start-index ir) 1))))
+
+(ert-deftest gdocs-sync-test-body-start-index-metadata-title ()
+  "Metadata-source title does not offset body start."
+  (let ((ir (list (list :type 'paragraph :style 'title
+                        :contents (list (list :text "My Title"))
+                        :source 'metadata
+                        :id "e1")
+                  (list :type 'paragraph :style 'normal
+                        :contents (list (list :text "Body"))
+                        :id "e2"))))
+    (should (= (gdocs-sync--body-start-index ir) 1))))
+
+;;;; Remote unchanged detection
+
+(ert-deftest gdocs-sync-test-remote-unchanged-matching-keys ()
+  "Returns t when remote keys match shadow keys."
+  (gdocs-sync-test-with-org-buffer "Hello world\n"
+    (let ((ir (gdocs-convert-org-buffer-to-ir)))
+      (setq gdocs-sync--shadow-ir ir)
+      ;; Same IR as remote: should be unchanged
+      (should (gdocs-sync--remote-unchanged-p ir)))))
+
+(ert-deftest gdocs-sync-test-remote-unchanged-different-keys ()
+  "Returns nil when remote keys differ from shadow keys."
+  (gdocs-sync-test-with-org-buffer "Hello world\n"
+    (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
+    (let ((different-ir (list (list :type 'paragraph :style 'normal
+                                   :contents (list (list :text "Different"
+                                                         :bold nil :italic nil
+                                                         :underline nil
+                                                         :strikethrough nil
+                                                         :code nil :link nil))
+                                   :id "elem-099"))))
+      (should-not (gdocs-sync--remote-unchanged-p different-ir)))))
+
+(ert-deftest gdocs-sync-test-remote-unchanged-no-shadow ()
+  "Returns nil when no shadow IR exists."
+  (gdocs-sync-test-with-org-buffer "Hello world\n"
+    (setq gdocs-sync--shadow-ir nil)
+    (let ((ir (gdocs-convert-org-buffer-to-ir)))
+      (should-not (gdocs-sync--remote-unchanged-p ir)))))
+
+;;;; URL parsing edge cases
+
+(ert-deftest gdocs-sync-test-parse-url-with-query-params ()
+  "URL with query parameters extracts document ID correctly."
+  (should (equal "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
+                 (gdocs-sync--parse-document-id
+                  "https://docs.google.com/document/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms/edit?usp=sharing&tab=t.0"))))
+
+(ert-deftest gdocs-sync-test-parse-url-with-fragment ()
+  "URL with fragment extracts document ID correctly."
+  (should (equal "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
+                 (gdocs-sync--parse-document-id
+                  "https://docs.google.com/document/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms/edit#heading=h.abc"))))
+
+;;;; Clear buffer state
+
+(ert-deftest gdocs-sync-test-clear-buffer-state ()
+  "Clears all buffer-local sync variables."
+  (with-temp-buffer
+    (org-mode)
+    (setq gdocs-sync--document-id "test-id")
+    (setq gdocs-sync--account "test-account")
+    (setq gdocs-sync--shadow-ir '((:type paragraph)))
+    (setq gdocs-sync--revision-id "rev-99")
+    (setq gdocs-sync--last-sync-time "2026-01-01T00:00:00+0000")
+    (setq gdocs-sync--push-in-progress t)
+    (setq gdocs-sync--push-queued t)
+    (setq gdocs-sync--status 'error)
+    (cl-letf (((symbol-function 'gdocs--update-modeline) #'ignore))
+      (gdocs-sync--clear-buffer-state))
+    (should-not gdocs-sync--document-id)
+    (should-not gdocs-sync--account)
+    (should-not gdocs-sync--shadow-ir)
+    (should-not gdocs-sync--revision-id)
+    (should-not gdocs-sync--last-sync-time)
+    (should-not gdocs-sync--push-in-progress)
+    (should-not gdocs-sync--push-queued)
+    (should (eq gdocs-sync--status 'synced))))
+
+;;;; Drawer grafting
+
+(ert-deftest gdocs-sync-test-graft-drawer-into-heading-simple ()
+  "Inserts drawer after heading line."
+  (let ((heading "* My heading")
+        (drawer ":PROPERTIES:\n:ID: abc\n:END:\n"))
+    (let ((result (gdocs-sync--graft-drawer-into-heading heading drawer)))
+      (should (string-match-p "\\* My heading" result))
+      (should (string-match-p ":PROPERTIES:" result))
+      (should (string-match-p ":ID: abc" result))
+      ;; Drawer should come after the heading line
+      (should (< (string-match "\\* My heading" result)
+                 (string-match ":PROPERTIES:" result))))))
+
+(ert-deftest gdocs-sync-test-graft-drawer-into-heading-with-planning ()
+  "Handles heading with SCHEDULED/DEADLINE planning lines."
+  (let ((heading "* Task\nSCHEDULED: <2026-03-15>")
+        (drawer ":PROPERTIES:\n:ID: xyz\n:END:\n"))
+    (let ((result (gdocs-sync--graft-drawer-into-heading heading drawer)))
+      ;; Heading line comes first
+      (should (string-match-p "\\* Task" result))
+      ;; Planning line should be before the drawer
+      (let ((sched-pos (string-match "SCHEDULED:" result))
+            (drawer-pos (string-match ":PROPERTIES:" result)))
+        (should sched-pos)
+        (should drawer-pos)
+        (should (< sched-pos drawer-pos))))))
+
 (provide 'gdocs-sync-test)
 ;;; gdocs-sync-test.el ends here

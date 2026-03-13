@@ -407,5 +407,158 @@
          (result (gdocs-convert-ir-to-org ir)))
     (should (string-match-p ":work:urgent:" result))))
 
+;; ---------------------------------------------------------------------------
+;;; Source block markers
+
+(ert-deftest gdocs-convert-test-src-block-marker ()
+  "A src block produces an IR element with :gdocs-marker of :type src-block."
+  (let* ((ir (gdocs-convert-org-string-to-ir
+              "#+BEGIN_SRC python\nprint(\"hi\")\n#+END_SRC"))
+         (elem (car ir))
+         (marker (plist-get elem :gdocs-marker)))
+    (should marker)
+    (should (eq (plist-get marker :type) 'src-block))
+    (should (string= (plist-get (plist-get marker :data) :language) "python"))))
+
+;; ---------------------------------------------------------------------------
+;;; Priority markers
+
+(ert-deftest gdocs-convert-test-priority-marker ()
+  "A heading with priority produces a marker with :type priority."
+  (let* ((ir (gdocs-convert-org-string-to-ir "* [#A] Urgent task"))
+         (elem (car ir))
+         (marker (plist-get elem :gdocs-marker)))
+    (should marker)
+    (should (eq (plist-get marker :type) 'priority))
+    (should (string= (plist-get marker :data) "A"))))
+
+;; ---------------------------------------------------------------------------
+;;; Scheduled/Deadline markers
+
+(ert-deftest gdocs-convert-test-scheduled-marker ()
+  "SCHEDULED produces a marker with :type scheduled."
+  (let* ((ir (gdocs-convert-org-string-to-ir
+              "* Task\nSCHEDULED: <2026-03-15>"))
+         (elem (car ir))
+         (marker (plist-get elem :gdocs-marker)))
+    (should marker)
+    (should (eq (plist-get marker :type) 'scheduled))
+    (should (string-match-p "2026-03-15" (plist-get marker :data)))))
+
+(ert-deftest gdocs-convert-test-deadline-marker ()
+  "DEADLINE produces a marker with :type deadline."
+  (let* ((ir (gdocs-convert-org-string-to-ir
+              "* Task\nDEADLINE: <2026-03-20>"))
+         (elem (car ir))
+         (marker (plist-get elem :gdocs-marker)))
+    (should marker)
+    (should (eq (plist-get marker :type) 'deadline))
+    (should (string-match-p "2026-03-20" (plist-get marker :data)))))
+
+;; ---------------------------------------------------------------------------
+;;; Empty paragraph handling
+
+(ert-deftest gdocs-convert-test-empty-paragraph-between-paragraphs ()
+  "A blank line between paragraphs does not create a whitespace-only element."
+  (let* ((ir (gdocs-convert-org-string-to-ir "First paragraph\n\nSecond paragraph")))
+    (should (= (length ir) 2))
+    (should (string= (plist-get (car (plist-get (nth 0 ir) :contents)) :text)
+                      "First paragraph"))
+    (should (string= (plist-get (car (plist-get (nth 1 ir) :contents)) :text)
+                      "Second paragraph"))))
+
+;; ---------------------------------------------------------------------------
+;;; Segmented parsing
+
+(ert-deftest gdocs-convert-test-segmented-parsing ()
+  "Segmented parsing returns :ir, :segments, :preamble, and :postamble."
+  (with-temp-buffer
+    (insert "* Heading\n\nParagraph text\n")
+    (org-mode)
+    (let ((result (gdocs-convert-org-buffer-to-segments)))
+      (should (plist-get result :ir))
+      (should (plist-get result :segments))
+      (should (stringp (plist-get result :preamble)))
+      (should (stringp (plist-get result :postamble)))
+      ;; Segments should correspond to IR elements
+      (should (= (length (plist-get result :segments))
+                 (length (plist-get result :ir)))))))
+
+;; ---------------------------------------------------------------------------
+;;; Multiple formatting runs
+
+(ert-deftest gdocs-convert-test-multiple-formatting-runs ()
+  "*bold* and /italic/ mixed produces correct run sequence."
+  (let* ((ir (gdocs-convert-org-string-to-ir "*bold* and /italic/ mixed"))
+         (runs (plist-get (car ir) :contents)))
+    ;; Should have at least 3 runs: bold, plain, italic
+    (should (>= (length runs) 3))
+    ;; First run should be bold
+    (let ((bold-run (car runs)))
+      (should (plist-get bold-run :bold))
+      (should (string= (plist-get bold-run :text) "bold")))
+    ;; There should be an italic run
+    (let ((italic-run (--first (plist-get it :italic) runs)))
+      (should italic-run)
+      (should (string= (plist-get italic-run :text) "italic")))))
+
+;; ---------------------------------------------------------------------------
+;;; Keyword markers
+
+(ert-deftest gdocs-convert-test-keyword-marker ()
+  "#+AUTHOR: Pablo produces an IR element with :gdocs-marker of :type keyword."
+  (let* ((ir (gdocs-convert-org-string-to-ir "#+AUTHOR: Pablo"))
+         (elem (--first (let ((m (plist-get it :gdocs-marker)))
+                          (and m (eq (plist-get m :type) 'keyword)))
+                        ir))
+         (marker (plist-get elem :gdocs-marker)))
+    (should marker)
+    (should (eq (plist-get marker :type) 'keyword))
+    (should (string= (plist-get (plist-get marker :data) :key) "AUTHOR"))
+    (should (string= (plist-get (plist-get marker :data) :value) "Pablo"))))
+
+;; ---------------------------------------------------------------------------
+;;; gdocs-convert--runs-to-plain-text
+
+(ert-deftest gdocs-convert-test-runs-to-plain-text ()
+  "Concatenates :text values from multiple runs."
+  (let ((runs (list (list :text "Hello" :bold nil)
+                    (list :text " " :bold nil)
+                    (list :text "world" :bold t))))
+    (should (string= (gdocs-convert--runs-to-plain-text runs) "Hello world"))))
+
+(ert-deftest gdocs-convert-test-runs-to-plain-text-empty ()
+  "Empty run list produces empty string."
+  (should (string= (gdocs-convert--runs-to-plain-text nil) "")))
+
+;; ---------------------------------------------------------------------------
+;;; gdocs-convert--make-plain-run
+
+(ert-deftest gdocs-convert-test-make-plain-run ()
+  "Creates a plist with :text set and all formatting nil."
+  (let ((run (gdocs-convert--make-plain-run "Hello")))
+    (should (string= (plist-get run :text) "Hello"))
+    (should-not (plist-get run :bold))
+    (should-not (plist-get run :italic))
+    (should-not (plist-get run :underline))
+    (should-not (plist-get run :strikethrough))
+    (should-not (plist-get run :code))
+    (should-not (plist-get run :link))))
+
+;; ---------------------------------------------------------------------------
+;;; Round-trip with headings and nested lists
+
+(ert-deftest gdocs-convert-test-round-trip-headings-and-nested-lists ()
+  "Headings and nested lists survive round-trip."
+  (let* ((original "* Top heading\n\n- Parent item\n  - Child item\n    - Grandchild item\n\n** Sub heading\n\nParagraph.\n")
+         (ir (gdocs-convert-org-string-to-ir original))
+         (result (gdocs-convert-ir-to-org ir)))
+    (should (string-match-p "\\* Top heading" result))
+    (should (string-match-p "\\*\\* Sub heading" result))
+    (should (string-match-p "- Parent item" result))
+    (should (string-match-p "  - Child item" result))
+    (should (string-match-p "    - Grandchild item" result))
+    (should (string-match-p "Paragraph\\." result))))
+
 (provide 'gdocs-convert-test)
 ;;; gdocs-convert-test.el ends here
