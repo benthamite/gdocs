@@ -23,6 +23,7 @@
 
 ;;;; Faces
 
+;; Light-background colors; dark themes may need :inherit overrides
 (defface gdocs-merge-local-face
   '((t :background "#e6ffe6"))
   "Face for local changes in merge view.")
@@ -52,6 +53,7 @@ Each hunk is (:local-text STR :remote-text STR :choice SYMBOL
 
 (defvar gdocs-merge-mode-map
   (let ((map (make-sparse-keymap)))
+    ;; a/b for side A (local) / side B (remote), matching diff3 convention
     (define-key map (kbd "a") #'gdocs-merge-accept-local)
     (define-key map (kbd "b") #'gdocs-merge-accept-remote)
     (define-key map (kbd "e") #'gdocs-merge-edit-hunk)
@@ -102,6 +104,7 @@ chunks and common lines."
          (hunks nil)
          (li 0)
          (ri 0))
+    ;; Walk LCS pairs, collecting differing chunks between matches
     (dolist (pair lcs-pairs)
       (let ((local-idx (car pair))
             (remote-idx (cdr pair))
@@ -149,7 +152,7 @@ chunks and common lines."
   "Create a common (non-conflicting) hunk for LINE."
   (list :local-text line
         :remote-text line
-        :choice 'both
+        :choice 'common
         :edited-text nil
         :overlay nil))
 
@@ -172,6 +175,8 @@ chunks and common lines."
 (defun gdocs-merge--render-hunks ()
   "Render all hunks into the merge buffer."
   (let ((inhibit-read-only t))
+    ;; Full re-render for simplicity; merge buffers are small enough
+    ;; that incremental overlay updates aren't needed.
     (erase-buffer)
     (dolist (hunk gdocs-merge--hunks)
       (gdocs-merge--render-one-hunk hunk))))
@@ -183,7 +188,7 @@ chunks and common lines."
         (remote-text (plist-get hunk :remote-text))
         (start (point)))
     (cond
-     ((eq choice 'both)
+     ((eq choice 'common)
       (insert local-text "\n"))
      ((eq choice 'local)
       (gdocs-merge--insert-resolved local-text hunk start))
@@ -203,6 +208,7 @@ chunks and common lines."
 
 (defun gdocs-merge--insert-conflict (local-text remote-text hunk start)
   "Insert conflicting LOCAL-TEXT and REMOTE-TEXT for HUNK at START."
+  ;; Shortened conflict markers (4 chars vs Git's 7) to save space
   (insert "<<<< LOCAL\n")
   (insert local-text "\n")
   (insert "====\n")
@@ -271,7 +277,9 @@ chunks and common lines."
     (gdocs-merge-next-hunk)))
 
 (defun gdocs-merge-edit-hunk ()
-  "Edit the merged result for the current hunk manually."
+  "Edit the merged result for the current hunk manually.
+Pre-populates the edit buffer with the local version as a
+starting point.  Press C-c C-c to accept the edited text."
   (interactive)
   (let* ((hunk (nth gdocs-merge--current-hunk-index gdocs-merge--hunks))
          (local-text (plist-get hunk :local-text))
@@ -291,6 +299,7 @@ chunks and common lines."
     (let ((text (with-current-buffer edit-buf
                   (buffer-substring-no-properties (point-min) (point-max)))))
       (plist-put hunk :choice 'edited)
+      ;; Trim trailing whitespace added by the edit buffer's final newline
       (plist-put hunk :edited-text (s-trim-right text))
       (kill-buffer edit-buf)
       (when-let* ((merge-buf (get-buffer "*gdocs-merge*")))
@@ -321,6 +330,7 @@ chunks and common lines."
   (interactive)
   (gdocs-merge--validate-all-resolved)
   (let ((result (gdocs-merge--build-result))
+        ;; Capture buffer-local callback before kill-buffer
         (callback gdocs-merge--callback))
     (kill-buffer (current-buffer))
     (funcall callback result)))
@@ -345,7 +355,7 @@ chunks and common lines."
     ('local (plist-get hunk :local-text))
     ('remote (plist-get hunk :remote-text))
     ('edited (plist-get hunk :edited-text))
-    ('both (plist-get hunk :local-text))))
+    ('common (plist-get hunk :local-text))))
 
 (defun gdocs-merge-abort ()
   "Abort the merge without calling the callback."
