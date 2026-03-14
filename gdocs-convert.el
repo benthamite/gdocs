@@ -38,6 +38,100 @@
   (setq gdocs-convert--id-counter 0))
 
 ;; ---------------------------------------------------------------------------
+;;; Cross-document link resolution
+
+(defcustom gdocs-link-directories nil
+  "Additional directories to scan for cross-document link resolution.
+`gdocs-directory' is always included."
+  :type '(repeat directory)
+  :group 'gdocs)
+
+(defvar gdocs-convert--link-context nil
+  "Plist with context for cross-document link resolution.
+When non-nil, file: and id: links to org files with Google Doc
+counterparts are resolved to Google Docs URLs during org-to-IR
+conversion, and Google Docs URLs are reverse-resolved to org
+links during IR-to-org conversion.
+Contains :buffer-file and :docid-map.")
+
+(defvar gdocs-convert--heading-cache (make-hash-table :test 'equal)
+  "Session cache: doc-id -> alist of ((heading-text . heading-id) ...).
+Populated during push/pull when we fetch a document's JSON.
+Used during org-to-IR link resolution to append heading anchors.")
+
+(defun gdocs-convert--read-file-local-gdocs-id (file-path)
+  "Read `gdocs-document-id' from FILE-PATH's Local Variables block.
+Reads only the tail of the file (~3KB) and uses a regexp.
+Returns the document ID string or nil."
+  (when (and file-path (file-readable-p file-path))
+    (let ((tail-bytes 3072)
+          (content nil))
+      (with-temp-buffer
+        (insert-file-contents file-path nil
+                              (max 0 (- (file-attribute-size
+                                         (file-attributes file-path))
+                                        tail-bytes)))
+        (setq content (buffer-string)))
+      (when (string-match
+             "gdocs-document-id:[[:space:]]+\"\\([^\"]+\\)\""
+             content)
+        (match-string 1 content)))))
+
+(defun gdocs-convert--build-docid-to-file-map (directories)
+  "Scan org files in DIRECTORIES and return a doc-id-to-file hash table.
+Each key is a Google Docs document ID, each value is an absolute file path."
+  (let ((map (make-hash-table :test 'equal)))
+    (dolist (dir directories)
+      (when (file-directory-p dir)
+        (dolist (file (directory-files dir t "\\.org\\'"))
+          (when-let* ((doc-id (gdocs-convert--read-file-local-gdocs-id file)))
+            (puthash doc-id file map)))))
+    map))
+
+(defun gdocs-convert--cache-heading-ids (doc-id json)
+  "Extract heading IDs from document JSON and cache them under DOC-ID.
+Stores an alist of (heading-text . heading-id) pairs, plus a
+reverse alist of (heading-id . heading-text) pairs under
+DOC-ID-reverse."
+  (let ((body (alist-get 'body json))
+        (forward nil)
+        (reverse nil))
+    (when body
+      (seq-doseq (structural-element (alist-get 'content body))
+        (let ((paragraph (alist-get 'paragraph structural-element)))
+          (when paragraph
+            (let* ((style-obj (alist-get 'paragraphStyle paragraph))
+                   (named-style (alist-get 'namedStyleType style-obj))
+                   (heading-id (alist-get 'headingId style-obj)))
+              (when (and heading-id
+                         (string-match-p "^HEADING_[1-6]$" named-style))
+                (let* ((elements (alist-get 'elements paragraph))
+                       (text (gdocs-convert--docs-paragraph-plain-text
+                              elements)))
+                  (when (and text (not (string-empty-p text)))
+                    (push (cons text heading-id) forward)
+                    (push (cons heading-id text) reverse)))))))))
+    (puthash doc-id (nreverse forward) gdocs-convert--heading-cache)
+    (puthash (concat doc-id "-reverse") (nreverse reverse)
+             gdocs-convert--heading-cache)))
+
+(defun gdocs-convert--docs-paragraph-plain-text (elements)
+  "Extract plain text from Google Docs paragraph ELEMENTS.
+Returns the concatenated text content with trailing whitespace trimmed."
+  (let ((parts nil))
+    (seq-doseq (el elements)
+      (let ((text-run (alist-get 'textRun el)))
+        (when text-run
+          (push (alist-get 'content text-run) parts))))
+    (s-trim-right (apply #'concat (nreverse parts)))))
+
+(defconst gdocs-convert--docs-url-regexp
+  "https://docs\\.google\\.com/document/d/\\([^/#]+\\)\\(?:/[^#]*\\)?\\(?:#heading=h\\.\\([^&]+\\)\\)?"
+  "Regexp matching a Google Docs document URL.
+Group 1 captures the document ID.
+Group 2 captures the heading ID (if present).")
+
+;; ---------------------------------------------------------------------------
 ;;; Public API: org -> IR
 
 (defun gdocs-convert-org-buffer-to-ir ()
@@ -554,12 +648,100 @@ formatting (e.g. italic, bold) within the link description."
       (list (gdocs-convert--make-run url new-props)))))
 
 (defun gdocs-convert--link-url (link)
-  "Extract the URL string from a LINK element."
+  "Extract the URL string from a LINK element.
+When `gdocs-convert--link-context' is bound, resolves file: and
+id: links to Google Docs URLs for cross-document linking."
   (let ((type (org-element-property :type link))
-        (path (org-element-property :path link)))
-    (if (member type '("http" "https" "ftp" "mailto"))
-        (concat type ":" path)
-      path)))
+        (path (org-element-property :path link))
+        (search (org-element-property :search-option link)))
+    (cond
+     ((member type '("http" "https" "ftp" "mailto"))
+      (concat type ":" path))
+     ((and gdocs-convert--link-context (string= type "file"))
+      (gdocs-convert--resolve-file-link path search))
+     ((and gdocs-convert--link-context (string= type "id"))
+      (gdocs-convert--resolve-id-link path))
+     ((string= type "fuzzy")
+      ;; Same-document heading link: [[*Heading]] or [[#custom-id]]
+      (if (and gdocs-convert--link-context
+               (string-prefix-p "*" path))
+          (gdocs-convert--resolve-same-doc-heading-link
+           (substring path 1))
+        path))
+     ;; Preserve file: prefix for non-org file links
+     ((string= type "file")
+      (concat "file:" path))
+     (t path))))
+
+(defun gdocs-convert--resolve-file-link (path search)
+  "Resolve a file: link PATH to a Google Docs URL.
+SEARCH is the search option from org-element (e.g. \"*Heading\").
+If the target has no Google Doc ID, returns the path with file: prefix."
+  (let* ((buffer-file (plist-get gdocs-convert--link-context :buffer-file))
+         (abs-path (if (file-name-absolute-p path)
+                       path
+                     (expand-file-name path
+                                       (file-name-directory buffer-file))))
+         (target-doc-id (gdocs-convert--read-file-local-gdocs-id abs-path))
+         ;; Strip * prefix from heading search options
+         (heading-text (when (and search (string-prefix-p "*" search))
+                         (substring search 1))))
+    (if target-doc-id
+        (gdocs-convert--make-docs-url target-doc-id heading-text)
+      (concat "file:" path))))
+
+(defun gdocs-convert--resolve-id-link (id)
+  "Resolve an id: link ID to a Google Docs URL.
+Uses `org-id-find' to locate the target file, then reads its
+`gdocs-document-id'.  Falls back to the raw ID if unresolvable."
+  (if-let* ((location (org-id-find id)))
+      (let* ((file (if (consp location) (car location) location))
+             (target-doc-id (gdocs-convert--read-file-local-gdocs-id file)))
+        (if target-doc-id
+            (let* ((pos (when (consp location) (cdr location)))
+                   (heading-text (when pos
+                                   (gdocs-convert--heading-at-pos file pos))))
+              (gdocs-convert--make-docs-url target-doc-id heading-text))
+          id))
+    id))
+
+(defun gdocs-convert--resolve-same-doc-heading-link (heading-text)
+  "Resolve a same-document heading link to HEADING-TEXT.
+When the current document's heading cache is populated, returns a
+Google Docs URL with heading anchor.  Otherwise returns the path."
+  (let* ((buffer-file (plist-get gdocs-convert--link-context :buffer-file))
+         (current-doc-id (when buffer-file
+                           (gdocs-convert--read-file-local-gdocs-id
+                            buffer-file))))
+    (if current-doc-id
+        (gdocs-convert--make-docs-url current-doc-id heading-text)
+      (concat "*" heading-text))))
+
+(defun gdocs-convert--heading-at-pos (file pos)
+  "Return the heading text at position POS in FILE, or nil."
+  (with-temp-buffer
+    (insert-file-contents file)
+    (org-mode)
+    (goto-char pos)
+    (when (org-at-heading-p)
+      (org-element-property :raw-value (org-element-at-point)))))
+
+(defun gdocs-convert--make-docs-url (doc-id &optional heading-search)
+  "Construct a Google Docs URL for DOC-ID.
+If HEADING-SEARCH is non-nil, look up the heading ID in the
+heading cache and append a #heading=h.ID fragment."
+  (let ((base (format "https://docs.google.com/document/d/%s/edit" doc-id)))
+    (if heading-search
+        (let* ((cache-entry (gethash doc-id gdocs-convert--heading-cache))
+               (normalized (s-trim (downcase heading-search)))
+               (heading-id
+                (cl-loop for (text . id) in cache-entry
+                         when (string= (s-trim (downcase text)) normalized)
+                         return id)))
+          (if heading-id
+              (concat base "#heading=h." heading-id)
+            base))
+      base)))
 
 (defun gdocs-convert--timestamp-to-runs (timestamp inherited-props)
   "Convert a TIMESTAMP object to a text run with a marker.
@@ -962,7 +1144,9 @@ indent continuation lines to keep them inside the list item."
   (mapconcat #'gdocs-convert--run-to-org runs ""))
 
 (defun gdocs-convert--run-to-org (run)
-  "Convert a single text RUN plist to an org-formatted string."
+  "Convert a single text RUN plist to an org-formatted string.
+When `gdocs-convert--link-context' is bound, reverse-resolves
+Google Docs URLs back to org file: links."
   (let ((text (plist-get run :text))
         (bold (plist-get run :bold))
         (italic (plist-get run :italic))
@@ -981,8 +1165,38 @@ indent continuation lines to keep them inside the list item."
     (when strikethrough
       (setq text (gdocs-convert--wrap-emphasis "+" text)))
     (when link
-      (setq text (format "[[%s][%s]]" link text)))
+      (let ((resolved-link (if gdocs-convert--link-context
+                               (gdocs-convert--reverse-resolve-link link)
+                             link)))
+        (setq text (format "[[%s][%s]]" resolved-link text))))
     text))
+
+(defun gdocs-convert--reverse-resolve-link (url)
+  "Reverse-resolve a Google Docs URL to an org file: link.
+If URL matches a known Google Doc, returns file:relative-path.
+If the URL has a heading anchor, appends ::*Heading text.
+Falls back to URL unchanged for unknown documents."
+  (if (string-match gdocs-convert--docs-url-regexp url)
+      (let* ((doc-id (match-string 1 url))
+             (heading-id (match-string 2 url))
+             (docid-map (plist-get gdocs-convert--link-context :docid-map))
+             (buffer-file (plist-get gdocs-convert--link-context :buffer-file))
+             (target-file (when docid-map (gethash doc-id docid-map))))
+        (if target-file
+            (let* ((rel-path (file-relative-name target-file
+                                                 (file-name-directory
+                                                  buffer-file)))
+                   (heading-text
+                    (when heading-id
+                      (let* ((reverse-key (concat doc-id "-reverse"))
+                             (reverse-alist (gethash reverse-key
+                                                     gdocs-convert--heading-cache)))
+                        (cdr (assoc heading-id reverse-alist))))))
+              (if heading-text
+                  (format "file:%s::*%s" rel-path heading-text)
+                (concat "file:" rel-path)))
+          url))
+    url))
 
 (defun gdocs-convert--wrap-emphasis (marker text)
   "Wrap TEXT with emphasis MARKER, moving edge whitespace outside.

@@ -560,5 +560,346 @@
     (should (string-match-p "    - Grandchild item" result))
     (should (string-match-p "Paragraph\\." result))))
 
+;; ---------------------------------------------------------------------------
+;;; File-local variable reader
+
+(ert-deftest gdocs-convert-test-read-file-local-gdocs-id ()
+  "Reads gdocs-document-id from a file's Local Variables block."
+  (let ((temp-file (make-temp-file "gdocs-test" nil ".org")))
+    (unwind-protect
+        (progn
+          (with-temp-file temp-file
+            (insert "* Heading\n\nSome text.\n\n"
+                    ";; Local Variables:\n"
+                    ";; gdocs-document-id: \"abc123def\"\n"
+                    ";; End:\n"))
+          (should (string= (gdocs-convert--read-file-local-gdocs-id temp-file)
+                            "abc123def")))
+      (delete-file temp-file))))
+
+(ert-deftest gdocs-convert-test-read-file-local-gdocs-id-missing ()
+  "Returns nil when file has no gdocs-document-id."
+  (let ((temp-file (make-temp-file "gdocs-test" nil ".org")))
+    (unwind-protect
+        (progn
+          (with-temp-file temp-file
+            (insert "* Just a heading\n"))
+          (should-not (gdocs-convert--read-file-local-gdocs-id temp-file)))
+      (delete-file temp-file))))
+
+(ert-deftest gdocs-convert-test-read-file-local-gdocs-id-nonexistent ()
+  "Returns nil for nonexistent files."
+  (should-not (gdocs-convert--read-file-local-gdocs-id
+               "/nonexistent/path/to/file.org")))
+
+;; ---------------------------------------------------------------------------
+;;; Cross-document link resolution
+
+(ert-deftest gdocs-convert-test-link-url-web-unchanged ()
+  "Web links are unchanged regardless of link context."
+  (let ((gdocs-convert--link-context
+         (list :buffer-file "/tmp/test.org"
+               :docid-map (make-hash-table :test 'equal))))
+    (let* ((ir (gdocs-convert-org-string-to-ir
+                "Visit [[https://example.com][Example]]"))
+           (runs (plist-get (car ir) :contents))
+           (link-run (nth 1 runs)))
+      (should (string= (plist-get link-run :link) "https://example.com")))))
+
+(ert-deftest gdocs-convert-test-link-url-file-resolved ()
+  "file: links to org files with doc IDs resolve to Google Docs URLs."
+  (let ((temp-dir (make-temp-file "gdocs-test" t))
+        (source-file nil)
+        (target-file nil))
+    (unwind-protect
+        (progn
+          (setq source-file (expand-file-name "source.org" temp-dir))
+          (setq target-file (expand-file-name "target.org" temp-dir))
+          (with-temp-file target-file
+            (insert "* Target heading\n\n"
+                    ";; Local Variables:\n"
+                    ";; gdocs-document-id: \"TARGET_DOC_ID\"\n"
+                    ";; End:\n"))
+          (with-temp-file source-file
+            (insert (format "Link to [[file:%s][Target]]" target-file)))
+          (let ((gdocs-convert--link-context
+                 (list :buffer-file source-file
+                       :docid-map (make-hash-table :test 'equal))))
+            (with-temp-buffer
+              (insert-file-contents source-file)
+              (org-mode)
+              (let* ((ir (gdocs-convert-org-buffer-to-ir))
+                     (runs (plist-get (car ir) :contents))
+                     (link-run (nth 1 runs)))
+                (should (string=
+                         (plist-get link-run :link)
+                         "https://docs.google.com/document/d/TARGET_DOC_ID/edit"))))))
+      (delete-file source-file)
+      (delete-file target-file)
+      (delete-directory temp-dir))))
+
+(ert-deftest gdocs-convert-test-link-url-file-no-doc-id ()
+  "file: links to org files without doc IDs preserve file: prefix."
+  (let ((temp-dir (make-temp-file "gdocs-test" t))
+        (source-file nil)
+        (target-file nil))
+    (unwind-protect
+        (progn
+          (setq source-file (expand-file-name "source.org" temp-dir))
+          (setq target-file (expand-file-name "target.org" temp-dir))
+          (with-temp-file target-file
+            (insert "* Target heading\n"))
+          (with-temp-file source-file
+            (insert "Link to [[file:target.org][Target]]"))
+          (let ((gdocs-convert--link-context
+                 (list :buffer-file source-file
+                       :docid-map (make-hash-table :test 'equal))))
+            (with-temp-buffer
+              (insert-file-contents source-file)
+              (org-mode)
+              (let* ((ir (gdocs-convert-org-buffer-to-ir))
+                     (runs (plist-get (car ir) :contents))
+                     (link-run (nth 1 runs)))
+                (should (string= (plist-get link-run :link)
+                                  "file:target.org"))))))
+      (delete-file source-file)
+      (delete-file target-file)
+      (delete-directory temp-dir))))
+
+(ert-deftest gdocs-convert-test-link-url-no-context ()
+  "Without link context, file: links return raw path (backward compat)."
+  (let ((gdocs-convert--link-context nil))
+    (let* ((ir (gdocs-convert-org-string-to-ir
+                "Link to [[file:other.org][Other]]"))
+           (runs (plist-get (car ir) :contents))
+           (link-run (nth 1 runs)))
+      (should (string= (plist-get link-run :link) "file:other.org")))))
+
+;; ---------------------------------------------------------------------------
+;;; Heading cache
+
+(ert-deftest gdocs-convert-test-cache-heading-ids ()
+  "Heading IDs are extracted and cached from docs JSON."
+  (let ((gdocs-convert--heading-cache (make-hash-table :test 'equal))
+        (json `((body . ((content
+                          . [((paragraph
+                               . ((elements
+                                   . [((textRun
+                                        . ((content . "Introduction\n")
+                                           (textStyle . ()))))])
+                                  (paragraphStyle
+                                   . ((namedStyleType . "HEADING_1")
+                                      (headingId . "h123abc"))))))])))
+                (title . "Test"))))
+    (gdocs-convert--cache-heading-ids "doc-001" json)
+    (let ((forward (gethash "doc-001" gdocs-convert--heading-cache))
+          (reverse (gethash "doc-001-reverse" gdocs-convert--heading-cache)))
+      (should (equal forward '(("Introduction" . "h123abc"))))
+      (should (equal reverse '(("h123abc" . "Introduction")))))))
+
+(ert-deftest gdocs-convert-test-heading-anchor-appended ()
+  "When heading cache is populated, links include heading anchor."
+  (let ((temp-dir (make-temp-file "gdocs-test" t))
+        (source-file nil)
+        (target-file nil)
+        (gdocs-convert--heading-cache (make-hash-table :test 'equal)))
+    (unwind-protect
+        (progn
+          (setq source-file (expand-file-name "source.org" temp-dir))
+          (setq target-file (expand-file-name "target.org" temp-dir))
+          (with-temp-file target-file
+            (insert "* Introduction\n\n"
+                    ";; Local Variables:\n"
+                    ";; gdocs-document-id: \"TARGET_DOC\"\n"
+                    ";; End:\n"))
+          ;; Populate heading cache
+          (puthash "TARGET_DOC"
+                   '(("Introduction" . "h_abc123"))
+                   gdocs-convert--heading-cache)
+          (with-temp-file source-file
+            (insert "See [[file:target.org::*Introduction][intro]]"))
+          (let ((gdocs-convert--link-context
+                 (list :buffer-file source-file
+                       :docid-map (make-hash-table :test 'equal))))
+            (with-temp-buffer
+              (insert-file-contents source-file)
+              (org-mode)
+              (let* ((ir (gdocs-convert-org-buffer-to-ir))
+                     (runs (plist-get (car ir) :contents))
+                     (link-run (nth 1 runs)))
+                (should (string=
+                         (plist-get link-run :link)
+                         "https://docs.google.com/document/d/TARGET_DOC/edit#heading=h.h_abc123"))))))
+      (delete-file source-file)
+      (delete-file target-file)
+      (delete-directory temp-dir))))
+
+(ert-deftest gdocs-convert-test-no-heading-anchor-on-cache-miss ()
+  "Without heading cache, link resolves to document-level URL."
+  (let ((temp-dir (make-temp-file "gdocs-test" t))
+        (source-file nil)
+        (target-file nil)
+        (gdocs-convert--heading-cache (make-hash-table :test 'equal)))
+    (unwind-protect
+        (progn
+          (setq source-file (expand-file-name "source.org" temp-dir))
+          (setq target-file (expand-file-name "target.org" temp-dir))
+          (with-temp-file target-file
+            (insert "* Introduction\n\n"
+                    ";; Local Variables:\n"
+                    ";; gdocs-document-id: \"TARGET_DOC\"\n"
+                    ";; End:\n"))
+          ;; No heading cache populated
+          (with-temp-file source-file
+            (insert "See [[file:target.org::*Introduction][intro]]"))
+          (let ((gdocs-convert--link-context
+                 (list :buffer-file source-file
+                       :docid-map (make-hash-table :test 'equal))))
+            (with-temp-buffer
+              (insert-file-contents source-file)
+              (org-mode)
+              (let* ((ir (gdocs-convert-org-buffer-to-ir))
+                     (runs (plist-get (car ir) :contents))
+                     (link-run (nth 1 runs)))
+                (should (string=
+                         (plist-get link-run :link)
+                         "https://docs.google.com/document/d/TARGET_DOC/edit"))))))
+      (delete-file source-file)
+      (delete-file target-file)
+      (delete-directory temp-dir))))
+
+;; ---------------------------------------------------------------------------
+;;; Reverse resolution
+
+(ert-deftest gdocs-convert-test-reverse-resolve-google-docs-url ()
+  "Google Docs URLs reverse-resolve to file: links on pull."
+  (let* ((docid-map (make-hash-table :test 'equal))
+         (gdocs-convert--heading-cache (make-hash-table :test 'equal))
+         (gdocs-convert--link-context
+          (list :buffer-file "/home/user/org/source.org"
+                :docid-map docid-map)))
+    (puthash "DOC_ABC" "/home/user/org/target.org" docid-map)
+    (let* ((run (list :text "link text"
+                      :bold nil :italic nil :underline nil
+                      :strikethrough nil :code nil
+                      :link "https://docs.google.com/document/d/DOC_ABC/edit"))
+           (org-text (gdocs-convert--run-to-org run)))
+      (should (string= org-text "[[file:target.org][link text]]")))))
+
+(ert-deftest gdocs-convert-test-reverse-resolve-with-heading ()
+  "Google Docs URLs with heading anchors reverse-resolve with ::*Heading."
+  (let* ((docid-map (make-hash-table :test 'equal))
+         (gdocs-convert--heading-cache (make-hash-table :test 'equal))
+         (gdocs-convert--link-context
+          (list :buffer-file "/home/user/org/source.org"
+                :docid-map docid-map)))
+    (puthash "DOC_ABC" "/home/user/org/target.org" docid-map)
+    (puthash "DOC_ABC-reverse" '(("h_intro" . "Introduction"))
+             gdocs-convert--heading-cache)
+    (let* ((run (list :text "intro"
+                      :bold nil :italic nil :underline nil
+                      :strikethrough nil :code nil
+                      :link "https://docs.google.com/document/d/DOC_ABC/edit#heading=h.h_intro"))
+           (org-text (gdocs-convert--run-to-org run)))
+      (should (string= org-text
+                        "[[file:target.org::*Introduction][intro]]")))))
+
+(ert-deftest gdocs-convert-test-reverse-resolve-unknown-doc ()
+  "Unknown Google Docs URLs pass through unchanged."
+  (let* ((docid-map (make-hash-table :test 'equal))
+         (gdocs-convert--link-context
+          (list :buffer-file "/home/user/org/source.org"
+                :docid-map docid-map)))
+    (let* ((run (list :text "unknown"
+                      :bold nil :italic nil :underline nil
+                      :strikethrough nil :code nil
+                      :link "https://docs.google.com/document/d/UNKNOWN_DOC/edit"))
+           (org-text (gdocs-convert--run-to-org run)))
+      (should (string=
+               org-text
+               "[[https://docs.google.com/document/d/UNKNOWN_DOC/edit][unknown]]")))))
+
+(ert-deftest gdocs-convert-test-reverse-resolve-non-docs-url ()
+  "Non-Google Docs URLs pass through unchanged."
+  (let* ((gdocs-convert--link-context
+          (list :buffer-file "/home/user/org/source.org"
+                :docid-map (make-hash-table :test 'equal))))
+    (let* ((run (list :text "example"
+                      :bold nil :italic nil :underline nil
+                      :strikethrough nil :code nil
+                      :link "https://example.com"))
+           (org-text (gdocs-convert--run-to-org run)))
+      (should (string= org-text "[[https://example.com][example]]")))))
+
+;; ---------------------------------------------------------------------------
+;;; Build docid-to-file map
+
+(ert-deftest gdocs-convert-test-build-docid-map ()
+  "Builds a hash table mapping doc IDs to file paths."
+  (let ((temp-dir (make-temp-file "gdocs-test" t))
+        (file-a nil)
+        (file-b nil))
+    (unwind-protect
+        (progn
+          (setq file-a (expand-file-name "a.org" temp-dir))
+          (setq file-b (expand-file-name "b.org" temp-dir))
+          (with-temp-file file-a
+            (insert "* A\n\n"
+                    ";; Local Variables:\n"
+                    ";; gdocs-document-id: \"DOC_A\"\n"
+                    ";; End:\n"))
+          (with-temp-file file-b
+            (insert "* B\n\n"
+                    ";; Local Variables:\n"
+                    ";; gdocs-document-id: \"DOC_B\"\n"
+                    ";; End:\n"))
+          (let ((map (gdocs-convert--build-docid-to-file-map
+                      (list temp-dir))))
+            (should (string= (gethash "DOC_A" map) file-a))
+            (should (string= (gethash "DOC_B" map) file-b))))
+      (delete-file file-a)
+      (delete-file file-b)
+      (delete-directory temp-dir))))
+
+;; ---------------------------------------------------------------------------
+;;; Integration: round-trip with cross-document links
+
+(ert-deftest gdocs-convert-test-cross-doc-link-round-trip ()
+  "File link -> IR (resolved URL) -> org (file: link) round-trip."
+  (let* ((temp-dir (make-temp-file "gdocs-test" t))
+         (source-file (expand-file-name "source.org" temp-dir))
+         (target-file (expand-file-name "target.org" temp-dir))
+         (docid-map (make-hash-table :test 'equal))
+         (gdocs-convert--heading-cache (make-hash-table :test 'equal)))
+    (unwind-protect
+        (progn
+          (with-temp-file target-file
+            (insert "* Target\n\n"
+                    ";; Local Variables:\n"
+                    ";; gdocs-document-id: \"DOC_TARGET\"\n"
+                    ";; End:\n"))
+          (with-temp-file source-file
+            (insert "See [[file:target.org][Target doc]]"))
+          ;; Build docid-map for reverse resolution
+          (puthash "DOC_TARGET" target-file docid-map)
+          (let ((gdocs-convert--link-context
+                 (list :buffer-file source-file
+                       :docid-map docid-map)))
+            ;; org -> IR: file link becomes Google Docs URL
+            (let* ((ir (with-temp-buffer
+                         (insert-file-contents source-file)
+                         (org-mode)
+                         (gdocs-convert-org-buffer-to-ir)))
+                   (link-run (nth 1 (plist-get (car ir) :contents))))
+              (should (string=
+                       (plist-get link-run :link)
+                       "https://docs.google.com/document/d/DOC_TARGET/edit"))
+              ;; IR -> org: Google Docs URL becomes file: link
+              (let ((result (gdocs-convert-ir-to-org ir)))
+                (should (string-match-p "\\[\\[file:target\\.org\\]" result))))))
+      (delete-file source-file)
+      (delete-file target-file)
+      (delete-directory temp-dir))))
+
 (provide 'gdocs-convert-test)
 ;;; gdocs-convert-test.el ends here

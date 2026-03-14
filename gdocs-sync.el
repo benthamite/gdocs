@@ -63,6 +63,15 @@
   "Current sync status.
 One of `synced', `modified', `pushing', `conflict', or `error'.")
 
+;;;; Link context
+
+(defun gdocs-sync--make-link-context ()
+  "Build a link context plist for cross-document resolution."
+  (list :buffer-file buffer-file-name
+        :docid-map (gdocs-convert--build-docid-to-file-map
+                    (cons gdocs-directory
+                          (bound-and-true-p gdocs-link-directories)))))
+
 ;;;; Push
 
 (defun gdocs-sync-push ()
@@ -73,11 +82,13 @@ One of `synced', `modified', `pushing', `conflict', or `error'.")
   (unless (gdocs-sync--serialize-push)
     (setq gdocs-sync--push-in-progress t)
     (gdocs-sync--set-status 'pushing)
-    (let ((current-ir (gdocs-convert-org-buffer-to-ir))
-          (buf (current-buffer)))
+    (let* ((link-ctx (gdocs-sync--make-link-context))
+           (gdocs-convert--link-context link-ctx)
+           (current-ir (gdocs-convert-org-buffer-to-ir))
+           (buf (current-buffer)))
       (if (null gdocs-sync--shadow-ir)
-          (gdocs-sync--push-full-replacement current-ir buf)
-        (gdocs-sync--push-incremental current-ir buf)))))
+          (gdocs-sync--push-full-replacement current-ir buf link-ctx)
+        (gdocs-sync--push-incremental current-ir buf link-ctx)))))
 
 (defun gdocs-sync--serialize-push ()
   "If a push is already in progress, queue this one.
@@ -87,17 +98,19 @@ Return non-nil if the push was serialized (caller should abort)."
     (message "Push already in progress, queued")
     t))
 
-(defun gdocs-sync--push-full-replacement (current-ir buf)
+(defun gdocs-sync--push-full-replacement (current-ir buf link-ctx)
   "Push CURRENT-IR as a full document replacement.
-BUF is the originating buffer.  Fetches the document first to
-determine the body end index so existing content can be deleted
-before inserting the new content."
+BUF is the originating buffer.  LINK-CTX is the link context for
+re-binding in callbacks.  Fetches the document first to determine
+the body end index so existing content can be deleted before
+inserting the new content."
   (let ((doc-id gdocs-sync--document-id)
         (acct gdocs-sync--account))
     (gdocs-api-get-document
      doc-id
      (lambda (json)
        (with-current-buffer buf
+         (gdocs-convert--cache-heading-ids doc-id json)
          (let* ((body-end (gdocs-sync--body-end-index json))
                 (remote-title (alist-get 'title json))
                 (filtered-ir (gdocs-sync--filter-title current-ir))
@@ -114,7 +127,7 @@ before inserting the new content."
            (gdocs-api-batch-update
             doc-id
             requests
-            (gdocs-sync--make-push-callback current-ir buf)
+            (gdocs-sync--make-push-callback current-ir buf link-ctx)
             acct
             (gdocs-sync--make-push-error-callback buf)))))
      acct)))
@@ -127,10 +140,11 @@ Returns the endIndex of the last element in the body content."
          (last-elem (aref content (1- (length content)))))
     (alist-get 'endIndex last-elem)))
 
-(defun gdocs-sync--push-incremental (current-ir buf)
+(defun gdocs-sync--push-incremental (current-ir buf link-ctx)
   "Push CURRENT-IR as an incremental diff against the remote document.
-BUF is the originating buffer.  Fetches the current document to
-obtain accurate UTF-16 indices for the diff requests."
+BUF is the originating buffer.  LINK-CTX is the link context for
+re-binding in callbacks.  Fetches the current document to obtain
+accurate UTF-16 indices for the diff requests."
   (let ((doc-id gdocs-sync--document-id)
         (acct gdocs-sync--account)
         (local-ir current-ir))
@@ -138,6 +152,7 @@ obtain accurate UTF-16 indices for the diff requests."
      doc-id
      (lambda (json)
        (with-current-buffer buf
+         (gdocs-convert--cache-heading-ids doc-id json)
          (let* ((remote-ir (gdocs-convert-docs-json-to-ir json))
                 (remote-title (alist-get 'title json))
                 (start-index (gdocs-sync--body-start-index remote-ir))
@@ -152,7 +167,7 @@ obtain accurate UTF-16 indices for the diff requests."
              (gdocs-api-batch-update
               doc-id
               requests
-              (gdocs-sync--make-push-callback local-ir buf)
+              (gdocs-sync--make-push-callback local-ir buf link-ctx)
               acct
               (gdocs-sync--make-push-error-callback buf))))))
      acct)))
@@ -165,14 +180,16 @@ BUF is the originating buffer."
     (gdocs-sync--set-status 'synced)
     (message "No changes to push")))
 
-(defun gdocs-sync--make-push-callback (current-ir buf)
+(defun gdocs-sync--make-push-callback (current-ir buf link-ctx)
   "Return a callback for a push API response.
 CURRENT-IR is the IR that was pushed.  BUF is the originating
-buffer."
+buffer.  LINK-CTX is the link context for re-binding when setting
+the shadow."
   (lambda (response)
     (condition-case err
         (with-current-buffer buf
-          (gdocs-sync--handle-push-success current-ir response))
+          (let ((gdocs-convert--link-context link-ctx))
+            (gdocs-sync--handle-push-success current-ir response)))
       (error
        (with-current-buffer buf
          (gdocs-sync--handle-push-error err))))))
@@ -266,24 +283,29 @@ Uses the shadow IR to detect what actually changed remotely.
 When a shadow exists, performs a three-way merge that preserves
 org-only metadata (property drawers, TODO keywords, tags, etc.)
 on elements that were not changed remotely."
-  (let ((remote-ir (gdocs-convert-docs-json-to-ir json)))
+  (let* ((doc-id gdocs-sync--document-id)
+         (link-ctx (gdocs-sync--make-link-context))
+         (remote-ir (gdocs-convert-docs-json-to-ir json)))
+    (when doc-id
+      (gdocs-convert--cache-heading-ids doc-id json))
     (if (gdocs-sync--remote-unchanged-p remote-ir)
         (progn
           (when revision-id
             (setq gdocs-sync--revision-id revision-id))
           (gdocs-sync--set-status 'synced)
           (message "Already up to date."))
-      (if (null gdocs-sync--shadow-ir)
-          ;; No shadow (first pull after link): full replacement
-          (gdocs-sync--replace-buffer-content
-           (gdocs-convert-ir-to-org remote-ir) revision-id)
-        ;; Have shadow: three-way merge
-        (let ((result (gdocs-sync--three-way-merge remote-ir)))
-          (if (plist-get result :has-conflicts)
-              (gdocs-sync--start-conflict-resolution
-               (plist-get result :merged-org))
+      (let ((gdocs-convert--link-context link-ctx))
+        (if (null gdocs-sync--shadow-ir)
+            ;; No shadow (first pull after link): full replacement
             (gdocs-sync--replace-buffer-content
-             (plist-get result :merged-org) revision-id)))))))
+             (gdocs-convert-ir-to-org remote-ir) revision-id)
+          ;; Have shadow: three-way merge
+          (let ((result (gdocs-sync--three-way-merge remote-ir)))
+            (if (plist-get result :has-conflicts)
+                (gdocs-sync--start-conflict-resolution
+                 (plist-get result :merged-org))
+              (gdocs-sync--replace-buffer-content
+               (plist-get result :merged-org) revision-id))))))))
 
 (defun gdocs-sync--remote-unchanged-p (remote-ir)
   "Return non-nil if REMOTE-IR matches the shadow IR.
@@ -337,13 +359,15 @@ The shadow is set by re-parsing the buffer so it matches what
   (require 'gdocs-merge)
   (gdocs-sync--set-status 'conflict)
   (let ((local-org (buffer-substring-no-properties (point-min) (point-max)))
-        (buf (current-buffer)))
+        (buf (current-buffer))
+        (link-ctx gdocs-convert--link-context))
     (gdocs-merge-start
      local-org
      remote-org
      (lambda (merged-org)
        (with-current-buffer buf
-         (gdocs-sync--apply-merge-result merged-org))))))
+         (let ((gdocs-convert--link-context link-ctx))
+           (gdocs-sync--apply-merge-result merged-org)))))))
 
 (defun gdocs-sync--apply-merge-result (merged-org)
   "Apply MERGED-ORG as the resolved content and push."
