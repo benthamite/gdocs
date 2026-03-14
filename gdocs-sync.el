@@ -654,6 +654,18 @@ Otherwise return ID-OR-URL as-is."
       (match-string 1 id-or-url)
     id-or-url))
 
+(defconst gdocs-sync--folder-url-regexp
+  "https://drive\\.google\\.com/drive/\\(?:u/[0-9]+/\\)?folders/\\([^/?]+\\)"
+  "Regexp matching a Google Drive folder URL, capturing the folder ID.")
+
+(defun gdocs-sync--parse-folder-id (id-or-url)
+  "Extract folder ID from ID-OR-URL.
+If ID-OR-URL is a Google Drive folder URL, extract the folder ID.
+Otherwise return ID-OR-URL as-is."
+  (if (string-match gdocs-sync--folder-url-regexp id-or-url)
+      (match-string 1 id-or-url)
+    id-or-url))
+
 ;;;; Status management
 
 (defun gdocs-sync--set-status (status)

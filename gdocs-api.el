@@ -214,6 +214,19 @@ ACCOUNT is an optional account name."
    :account account
    :body (json-encode `((name . ,new-name)))))
 
+(defun gdocs-api-move-file (file-id folder-id callback &optional account)
+  "Move the Google Drive file FILE-ID into FOLDER-ID.
+The file is added to FOLDER-ID and removed from the root folder.
+CALLBACK is called with the parsed JSON response on success.
+ACCOUNT is an optional account name."
+  (gdocs-api--request
+   'patch
+   (concat gdocs-api--drive-base-url "/" file-id
+           "?addParents=" (url-hexify-string folder-id)
+           "&removeParents=root")
+   callback
+   :account account))
+
 (defun gdocs-api-search-files (query callback &optional account)
   "Search Google Drive files with full-text QUERY.
 CALLBACK is called with the parsed JSON response.  ACCOUNT is an

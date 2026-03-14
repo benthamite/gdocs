@@ -32,6 +32,9 @@
 (require 'gdocs-sync)
 (require 'gdocs-merge)
 
+(declare-function modify-dir-local-variable "files-x"
+                  (mode variable value op))
+
 ;;;; Customizable variables
 
 (defcustom gdocs-auto-pull-on-open nil
@@ -48,11 +51,13 @@
 (defvar gdocs-account nil "Google account name (file-local).")
 (defvar gdocs-revision-id nil "Last known Drive revision ID (file-local).")
 (defvar gdocs-last-sync nil "ISO 8601 timestamp of last sync (file-local).")
+(defvar gdocs-folder-id nil "Google Drive folder ID (dir-local).")
 
 (put 'gdocs-document-id 'safe-local-variable #'stringp)
 (put 'gdocs-account 'safe-local-variable #'stringp)
 (put 'gdocs-revision-id 'safe-local-variable #'stringp)
 (put 'gdocs-last-sync 'safe-local-variable #'stringp)
+(put 'gdocs-folder-id 'safe-local-variable #'stringp)
 
 ;;;; Modeline
 
@@ -165,16 +170,22 @@ replacing them with hyphens.  Collapses consecutive hyphens."
 (defun gdocs-create (&optional title account)
   "Create a new Google Doc from the current org buffer.
 TITLE defaults to the buffer's #+TITLE or buffer name.  ACCOUNT
-is the account name to use; if nil, prompt."
+is the account name to use; if nil, use the directory-local
+account or prompt.  If the current directory is linked to a
+Google Drive folder via `gdocs-folder-id', the new document is
+placed in that folder."
   (interactive)
   (let ((doc-title (or title (gdocs--buffer-title)))
-        (acct (or account (gdocs-auth-select-account "Account: ")))
+        (acct (or account
+                  (bound-and-true-p gdocs-account)
+                  (gdocs-auth-select-account "Account: ")))
+        (folder-id (bound-and-true-p gdocs-folder-id))
         (buf (current-buffer)))
     (gdocs-api-create-document
      doc-title
      (lambda (json)
        (with-current-buffer buf
-         (gdocs--populate-created-document json acct)))
+         (gdocs--populate-created-document json acct folder-id)))
      acct)))
 
 (defun gdocs--buffer-title ()
@@ -186,13 +197,21 @@ is the account name to use; if nil, prompt."
       (file-name-sans-extension
        (or (buffer-file-name) (buffer-name)))))
 
-(defun gdocs--populate-created-document (json account)
+(defun gdocs--populate-created-document (json account &optional folder-id)
   "Populate the linked Google Doc after creation.
 JSON is the create-document response.  ACCOUNT is the account
-name."
+name.  FOLDER-ID, if non-nil, specifies the Google Drive folder
+to move the document into."
   (let ((doc-id (alist-get 'documentId json))
         (ir (gdocs-convert-org-buffer-to-ir))
         (buf (current-buffer)))
+    ;; Move to the target folder if specified (fire-and-forget;
+    ;; independent of the content push below).
+    (when folder-id
+      (gdocs-api-move-file
+       doc-id folder-id
+       (lambda (_) (message "Moved document to Google Drive folder"))
+       account))
     ;; Push org content to the new document
     (gdocs-api-batch-update
      doc-id
@@ -242,6 +261,50 @@ ACCOUNT is the account name to use; if nil, prompt."
   "Unlink the current buffer from its Google Doc."
   (interactive)
   (gdocs-sync-unlink))
+
+;;;###autoload
+(defun gdocs-link-directory (folder-id &optional account)
+  "Link the current directory to a Google Drive folder.
+FOLDER-ID is a folder ID or Google Drive folder URL.  ACCOUNT is
+the account name to use; if nil, prompt.  Writes the mapping to
+`.dir-locals.el' so that `gdocs-create' automatically places new
+documents in the linked folder and uses the linked account."
+  (interactive
+   (progn
+     (gdocs-auth--validate-accounts-configured)
+     (list (read-string "Google Drive folder ID or URL: "))))
+  (let ((fid (gdocs-sync--parse-folder-id folder-id))
+        (acct (or account (gdocs-auth-select-account "Account: ")))
+        (dir default-directory))
+    (modify-dir-local-variable 'org-mode 'gdocs-folder-id fid 'add-or-replace)
+    (modify-dir-local-variable 'org-mode 'gdocs-account acct 'add-or-replace)
+    (gdocs--save-dir-locals-buffer)
+    ;; Apply dir-locals to the current buffer immediately.
+    (hack-dir-local-variables)
+    (hack-local-variables-apply)
+    (message "Linked %s to Google Drive folder %s" dir fid)))
+
+;;;###autoload
+(defun gdocs-unlink-directory ()
+  "Unlink the current directory from its Google Drive folder.
+Removes `gdocs-folder-id' and `gdocs-account' from
+`.dir-locals.el'."
+  (interactive)
+  (modify-dir-local-variable 'org-mode 'gdocs-folder-id nil 'delete)
+  (modify-dir-local-variable 'org-mode 'gdocs-account nil 'delete)
+  (gdocs--save-dir-locals-buffer)
+  (kill-local-variable 'gdocs-folder-id)
+  (kill-local-variable 'gdocs-account)
+  (message "Unlinked %s from Google Drive folder" default-directory))
+
+(defun gdocs--save-dir-locals-buffer ()
+  "Save and kill the `.dir-locals.el' buffer if visiting."
+  (when-let* ((dir-locals-file (expand-file-name ".dir-locals.el"
+                                                  default-directory))
+              (buf (find-buffer-visiting dir-locals-file)))
+    (with-current-buffer buf
+      (save-buffer)
+      (kill-buffer))))
 
 (defun gdocs-status ()
   "Show sync status for the current buffer."
