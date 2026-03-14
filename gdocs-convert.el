@@ -1549,12 +1549,20 @@ Returns a list of request alists suitable for
 the first element begins (default 1)."
   ;; Default 1: Google Docs index 0 is the document root
   (let ((index (or start-index 1))
-        (requests nil))
+        (requests nil)
+        (element-ranges nil))
     (dolist (element ir)
       (let ((result (gdocs-convert--ir-element-to-requests element index)))
+        (push (list :element element :start index
+                    :end (plist-get result :index))
+              element-ranges)
         (setq requests (nconc requests (plist-get result :requests)))
         (setq index (plist-get result :index))))
-    requests))
+    ;; Post-process: merge per-paragraph bullet requests into
+    ;; single-range requests per contiguous list group, so Google Docs
+    ;; correctly assigns nesting levels from pre-set indentation.
+    (gdocs-convert--fixup-list-nesting
+     requests (nreverse element-ranges))))
 
 (defun gdocs-convert--ir-element-to-requests (element index)
   "Convert an IR ELEMENT to batchUpdate requests starting at INDEX.
@@ -1675,12 +1683,41 @@ Returns nil if no formatting is applied."
   "Create bullet/list requests for ELEMENT from START to END."
   (let ((list-info (plist-get element :list)))
     (when list-info
-      (let ((preset (gdocs-convert--list-type-to-preset
-                     (plist-get list-info :type))))
-        (list `((createParagraphBullets
-                 . ((range . ((startIndex . ,start)
-                              (endIndex . ,(1- end))))
-                    (bulletPreset . ,preset)))))))))
+      (let* ((type (plist-get list-info :type))
+             (level (plist-get list-info :level))
+             (preset (gdocs-convert--list-type-to-preset type))
+             (bullet-req `((createParagraphBullets
+                            . ((range . ((startIndex . ,start)
+                                         (endIndex . ,(1- end))))
+                               (bulletPreset . ,preset)))))
+             (indent-req (gdocs-convert--make-list-indent-request
+                          level start end)))
+        (if indent-req
+            (list indent-req bullet-req)
+          (list bullet-req))))))
+
+(defun gdocs-convert--make-list-indent-request (level start end)
+  "Create an updateParagraphStyle request for list nesting LEVEL.
+START and END define the paragraph range.  Returns nil for level 0,
+since `createParagraphBullets' already sets the correct indentation.
+Each nesting level corresponds to 36pt of indent in Google Docs.
+
+IMPORTANT: This request must appear BEFORE the corresponding
+`createParagraphBullets' request in the batchUpdate sequence.
+Google Docs reads pre-existing paragraph indentation when creating
+bullets and uses it to determine the nesting level."
+  (when (> level 0)
+    (let ((indent-start (* 36 (1+ level)))
+          (indent-first (+ 18 (* 36 level))))
+      `((updateParagraphStyle
+         . ((paragraphStyle
+             . ((indentStart . ((magnitude . ,indent-start)
+                                (unit . "PT")))
+                (indentFirstLine . ((magnitude . ,indent-first)
+                                    (unit . "PT")))))
+            (range . ((startIndex . ,start)
+                      (endIndex . ,(1- end))))
+            (fields . "indentStart,indentFirstLine")))))))
 
 (defun gdocs-convert--list-type-to-preset (type)
   "Convert an IR list TYPE to a Google Docs bullet preset string."
@@ -1688,6 +1725,81 @@ Returns nil if no formatting is applied."
     ('bullet "BULLET_DISC_CIRCLE_SQUARE")
     ('number "NUMBERED_DECIMAL_ALPHA_ROMAN")
     ('check "BULLET_CHECKBOX")))
+
+(defun gdocs-convert--fixup-list-nesting (requests element-ranges)
+  "Fix list nesting in REQUESTS by merging per-paragraph bullet requests.
+ELEMENT-RANGES is a list of plists (:element EL :start S :end E) tracking
+where each IR element was placed.
+
+The Google Docs API only assigns correct nesting levels when
+`createParagraphBullets' covers an entire contiguous list group in
+a single request, with indentation pre-set on nested items.
+Per-paragraph bullet requests produce flat lists.
+
+This function removes per-paragraph `createParagraphBullets' and
+appends a single merged request per contiguous list group."
+  (let ((groups (gdocs-convert--find-list-groups element-ranges))
+        (filtered (cl-remove-if
+                   (lambda (req) (alist-get 'createParagraphBullets req))
+                   requests)))
+    (append filtered
+            (mapcar #'gdocs-convert--list-group-bullet-request groups))))
+
+(defun gdocs-convert--find-list-groups (element-ranges)
+  "Find contiguous groups of list elements in ELEMENT-RANGES.
+Returns a list of groups, where each group is a plist with
+:start (index of first element), :end (index after last element),
+and :preset (bullet preset string)."
+  (let ((groups nil)
+        (current-start nil)
+        (current-end nil)
+        (current-preset nil))
+    (dolist (range element-ranges)
+      (let* ((elem (plist-get range :element))
+             (list-info (plist-get elem :list)))
+        (if list-info
+            (let ((preset (gdocs-convert--list-type-to-preset
+                           (plist-get list-info :type))))
+              (if (and current-start
+                       (string= preset current-preset))
+                  ;; Extend current group
+                  (setq current-end (plist-get range :end))
+                ;; Flush previous group and start new one
+                (when current-start
+                  (push (list :start current-start
+                              :end current-end
+                              :preset current-preset)
+                        groups))
+                (setq current-start (plist-get range :start)
+                      current-end (plist-get range :end)
+                      current-preset preset)))
+          ;; Non-list element: flush current group
+          (when current-start
+            (push (list :start current-start
+                        :end current-end
+                        :preset current-preset)
+                  groups)
+            (setq current-start nil
+                  current-end nil
+                  current-preset nil)))))
+    ;; Flush final group
+    (when current-start
+      (push (list :start current-start
+                  :end current-end
+                  :preset current-preset)
+            groups))
+    (nreverse groups)))
+
+(defun gdocs-convert--list-group-bullet-request (group)
+  "Create a single createParagraphBullets request for GROUP.
+GROUP is a plist with :start, :end, and :preset."
+  (let ((start (plist-get group :start))
+        (end (plist-get group :end))
+        (preset (plist-get group :preset)))
+    `((createParagraphBullets
+       . ((range . ((startIndex . ,start)
+                    (endIndex . ,(1- end))))
+          (bulletPreset . ,preset))))))
 
 (defun gdocs-convert--make-marker-requests (element start end)
   "Create named range requests for org-only markers in ELEMENT.

@@ -156,6 +156,16 @@
     (should (>= (length ir) 2))
     (should (eq (plist-get (plist-get first-elem :list) :type) 'number))))
 
+(ert-deftest gdocs-convert-test-nested-ordered-list ()
+  "Nested ordered list items have increasing :level with type number."
+  (let* ((ir (gdocs-convert-org-string-to-ir
+              "1. Parent\n   1. Child\n      1. Grandchild")))
+    (should (>= (length ir) 3))
+    (should (eq (plist-get (plist-get (nth 0 ir) :list) :type) 'number))
+    (should (= (plist-get (plist-get (nth 0 ir) :list) :level) 0))
+    (should (= (plist-get (plist-get (nth 1 ir) :list) :level) 1))
+    (should (= (plist-get (plist-get (nth 2 ir) :list) :level) 2))))
+
 ;; ---------------------------------------------------------------------------
 ;;; Checkbox lists
 
@@ -235,12 +245,71 @@
          (result (gdocs-convert-ir-to-org ir)))
     (should (string= (s-trim result) (s-trim original)))))
 
+(ert-deftest gdocs-convert-test-round-trip-nested-lists ()
+  "Nested list items survive round-trip."
+  (let* ((original "- Parent\n  - Child\n    - Grandchild\n")
+         (ir (gdocs-convert-org-string-to-ir original))
+         (result (gdocs-convert-ir-to-org ir)))
+    (should (string= (s-trim result) (s-trim original)))))
+
+(ert-deftest gdocs-convert-test-round-trip-nested-ordered-lists ()
+  "Nested ordered list items survive round-trip with correct nesting."
+  (let* ((original "1. Parent\n   1. Child\n      1. Grandchild\n")
+         (ir (gdocs-convert-org-string-to-ir original))
+         (result (gdocs-convert-ir-to-org ir))
+         ;; Re-parse the output to verify nesting survives
+         (re-ir (gdocs-convert-org-string-to-ir result)))
+    (should (= (length re-ir) 3))
+    (should (= (plist-get (plist-get (nth 0 re-ir) :list) :level) 0))
+    (should (= (plist-get (plist-get (nth 1 re-ir) :list) :level) 1))
+    (should (= (plist-get (plist-get (nth 2 re-ir) :list) :level) 2))))
+
 (ert-deftest gdocs-convert-test-round-trip-table ()
   "A table survives round-trip."
   (let* ((original "| A | B |\n|---+---|\n| C | D |\n")
          (ir (gdocs-convert-org-string-to-ir original))
          (result (gdocs-convert-ir-to-org ir)))
     (should (string= (s-trim result) (s-trim original)))))
+
+;; ---------------------------------------------------------------------------
+;;; List nesting requests
+
+(ert-deftest gdocs-convert-test-nested-list-indent-requests ()
+  "Nested list items generate updateParagraphStyle indent requests."
+  (let* ((ir (gdocs-convert-org-string-to-ir
+              "- Parent\n  - Child\n    - Grandchild"))
+         (requests (gdocs-convert-ir-to-docs-requests ir)))
+    ;; Level 0: only createParagraphBullets, no indent request
+    (should (cl-some (lambda (r) (alist-get 'createParagraphBullets r))
+                     requests))
+    ;; Level 1: indent request with indentStart=72, indentFirstLine=54
+    (let ((indent-reqs
+           (cl-remove-if-not
+            (lambda (r)
+              (let ((ups (alist-get 'updateParagraphStyle r)))
+                (when ups
+                  (let ((style (alist-get 'paragraphStyle ups)))
+                    (alist-get 'indentStart style)))))
+            requests)))
+      (should (>= (length indent-reqs) 2))  ;; level 1 and level 2
+      ;; Check level 1 indentation (72pt start, 54pt first)
+      (let* ((req1 (car indent-reqs))
+             (style (alist-get 'paragraphStyle
+                               (alist-get 'updateParagraphStyle req1)))
+             (start-mag (alist-get 'magnitude (alist-get 'indentStart style)))
+             (first-mag (alist-get 'magnitude
+                                   (alist-get 'indentFirstLine style))))
+        (should (= start-mag 72))
+        (should (= first-mag 54)))
+      ;; Check level 2 indentation (108pt start, 90pt first)
+      (let* ((req2 (cadr indent-reqs))
+             (style (alist-get 'paragraphStyle
+                               (alist-get 'updateParagraphStyle req2)))
+             (start-mag (alist-get 'magnitude (alist-get 'indentStart style)))
+             (first-mag (alist-get 'magnitude
+                                   (alist-get 'indentFirstLine style))))
+        (should (= start-mag 108))
+        (should (= first-mag 90))))))
 
 ;; ---------------------------------------------------------------------------
 ;;; Google Docs JSON -> IR
