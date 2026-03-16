@@ -353,5 +353,57 @@ paragraph from the document."
       (should (= (alist-get 'startIndex range) 1))
       (should (= (alist-get 'endIndex range) 2)))))
 
+(ert-deftest gdocs-diff-test-modify-table-to-paragraph ()
+  "Modifying a table into a paragraph uses full delete, not partial."
+  ;; When a table is replaced by a paragraph, the diff collapses the
+  ;; adjacent delete+insert into a modify.  The modify must delete the
+  ;; full table range [start, end), not [start, end-1) which would be
+  ;; a partial structural deletion rejected by the API.
+  (let* ((table (gdocs-diff-test--make-table
+                 "t1"
+                 (list (list (list (gdocs-diff-test--plain-run "A"))
+                             (list (gdocs-diff-test--plain-run "B"))))))
+         (para (gdocs-diff-test--make-paragraph "p1" "Replacement"))
+         (old-ir (list table))
+         (new-ir (list para))
+         (result (gdocs-diff-generate old-ir new-ir)))
+    ;; Should produce a deleteContentRange covering the full table
+    (let* ((del-req (cl-find-if (lambda (req)
+                                  (alist-get 'deleteContentRange req))
+                                result))
+           (range (alist-get 'range
+                             (alist-get 'deleteContentRange del-req))))
+      (should del-req)
+      ;; Table: 2 (start+end) + 1 (row) + 2 cells × (1 marker + text + 1 nl)
+      ;; = 2 + 1 + (1+1+1) + (1+1+1) = 9
+      ;; Range should be [1, 10) — the full table, not [1, 9)
+      (should (= (alist-get 'startIndex range) 1))
+      (should (= (alist-get 'endIndex range) 10)))))
+
+(ert-deftest gdocs-diff-test-delete-last-table ()
+  "Deleting a table that is the last element uses its full range."
+  ;; When the last element is a table, the deletion must cover the
+  ;; full table range, not subtract 1 (which is only correct for
+  ;; paragraphs that have a trailing newline to preserve).
+  (let* ((para (gdocs-diff-test--make-paragraph "p1" "Keep me"))
+         (table (gdocs-diff-test--make-table
+                 "t1"
+                 (list (list (list (gdocs-diff-test--plain-run "X"))))))
+         (old-ir (list para table))
+         (new-ir (list para))
+         (result (gdocs-diff-generate old-ir new-ir)))
+    ;; Should produce a deleteContentRange for the table
+    (let* ((del-req (cl-find-if (lambda (req)
+                                  (alist-get 'deleteContentRange req))
+                                result))
+           (range (alist-get 'range
+                             (alist-get 'deleteContentRange del-req))))
+      (should del-req)
+      ;; Paragraph: "Keep me" (7) + newline = 8, so table starts at 9
+      ;; Table: 2 + 1 + (1+1+1) = 6, so table range is [9, 15)
+      ;; The delete should cover the FULL table [9, 15), not [9, 14)
+      (should (= (alist-get 'startIndex range) 9))
+      (should (= (alist-get 'endIndex range) 15)))))
+
 (provide 'gdocs-diff-test)
 ;;; gdocs-diff-test.el ends here

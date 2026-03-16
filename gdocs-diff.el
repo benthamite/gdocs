@@ -302,14 +302,19 @@ START-INDEX is the UTF-16 index where the first element begins."
 (defun gdocs-diff--delete-all-requests (old-ir start-index)
   "Generate a single delete request covering all content in OLD-IR.
 START-INDEX is the UTF-16 index where the first element begins.
-Excludes the trailing newline of the last element to avoid
-deleting structural characters that Google Docs API protects."
+Excludes the trailing newline of the last element (when it is a
+paragraph) to avoid deleting the mandatory body newline that the
+Google Docs API protects.  Non-paragraph last elements (tables)
+are deleted in full to avoid partial structural deletions."
   (let ((indices (gdocs-diff--compute-element-indices old-ir start-index)))
     (when indices
       (let* ((first-entry (cdar indices))
              (last-entry (cdar (last indices)))
+             (last-elem (car (last old-ir)))
              (start (car first-entry))
-             (end (1- (cdr last-entry))))
+             (end (if (eq (plist-get last-elem :type) 'paragraph)
+                      (1- (cdr last-entry))
+                    (cdr last-entry))))
         (when (< start end)
           (list (gdocs-diff--make-delete-request start end)))))))
 
@@ -337,16 +342,20 @@ START-INDEX is the UTF-16 index where the first element begins."
   (let* ((old-indices (gdocs-diff--compute-element-indices old-ir start-index))
          (last-old-index (1- (length old-ir)))
          (groups nil))
-    ;; Pure deletions — delete the full paragraph range including the
-    ;; trailing newline so the paragraph is actually removed.  The
+    ;; Pure deletions — delete the full element range including the
+    ;; trailing newline so the element is actually removed.  The
     ;; last element in old-ir preserves its trailing newline (the
-    ;; mandatory body newline that Google Docs API protects).
+    ;; mandatory body newline that Google Docs API protects), but
+    ;; only when it is a paragraph — non-paragraph elements (tables)
+    ;; must be deleted in full to avoid partial structural deletions.
     (dolist (op diff-ops)
       (when (eq (plist-get op :op) 'delete)
         (let* ((oi (plist-get op :old-index))
+               (elem (nth oi old-ir))
                (range (cdr (assq oi old-indices)))
                (start (car range))
-               (end (if (= oi last-old-index)
+               (end (if (and (= oi last-old-index)
+                             (eq (plist-get elem :type) 'paragraph))
                         (1- (cdr range))
                       (cdr range))))
           (when (< start end)
@@ -519,16 +528,19 @@ NEW-ELEM provides the new runs.  RANGE is (START . END)."
           :insert-reqs nil
           :style-reqs style-reqs)))
 
-(defun gdocs-diff--content-modification (_old-elem new-elem range)
+(defun gdocs-diff--content-modification (old-elem new-elem range)
   "Generate delete+insert requests for a content change.
-NEW-ELEM provides the new content.  RANGE is (START . END).
-For paragraphs, preserves the trailing newline to avoid breaking
-document structure (Google Docs API rejects deletion of a
-paragraph's trailing newline when followed by a structural
-element like a table or table of contents)."
+OLD-ELEM and NEW-ELEM are the old and new IR elements.  RANGE is
+\(START . END) of OLD-ELEM in the document.  When both elements
+are paragraphs, preserves the trailing newline to avoid breaking
+document structure.  For any type mismatch (e.g. table to
+paragraph) or non-paragraph old element, performs a full delete
+and re-insert to avoid partial structural deletions that the API
+rejects."
   (let* ((start (car range))
          (end (cdr range)))
-    (if (eq (plist-get new-elem :type) 'paragraph)
+    (if (and (eq (plist-get old-elem :type) 'paragraph)
+             (eq (plist-get new-elem :type) 'paragraph))
         (gdocs-diff--paragraph-content-modification new-elem start end)
       (let* ((delete-req (gdocs-diff--make-delete-request start end))
              (insert-result (gdocs-convert--ir-element-to-requests
