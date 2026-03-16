@@ -276,6 +276,16 @@ documents in the linked folder and uses the linked account."
   (let ((fid (gdocs-sync--parse-folder-id folder-id))
         (acct (or account (gdocs-auth-select-account "Account: ")))
         (dir default-directory))
+    ;; Ensure a `.dir-locals.el' exists in the current directory so
+    ;; that `modify-dir-local-variable' edits THIS file rather than a
+    ;; parent directory's.
+    (let ((dl-file (expand-file-name ".dir-locals.el" dir)))
+      (unless (file-exists-p dl-file)
+        (write-region "" nil dl-file nil 'silent)))
+    ;; Flush the dir-locals cache so `dir-locals-find-file' discovers
+    ;; the local `.dir-locals.el' instead of returning a cached parent.
+    (setq dir-locals-directory-cache
+          (assoc-delete-all dir dir-locals-directory-cache))
     (modify-dir-local-variable 'org-mode 'gdocs-folder-id fid 'add-or-replace)
     (modify-dir-local-variable 'org-mode 'gdocs-account acct 'add-or-replace)
     (gdocs--save-dir-locals-buffer)
@@ -290,6 +300,10 @@ documents in the linked folder and uses the linked account."
 Removes `gdocs-folder-id' and `gdocs-account' from
 `.dir-locals.el'."
   (interactive)
+  ;; Flush the dir-locals cache so we modify the current directory's
+  ;; `.dir-locals.el', not a parent's.
+  (setq dir-locals-directory-cache
+        (assoc-delete-all default-directory dir-locals-directory-cache))
   (modify-dir-local-variable 'org-mode 'gdocs-folder-id nil 'delete)
   (modify-dir-local-variable 'org-mode 'gdocs-account nil 'delete)
   (gdocs--save-dir-locals-buffer)
