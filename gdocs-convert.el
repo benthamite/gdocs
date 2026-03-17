@@ -1295,7 +1295,9 @@ like `body', `title', `lists', and `namedRanges'."
           (if (and (listp ir) (listp (car ir)) (plist-get (car ir) :type))
               (setq result (nconc (nreverse ir) result))
             (push ir result)))))
-    (nreverse result)))
+    (let ((ir (nreverse result)))
+      (gdocs-convert--assign-list-counters ir)
+      ir)))
 
 (defun gdocs-convert--structural-element-to-ir (element lists-map markers)
   "Convert a Google Docs structural ELEMENT to IR.
@@ -1510,6 +1512,26 @@ as separate list objects with nestingLevel 0."
          (level (gdocs-convert--docs-visual-nesting-level
                  list-props nesting-level)))
     (list :type list-type :level level)))
+
+(defun gdocs-convert--assign-list-counters (ir)
+  "Assign sequential :counter values to numbered list items in IR.
+Mutates the :list plists in place.  Consecutive numbered items at
+the same level share a counter that increments from 1; any change
+in level, type, or a non-list element resets the counter."
+  (let ((counter 0)
+        (prev-level nil))
+    (dolist (element ir)
+      (let* ((list-info (plist-get element :list))
+             (list-type (when list-info (plist-get list-info :type)))
+             (level (when list-info (plist-get list-info :level))))
+        (if (eq list-type 'number)
+            (progn
+              (if (eql level prev-level)
+                  (cl-incf counter)
+                (setq counter 1))
+              (plist-put list-info :counter counter)
+              (setq prev-level level))
+          (setq counter 0 prev-level nil))))))
 
 (defun gdocs-convert--docs-visual-nesting-level (list-props nesting-level)
   "Compute the visual nesting level from LIST-PROPS at NESTING-LEVEL.
