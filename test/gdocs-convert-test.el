@@ -1013,5 +1013,68 @@
       (delete-file target-file)
       (delete-directory temp-dir))))
 
+;; ---------------------------------------------------------------------------
+;;; Internal heading links (headingId)
+
+(ert-deftest gdocs-convert-test-heading-id-to-url ()
+  "Internal headingId links are converted to full Google Docs URLs."
+  (let* ((gdocs-convert--document-id "DOC_SELF")
+         (json `((body . ((content
+                           . [((paragraph
+                                . ((elements
+                                    . [((textRun
+                                         . ((content . "click here\n")
+                                            (textStyle
+                                             . ((link
+                                                 . ((headingId . "h_intro"))))))))])
+                                   (paragraphStyle
+                                    . ((namedStyleType . "NORMAL_TEXT"))))))])))))
+         (ir (gdocs-convert-docs-json-to-ir json))
+         (runs (plist-get (car ir) :contents))
+         (link-run (car runs)))
+    (should (string=
+             (plist-get link-run :link)
+             "https://docs.google.com/document/d/DOC_SELF/edit#heading=h.h_intro"))))
+
+(ert-deftest gdocs-convert-test-heading-id-without-doc-id ()
+  "Without `gdocs-convert--document-id', headingId links are nil."
+  (let* ((gdocs-convert--document-id nil)
+         (text-run `((content . "click\n")
+                     (textStyle . ((link . ((headingId . "h_intro")))))))
+         (ir-run (gdocs-convert--docs-text-run-to-ir text-run)))
+    (should (null (plist-get ir-run :link)))))
+
+;; ---------------------------------------------------------------------------
+;;; Same-document reverse resolution
+
+(ert-deftest gdocs-convert-test-reverse-resolve-same-doc-heading ()
+  "Same-document heading links reverse-resolve to *Heading format."
+  (let* ((docid-map (make-hash-table :test 'equal))
+         (gdocs-convert--heading-cache (make-hash-table :test 'equal))
+         (gdocs-convert--link-context
+          (list :buffer-file "/home/user/org/doc.org"
+                :docid-map docid-map)))
+    (puthash "DOC_SELF" "/home/user/org/doc.org" docid-map)
+    (puthash "DOC_SELF-reverse" '(("h_build" . "Building a pipeline"))
+             gdocs-convert--heading-cache)
+    (let* ((run (list :text "more"
+                      :bold nil :italic nil :underline nil
+                      :strikethrough nil :code nil
+                      :link "https://docs.google.com/document/d/DOC_SELF/edit#heading=h.h_build"))
+           (org-text (gdocs-convert--run-to-org run)))
+      (should (string= org-text
+                        "[[*Building a pipeline][more]]")))))
+
+(ert-deftest gdocs-convert-test-reverse-resolve-same-doc-no-heading ()
+  "Same-document links without heading anchor produce file: link."
+  (let* ((docid-map (make-hash-table :test 'equal))
+         (gdocs-convert--link-context
+          (list :buffer-file "/home/user/org/doc.org"
+                :docid-map docid-map)))
+    (puthash "DOC_SELF" "/home/user/org/doc.org" docid-map)
+    (let* ((url "https://docs.google.com/document/d/DOC_SELF/edit")
+           (result (gdocs-convert--reverse-resolve-link url)))
+      (should (string= result "file:doc.org")))))
+
 (provide 'gdocs-convert-test)
 ;;; gdocs-convert-test.el ends here

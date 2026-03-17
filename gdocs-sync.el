@@ -77,20 +77,32 @@ One of `synced', `modified', `pushing', `conflict', or `error'.")
 ;;;; Push
 
 (defun gdocs-sync-push ()
-  "Push local changes to the linked Google Doc."
+  "Push local changes to the linked Google Doc.
+Fetches the remote document first to populate the heading cache,
+ensuring same-document heading links resolve to anchored URLs."
   (interactive)
   (unless gdocs-sync--document-id
     (user-error "Buffer is not linked to a Google Doc"))
   (unless (gdocs-sync--serialize-push)
     (setq gdocs-sync--push-in-progress t)
     (gdocs-sync--set-status 'pushing)
-    (let* ((link-ctx (gdocs-sync--make-link-context))
-           (gdocs-convert--link-context link-ctx)
-           (current-ir (gdocs-convert-org-buffer-to-ir))
-           (buf (current-buffer)))
-      (if (null gdocs-sync--shadow-ir)
-          (gdocs-sync--push-full-replacement current-ir buf link-ctx)
-        (gdocs-sync--push-incremental current-ir buf link-ctx)))))
+    (let ((buf (current-buffer))
+          (doc-id gdocs-sync--document-id)
+          (acct gdocs-sync--account))
+      (gdocs-api-get-document
+       doc-id
+       (lambda (json)
+         (with-current-buffer buf
+           (gdocs-convert--cache-heading-ids doc-id json)
+           (let* ((link-ctx (gdocs-sync--make-link-context))
+                  (gdocs-convert--link-context link-ctx)
+                  (current-ir (gdocs-convert-org-buffer-to-ir)))
+             (if (null gdocs-sync--shadow-ir)
+                 (gdocs-sync--push-full-replacement
+                  current-ir buf link-ctx json)
+               (gdocs-sync--push-incremental
+                current-ir buf link-ctx json)))))
+       acct))))
 
 (defun gdocs-sync--serialize-push ()
   "If a push is already in progress, queue this one.
@@ -100,39 +112,32 @@ Return non-nil if the push was serialized (caller should abort)."
     (message "Push already in progress, queued")
     t))
 
-(defun gdocs-sync--push-full-replacement (current-ir buf link-ctx)
+(defun gdocs-sync--push-full-replacement (current-ir buf link-ctx json)
   "Push CURRENT-IR as a full document replacement.
 BUF is the originating buffer.  LINK-CTX is the link context for
-re-binding in callbacks.  Fetches the document first to determine
-the body end index so existing content can be deleted before
-inserting the new content."
+re-binding in callbacks.  JSON is the pre-fetched document used
+to determine the body end index."
   (let ((doc-id gdocs-sync--document-id)
         (acct gdocs-sync--account))
-    (gdocs-api-get-document
-     doc-id
-     (lambda (json)
-       (with-current-buffer buf
-         (gdocs-convert--cache-heading-ids doc-id json)
-         (let* ((body-end (gdocs-sync--body-end-index json))
-                (remote-title (alist-get 'title json))
-                (filtered-ir (gdocs-sync--filter-title current-ir))
-                (insert-reqs (gdocs-convert-ir-to-docs-requests filtered-ir))
-                ;; body-end > 2 means the document has content beyond the
-                ;; mandatory trailing newline (body with only a newline has
-                ;; endIndex = 2: index 1 = body start, index 2 = after newline)
-                (delete-req (when (> body-end 2)
-                              (list (gdocs-diff--make-delete-request
-                                     1 (1- body-end))))) ;; 1 = body start index
-                (requests (append delete-req insert-reqs)))
-           (gdocs-sync--maybe-rename-document
-            current-ir remote-title doc-id acct)
-           (gdocs-api-batch-update
-            doc-id
-            requests
-            (gdocs-sync--make-push-callback current-ir buf link-ctx)
-            acct
-            (gdocs-sync--make-push-error-callback buf)))))
-     acct)))
+    (let* ((body-end (gdocs-sync--body-end-index json))
+           (remote-title (alist-get 'title json))
+           (filtered-ir (gdocs-sync--filter-title current-ir))
+           (insert-reqs (gdocs-convert-ir-to-docs-requests filtered-ir))
+           ;; body-end > 2 means the document has content beyond the
+           ;; mandatory trailing newline (body with only a newline has
+           ;; endIndex = 2: index 1 = body start, index 2 = after newline)
+           (delete-req (when (> body-end 2)
+                         (list (gdocs-diff--make-delete-request
+                                1 (1- body-end))))) ;; 1 = body start index
+           (requests (append delete-req insert-reqs)))
+      (gdocs-sync--maybe-rename-document
+       current-ir remote-title doc-id acct)
+      (gdocs-api-batch-update
+       doc-id
+       requests
+       (gdocs-sync--make-push-callback current-ir buf link-ctx)
+       acct
+       (gdocs-sync--make-push-error-callback buf)))))
 
 (defun gdocs-sync--body-end-index (json)
   "Extract the body end index from document JSON.
@@ -142,37 +147,31 @@ Returns the endIndex of the last element in the body content."
          (last-elem (aref content (1- (length content)))))
     (alist-get 'endIndex last-elem)))
 
-(defun gdocs-sync--push-incremental (current-ir buf link-ctx)
+(defun gdocs-sync--push-incremental (current-ir buf link-ctx json)
   "Push CURRENT-IR as an incremental diff against the remote document.
 BUF is the originating buffer.  LINK-CTX is the link context for
-re-binding in callbacks.  Fetches the current document to obtain
-accurate UTF-16 indices for the diff requests."
+re-binding in callbacks.  JSON is the pre-fetched document used
+for accurate UTF-16 indices."
   (let ((doc-id gdocs-sync--document-id)
         (acct gdocs-sync--account)
         (local-ir current-ir))
-    (gdocs-api-get-document
-     doc-id
-     (lambda (json)
-       (with-current-buffer buf
-         (gdocs-convert--cache-heading-ids doc-id json)
-         (let* ((remote-ir (gdocs-convert-docs-json-to-ir json))
-                (remote-title (alist-get 'title json))
-                (start-index (gdocs-sync--body-start-index remote-ir))
-                (remote-filtered (gdocs-sync--filter-title remote-ir))
-                (local-filtered (gdocs-sync--filter-title local-ir))
-                (requests (gdocs-diff-generate
-                           remote-filtered local-filtered start-index)))
-           (gdocs-sync--maybe-rename-document
-            local-ir remote-title doc-id acct)
-           (if (null requests)
-               (gdocs-sync--push-no-changes buf)
-             (gdocs-api-batch-update
-              doc-id
-              requests
-              (gdocs-sync--make-push-callback local-ir buf link-ctx)
-              acct
-              (gdocs-sync--make-push-error-callback buf))))))
-     acct)))
+    (let* ((remote-ir (gdocs-convert-docs-json-to-ir json))
+           (remote-title (alist-get 'title json))
+           (start-index (gdocs-sync--body-start-index remote-ir))
+           (remote-filtered (gdocs-sync--filter-title remote-ir))
+           (local-filtered (gdocs-sync--filter-title local-ir))
+           (requests (gdocs-diff-generate
+                      remote-filtered local-filtered start-index)))
+      (gdocs-sync--maybe-rename-document
+       local-ir remote-title doc-id acct)
+      (if (null requests)
+          (gdocs-sync--push-no-changes buf)
+        (gdocs-api-batch-update
+         doc-id
+         requests
+         (gdocs-sync--make-push-callback local-ir buf link-ctx)
+         acct
+         (gdocs-sync--make-push-error-callback buf))))))
 
 (defun gdocs-sync--push-no-changes (buf)
   "Handle the case where push found no changes.
@@ -287,6 +286,7 @@ org-only metadata (property drawers, TODO keywords, tags, etc.)
 on elements that were not changed remotely."
   (let* ((doc-id gdocs-sync--document-id)
          (link-ctx (gdocs-sync--make-link-context))
+         (gdocs-convert--document-id doc-id)
          (remote-ir (gdocs-convert-docs-json-to-ir json)))
     (when doc-id
       (gdocs-convert--cache-heading-ids doc-id json))

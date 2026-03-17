@@ -137,7 +137,9 @@ ACCOUNT is the account name to use; if nil, prompt."
 (defun gdocs--open-document-from-json (json doc-id account)
   "Create an org buffer from document JSON.
 DOC-ID is the document ID.  ACCOUNT is the account name."
+  (gdocs-convert--cache-heading-ids doc-id json)
   (let* ((title (or (alist-get 'title json) "Untitled"))
+         (gdocs-convert--document-id doc-id)
          (ir (gdocs-convert-docs-json-to-ir json))
          (org-string (gdocs-convert-ir-to-org ir))
          (file-path (gdocs--doc-file-path title))
@@ -233,7 +235,9 @@ to move the document into."
        (gdocs-api-get-document doc-id
          (lambda (doc-json)
            (with-current-buffer buf
-             (let ((true-ir (gdocs-convert-docs-json-to-ir doc-json)))
+             (gdocs-convert--cache-heading-ids doc-id doc-json)
+             (let* ((gdocs-convert--document-id doc-id)
+                    (true-ir (gdocs-convert-docs-json-to-ir doc-json)))
                (gdocs-sync--write-file-local-vars doc-id account)
                (gdocs--ensure-org-tag)
                (setq gdocs-sync--shadow-ir true-ir)
