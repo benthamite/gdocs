@@ -31,6 +31,7 @@
 (require 'gdocs-diff)
 (require 'gdocs-sync)
 (require 'gdocs-merge)
+(require 'transient)
 
 (declare-function modify-dir-local-variable "files-x"
                   (mode variable value op))
@@ -466,6 +467,81 @@ present."
                 (goto-char mbeg)
                 (insert space ":" (mapconcat #'identity remaining ":")
                         ":")))))))))
+
+;;;; Transient menu
+
+(transient-define-infix gdocs-menu--auto-push ()
+  "Toggle automatic push on save."
+  :class 'transient-lisp-variable
+  :variable 'gdocs-auto-push-on-save
+  :description "Auto-push on save"
+  :reader (lambda (&rest _) (not gdocs-auto-push-on-save)))
+
+(transient-define-infix gdocs-menu--auto-pull ()
+  "Toggle automatic pull on open."
+  :class 'transient-lisp-variable
+  :variable 'gdocs-auto-pull-on-open
+  :description "Auto-pull on open"
+  :reader (lambda (&rest _) (not gdocs-auto-pull-on-open)))
+
+(transient-define-infix gdocs-menu--directory ()
+  "Set the default directory for synced org files."
+  :class 'transient-lisp-variable
+  :variable 'gdocs-directory
+  :description "Sync directory"
+  :reader (lambda (&rest _)
+            (read-directory-name "Sync directory: " gdocs-directory)))
+
+(transient-define-infix gdocs-menu--org-tag ()
+  "Set the org tag for linked files."
+  :class 'transient-lisp-variable
+  :variable 'gdocs-org-tag
+  :description "Org tag"
+  :reader (lambda (&rest _)
+            (let ((val (read-string "Org tag (empty for none): "
+                                    gdocs-org-tag)))
+              (if (string-empty-p val) nil val))))
+
+(transient-define-infix gdocs-menu--link-directories ()
+  "Set additional directories for cross-document link resolution."
+  :class 'transient-lisp-variable
+  :variable 'gdocs-link-directories
+  :description "Link directories"
+  :reader (lambda (&rest _)
+            (let ((dirs gdocs-link-directories)
+                  dir)
+              (while (not (string-empty-p
+                           (setq dir (read-directory-name
+                                      "Add directory (empty to finish): "
+                                      nil "" t))))
+                (cl-pushnew (file-name-as-directory dir) dirs :test #'equal))
+              dirs)))
+
+;;;###autoload (autoload 'gdocs-menu "gdocs" nil t)
+(transient-define-prefix gdocs-menu ()
+  "Transient menu for gdocs."
+  [["Sync"
+    ("p" "Push" gdocs-push)
+    ("l" "Pull" gdocs-pull)
+    ("s" "Status" gdocs-status)]
+   ["Documents"
+    ("o" "Open" gdocs-open)
+    ("c" "Create" gdocs-create)
+    ("b" "Open in browser" gdocs-open-in-browser)]]
+  [["Linking"
+    ("L" "Link buffer" gdocs-link)
+    ("U" "Unlink buffer" gdocs-unlink)
+    ("D" "Link directory" gdocs-link-directory)
+    ("X" "Unlink directory" gdocs-unlink-directory)]
+   ["Auth"
+    ("a" "Authenticate" gdocs-authenticate)
+    ("x" "Logout" gdocs-logout)]]
+  ["Options"
+   ("-p" gdocs-menu--auto-push)
+   ("-l" gdocs-menu--auto-pull)
+   ("-d" gdocs-menu--directory)
+   ("-t" gdocs-menu--org-tag)
+   ("-L" gdocs-menu--link-directories)])
 
 (provide 'gdocs)
 ;;; gdocs.el ends here
