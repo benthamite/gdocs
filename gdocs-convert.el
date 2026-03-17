@@ -1224,7 +1224,7 @@ HEADING-TEXT is the heading anchor, or nil.  SAME-DOC-P
 indicates a link within the same document."
   (cond
    ((and same-doc-p heading-text)
-    (concat "*" heading-text))
+    (gdocs-convert--same-doc-heading-link buffer-file heading-text))
    (heading-text
     (format "file:%s::*%s"
             (file-relative-name target-file
@@ -1234,6 +1234,31 @@ indicates a link within the same document."
     (concat "file:"
             (file-relative-name target-file
                                 (file-name-directory buffer-file))))))
+
+(defun gdocs-convert--same-doc-heading-link (file heading-text)
+  "Format a same-document link to HEADING-TEXT in FILE.
+Produces id:UUID when the heading has an org ID, preserving
+robust links that survive heading renames.  Falls back to
+*Heading when no org ID is found."
+  (if-let* ((org-id (gdocs-convert--find-heading-org-id
+                      file heading-text)))
+      (concat "id:" org-id)
+    (concat "*" heading-text)))
+
+(defun gdocs-convert--find-heading-org-id (file heading-text)
+  "Find the org ID for the heading matching HEADING-TEXT in FILE.
+Returns the UUID string or nil."
+  (when (and file heading-text (file-readable-p file))
+    (with-temp-buffer
+      (insert-file-contents file)
+      (delay-mode-hooks (org-mode))
+      (goto-char (point-min))
+      (let ((normalized (s-trim (downcase heading-text))))
+        (catch 'found
+          (while (re-search-forward org-heading-regexp nil t)
+            (when (string= (s-trim (downcase (org-get-heading t t t t)))
+                           normalized)
+              (throw 'found (org-entry-get nil "ID")))))))))
 
 (defun gdocs-convert--wrap-emphasis (marker text)
   "Wrap TEXT with emphasis MARKER, moving edge whitespace outside.

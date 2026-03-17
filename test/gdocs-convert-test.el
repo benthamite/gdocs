@@ -1047,23 +1047,62 @@
 ;; ---------------------------------------------------------------------------
 ;;; Same-document reverse resolution
 
-(ert-deftest gdocs-convert-test-reverse-resolve-same-doc-heading ()
-  "Same-document heading links reverse-resolve to *Heading format."
-  (let* ((docid-map (make-hash-table :test 'equal))
-         (gdocs-convert--heading-cache (make-hash-table :test 'equal))
-         (gdocs-convert--link-context
-          (list :buffer-file "/home/user/org/doc.org"
-                :docid-map docid-map)))
-    (puthash "DOC_SELF" "/home/user/org/doc.org" docid-map)
-    (puthash "DOC_SELF-reverse" '(("h_build" . "Building a pipeline"))
-             gdocs-convert--heading-cache)
-    (let* ((run (list :text "more"
-                      :bold nil :italic nil :underline nil
-                      :strikethrough nil :code nil
-                      :link "https://docs.google.com/document/d/DOC_SELF/edit#heading=h.h_build"))
-           (org-text (gdocs-convert--run-to-org run)))
-      (should (string= org-text
-                        "[[*Building a pipeline][more]]")))))
+(ert-deftest gdocs-convert-test-reverse-resolve-same-doc-with-org-id ()
+  "Same-document heading links resolve to id:UUID when heading has an ID."
+  (let* ((temp-dir (make-temp-file "gdocs-test" t))
+         (doc-file (expand-file-name "doc.org" temp-dir))
+         (docid-map (make-hash-table :test 'equal))
+         (gdocs-convert--heading-cache (make-hash-table :test 'equal)))
+    (unwind-protect
+        (progn
+          (with-temp-file doc-file
+            (insert "* Building a pipeline\n"
+                    ":PROPERTIES:\n"
+                    ":ID:       DE2746D4-0EE2-4D37-9CCE-7264E953EB90\n"
+                    ":END:\n"))
+          (puthash "DOC_SELF" doc-file docid-map)
+          (puthash "DOC_SELF-reverse"
+                   '(("h_build" . "Building a pipeline"))
+                   gdocs-convert--heading-cache)
+          (let* ((gdocs-convert--link-context
+                  (list :buffer-file doc-file
+                        :docid-map docid-map))
+                 (run (list :text "more"
+                            :bold nil :italic nil :underline nil
+                            :strikethrough nil :code nil
+                            :link "https://docs.google.com/document/d/DOC_SELF/edit#heading=h.h_build"))
+                 (org-text (gdocs-convert--run-to-org run)))
+            (should (string= org-text
+                              "[[id:DE2746D4-0EE2-4D37-9CCE-7264E953EB90][more]]"))))
+      (delete-file doc-file)
+      (delete-directory temp-dir))))
+
+(ert-deftest gdocs-convert-test-reverse-resolve-same-doc-no-org-id ()
+  "Same-document heading links fall back to *Heading without an ID."
+  (let* ((temp-dir (make-temp-file "gdocs-test" t))
+         (doc-file (expand-file-name "doc.org" temp-dir))
+         (docid-map (make-hash-table :test 'equal))
+         (gdocs-convert--heading-cache (make-hash-table :test 'equal)))
+    (unwind-protect
+        (progn
+          (with-temp-file doc-file
+            (insert "* Building a pipeline\n"))
+          (puthash "DOC_SELF" doc-file docid-map)
+          (puthash "DOC_SELF-reverse"
+                   '(("h_build" . "Building a pipeline"))
+                   gdocs-convert--heading-cache)
+          (let* ((gdocs-convert--link-context
+                  (list :buffer-file doc-file
+                        :docid-map docid-map))
+                 (run (list :text "more"
+                            :bold nil :italic nil :underline nil
+                            :strikethrough nil :code nil
+                            :link "https://docs.google.com/document/d/DOC_SELF/edit#heading=h.h_build"))
+                 (org-text (gdocs-convert--run-to-org run)))
+            (should (string= org-text
+                              "[[*Building a pipeline][more]]"))))
+      (delete-file doc-file)
+      (delete-directory temp-dir))))
 
 (ert-deftest gdocs-convert-test-reverse-resolve-same-doc-no-heading ()
   "Same-document links without heading anchor produce file: link."
