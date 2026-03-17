@@ -23,6 +23,8 @@
 
 (declare-function gdocs-merge-start "gdocs-merge")
 (declare-function gdocs--update-modeline "gdocs")
+(declare-function gdocs--ensure-org-tag "gdocs")
+(declare-function gdocs--remove-org-tag "gdocs")
 
 ;;;; Customizable variables
 
@@ -333,6 +335,7 @@ The shadow is set by re-parsing the buffer so it matches what
     ;; org-string already contains them via the postamble).
     (when doc-id
       (gdocs-sync--write-file-local-vars doc-id acct))
+    (gdocs--ensure-org-tag)
     (goto-char (min saved-point (point-max))))
   ;; Persist pulled content to disk so it survives buffer kill.
   (when buffer-file-name
@@ -376,6 +379,7 @@ The shadow is set by re-parsing the buffer so it matches what
         (saved-point (point)))
     (erase-buffer)
     (insert merged-org)
+    (gdocs--ensure-org-tag)
     (goto-char (min saved-point (point-max))))
   (when (derived-mode-p 'org-mode)
     (org-element-cache-reset))
@@ -604,6 +608,7 @@ is unused but accepted for API compatibility."
   (let ((doc-id (gdocs-sync--parse-document-id document-id-or-url))
         (acct (or account (gdocs-auth-select-account "Account: "))))
     (gdocs-sync--write-file-local-vars doc-id acct)
+    (gdocs--ensure-org-tag)
     (setq gdocs-sync--document-id doc-id)
     (setq gdocs-sync--account acct)
     (save-buffer)
@@ -613,6 +618,7 @@ is unused but accepted for API compatibility."
   "Remove Google Docs link from the current buffer."
   (interactive)
   (gdocs-sync--remove-file-local-vars)
+  (gdocs--remove-org-tag)
   (gdocs-sync--clear-buffer-state)
   (save-buffer)
   (message "Unlinked from Google Docs."))

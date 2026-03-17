@@ -249,5 +249,127 @@
         (should (equal "https://docs.google.com/document/d/test-doc-id/edit"
                        captured-url))))))
 
+;;;; Org tag management
+
+(ert-deftest gdocs-test-ensure-org-tag-adds-to-bare-heading ()
+  "Adds :gdocs: tag to a heading with no existing tags."
+  (with-temp-buffer
+    (org-mode)
+    (insert "#+TITLE: Doc\n* Section One\nContent\n")
+    (let ((gdocs-org-tag "gdocs"))
+      (gdocs--ensure-org-tag))
+    (goto-char (point-min))
+    (forward-line 1)
+    (should (string-match-p ":gdocs:" (buffer-substring
+                                       (line-beginning-position)
+                                       (line-end-position))))))
+
+(ert-deftest gdocs-test-ensure-org-tag-appends-to-existing-tags ()
+  "Appends :gdocs: to a heading that already has tags."
+  (with-temp-buffer
+    (org-mode)
+    (insert "* Heading :foo:bar:\nContent\n")
+    (let ((gdocs-org-tag "gdocs"))
+      (gdocs--ensure-org-tag))
+    (goto-char (point-min))
+    (should (string-match-p ":foo:bar:gdocs:" (buffer-substring
+                                                (line-beginning-position)
+                                                (line-end-position))))))
+
+(ert-deftest gdocs-test-ensure-org-tag-idempotent ()
+  "Does not add the tag twice."
+  (with-temp-buffer
+    (org-mode)
+    (insert "* Heading :gdocs:\nContent\n")
+    (let ((gdocs-org-tag "gdocs"))
+      (gdocs--ensure-org-tag))
+    (goto-char (point-min))
+    (let ((line (buffer-substring (line-beginning-position) (line-end-position))))
+      ;; Count occurrences of :gdocs:
+      (should (= 1 (with-temp-buffer
+                      (insert line)
+                      (goto-char (point-min))
+                      (let ((count 0))
+                        (while (search-forward ":gdocs:" nil t)
+                          (cl-incf count))
+                        count)))))))
+
+(ert-deftest gdocs-test-ensure-org-tag-nil-disables ()
+  "Does nothing when `gdocs-org-tag' is nil."
+  (with-temp-buffer
+    (org-mode)
+    (insert "* Heading\nContent\n")
+    (let ((gdocs-org-tag nil)
+          (before (buffer-string)))
+      (gdocs--ensure-org-tag)
+      (should (equal before (buffer-string))))))
+
+(ert-deftest gdocs-test-ensure-org-tag-no-heading ()
+  "Does nothing in a buffer without headings."
+  (with-temp-buffer
+    (org-mode)
+    (insert "#+TITLE: Doc\nJust text, no headings.\n")
+    (let ((gdocs-org-tag "gdocs")
+          (before (buffer-string)))
+      (gdocs--ensure-org-tag)
+      (should (equal before (buffer-string))))))
+
+(ert-deftest gdocs-test-ensure-org-tag-custom-name ()
+  "Uses the custom tag name."
+  (with-temp-buffer
+    (org-mode)
+    (insert "* Heading\nContent\n")
+    (let ((gdocs-org-tag "synced"))
+      (gdocs--ensure-org-tag))
+    (goto-char (point-min))
+    (should (string-match-p ":synced:" (buffer-substring
+                                        (line-beginning-position)
+                                        (line-end-position))))))
+
+(ert-deftest gdocs-test-remove-org-tag-only-tag ()
+  "Removes entire tag decoration when it is the only tag."
+  (with-temp-buffer
+    (org-mode)
+    (insert "* Heading :gdocs:\nContent\n")
+    (let ((gdocs-org-tag "gdocs"))
+      (gdocs--remove-org-tag))
+    (goto-char (point-min))
+    (should (equal "* Heading" (buffer-substring
+                                (line-beginning-position)
+                                (line-end-position))))))
+
+(ert-deftest gdocs-test-remove-org-tag-preserves-others ()
+  "Preserves other tags when removing the gdocs tag."
+  (with-temp-buffer
+    (org-mode)
+    (insert "* Heading :foo:gdocs:bar:\nContent\n")
+    (let ((gdocs-org-tag "gdocs"))
+      (gdocs--remove-org-tag))
+    (goto-char (point-min))
+    (let ((line (buffer-substring (line-beginning-position)
+                                  (line-end-position))))
+      (should (string-match-p ":foo:bar:" line))
+      (should-not (string-match-p ":gdocs:" line)))))
+
+(ert-deftest gdocs-test-remove-org-tag-not-present ()
+  "Does nothing when the tag is not present."
+  (with-temp-buffer
+    (org-mode)
+    (insert "* Heading :other:\nContent\n")
+    (let ((gdocs-org-tag "gdocs")
+          (before (buffer-string)))
+      (gdocs--remove-org-tag)
+      (should (equal before (buffer-string))))))
+
+(ert-deftest gdocs-test-remove-org-tag-nil-disables ()
+  "Does nothing when `gdocs-org-tag' is nil."
+  (with-temp-buffer
+    (org-mode)
+    (insert "* Heading :gdocs:\nContent\n")
+    (let ((gdocs-org-tag nil)
+          (before (buffer-string)))
+      (gdocs--remove-org-tag)
+      (should (equal before (buffer-string))))))
+
 (provide 'gdocs-test)
 ;;; gdocs-test.el ends here

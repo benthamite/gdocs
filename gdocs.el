@@ -42,6 +42,13 @@
   :type 'boolean
   :group 'gdocs)
 
+(defcustom gdocs-org-tag "gdocs"
+  "Tag to add to the first heading of linked org files.
+When non-nil, this tag is added to the first heading of org files
+that have a Google Doc counterpart.  Set to nil to disable."
+  :type '(choice (const :tag "None" nil) string)
+  :group 'gdocs)
+
 ;;;; File-local variable safety
 
 ;; File-local variables set in the Local Variables block of linked
@@ -138,6 +145,7 @@ DOC-ID is the document ID.  ACCOUNT is the account name."
       ;; Write content and set up file-local variables
       (erase-buffer)
       (insert org-string)
+      (gdocs--ensure-org-tag)
       (gdocs-sync--write-file-local-vars doc-id account)
       (setq gdocs-sync--shadow-ir ir)
       (let ((gdocs-auto-push-on-save nil))
@@ -226,6 +234,7 @@ to move the document into."
            (with-current-buffer buf
              (let ((true-ir (gdocs-convert-docs-json-to-ir doc-json)))
                (gdocs-sync--write-file-local-vars doc-id account)
+               (gdocs--ensure-org-tag)
                (setq gdocs-sync--shadow-ir true-ir)
                (setq gdocs-sync--document-id doc-id)
                (setq gdocs-sync--account account)
@@ -350,6 +359,57 @@ Removes `gdocs-folder-id' and `gdocs-account' from
     (gdocs-mode 1)))
 
 (add-hook 'org-mode-hook #'gdocs--maybe-enable)
+
+;;;; Org tag management
+
+(defun gdocs--ensure-org-tag ()
+  "Ensure `gdocs-org-tag' is on the first heading in the buffer.
+Does nothing when `gdocs-org-tag' is nil or the buffer has no
+headings."
+  (when gdocs-org-tag
+    (save-excursion
+      (goto-char (point-min))
+      (when (re-search-forward org-heading-regexp nil t)
+        (let* ((eol (line-end-position))
+               (line (buffer-substring-no-properties
+                      (line-beginning-position) eol))
+               (tag-re (concat ":" (regexp-quote gdocs-org-tag) ":")))
+          (unless (string-match-p tag-re line)
+            (goto-char eol)
+            (skip-chars-backward " \t")
+            (delete-region (point) eol)
+            (if (eq (char-before) ?:)
+                ;; Existing tags: append ours before the final colon
+                (insert (concat gdocs-org-tag ":"))
+              ;; No tags: add tag decoration
+              (insert (format " :%s:" gdocs-org-tag)))))))))
+
+(defun gdocs--remove-org-tag ()
+  "Remove `gdocs-org-tag' from the first heading in the buffer.
+Does nothing when `gdocs-org-tag' is nil or the tag is not
+present."
+  (when gdocs-org-tag
+    (save-excursion
+      (goto-char (point-min))
+      (when (re-search-forward org-heading-regexp nil t)
+        (end-of-line)
+        (when (re-search-backward
+               "\\([ \t]+\\)\\(:[[:alnum:]_@#%:]+:\\)[ \t]*$"
+               (line-beginning-position) t)
+          ;; Save match bounds before `split-string' overwrites
+          ;; the global match data.
+          (let* ((mbeg (match-beginning 0))
+                 (mend (match-end 0))
+                 (space (match-string 1))
+                 (tag-string (match-string 2))
+                 (tags (split-string tag-string ":" t))
+                 (remaining (remove gdocs-org-tag tags)))
+            (when (< (length remaining) (length tags))
+              (delete-region mbeg mend)
+              (when remaining
+                (goto-char mbeg)
+                (insert space ":" (mapconcat #'identity remaining ":")
+                        ":")))))))))
 
 (provide 'gdocs)
 ;;; gdocs.el ends here
