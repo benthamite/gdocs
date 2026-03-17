@@ -1817,6 +1817,32 @@ bullets and uses it to determine the nesting level."
     ('number "NUMBERED_DECIMAL_ALPHA_ROMAN")
     ('check "BULLET_CHECKBOX")))
 
+(defconst gdocs-convert--numbered-presets
+  '("NUMBERED_DECIMAL_ALPHA_ROMAN" "NUMBERED_DECIMAL_NESTED")
+  "Numbered bullet presets that look identical at nesting level 0.
+Used to alternate presets between consecutive numbered list groups,
+preventing Google Docs from merging them in a single batchUpdate.")
+
+(defun gdocs-convert--alternate-numbered-presets (groups)
+  "Alternate presets for consecutive numbered list GROUPS.
+Mutates the :preset of each group in place.  Consecutive groups
+whose preset starts with \"NUMBERED_\" receive alternating
+presets so that Google Docs creates separate list objects."
+  (let ((prev-preset nil))
+    (dolist (group groups)
+      (let ((preset (plist-get group :preset)))
+        (when (and (string= preset prev-preset)
+                   (string-prefix-p "NUMBERED_" preset))
+          (plist-put group :preset
+                     (gdocs-convert--next-numbered-preset preset)))
+        (setq prev-preset (plist-get group :preset))))))
+
+(defun gdocs-convert--next-numbered-preset (preset)
+  "Return the next numbered preset after PRESET, cycling through options."
+  (let* ((idx (seq-position gdocs-convert--numbered-presets preset))
+         (next (% (1+ (or idx 0)) (length gdocs-convert--numbered-presets))))
+    (nth next gdocs-convert--numbered-presets)))
+
 (defun gdocs-convert--fixup-list-nesting (requests element-ranges)
   "Fix list nesting in REQUESTS by merging per-paragraph bullet requests.
 ELEMENT-RANGES is a list of plists (:element EL :start S :end E) tracking
@@ -1828,11 +1854,14 @@ a single request, with indentation pre-set on nested items.
 Per-paragraph bullet requests produce flat lists.
 
 This function removes per-paragraph `createParagraphBullets' and
-appends a single merged request per contiguous list group."
+appends a single merged request per contiguous list group.
+Consecutive numbered groups receive alternating presets to prevent
+Google Docs from merging them into one continuous list."
   (let ((groups (gdocs-convert--find-list-groups element-ranges))
         (filtered (cl-remove-if
                    (lambda (req) (alist-get 'createParagraphBullets req))
                    requests)))
+    (gdocs-convert--alternate-numbered-presets groups)
     (append filtered
             (mapcar #'gdocs-convert--list-group-bullet-request groups))))
 
