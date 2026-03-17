@@ -173,9 +173,12 @@ Creates `gdocs-directory' if it does not exist."
 (defun gdocs--sanitize-filename (name)
   "Sanitize NAME for use as a filename.
 Strips non-ASCII characters and filesystem-unsafe characters,
-replacing them with hyphens.  Collapses consecutive hyphens."
-  (let ((cleaned (replace-regexp-in-string "[^a-zA-Z0-9_.-]" "-" name)))
-    (replace-regexp-in-string "-\\{2,\\}" "-" cleaned)))
+replacing them with hyphens.  Collapses consecutive hyphens.
+Returns \"untitled\" if the result would be empty."
+  (let* ((cleaned (replace-regexp-in-string "[^a-zA-Z0-9_.-]" "-" name))
+         (collapsed (replace-regexp-in-string "-\\{2,\\}" "-" cleaned))
+         (trimmed (string-trim collapsed "-+" "-+")))
+    (if (string-empty-p trimmed) "untitled" trimmed)))
 
 ;;;###autoload
 (defun gdocs-create (&optional title account)
@@ -375,9 +378,14 @@ In a `dired' buffer, operate on the file or directory at point."
     (insert-file-contents file)
     (goto-char (point-max))
     (when (search-backward "Local Variables:" nil t)
-      (let ((case-fold-search t))
-        (when (re-search-forward
-               "gdocs-document-id:[[:space:]]+\"\\([^\"]+\\)\"" nil t)
+      (let ((case-fold-search t)
+            (block-end (save-excursion
+                         (when (re-search-forward "^;+.*End:" nil t)
+                           (point)))))
+        (when (and block-end
+                   (re-search-forward
+                    "gdocs-document-id:[[:space:]]+\"\\([^\"]+\\)\""
+                    block-end t))
           (match-string 1))))))
 
 (defun gdocs--dir-folder-id (dir)

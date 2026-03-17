@@ -242,8 +242,8 @@ chunks and common lines."
   "Move to the previous conflict hunk."
   (interactive)
   (let* ((conflicts (gdocs-merge--conflict-hunks))
-         (prev (-last-item (--filter (< it gdocs-merge--current-hunk-index)
-                                     conflicts))))
+         (before (--filter (< it gdocs-merge--current-hunk-index) conflicts))
+         (prev (when before (-last-item before))))
     (if prev
         (gdocs-merge--goto-hunk prev)
       (message "No previous conflict hunks"))))

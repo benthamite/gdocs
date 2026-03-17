@@ -143,9 +143,10 @@ to determine the body end index."
   "Extract the body end index from document JSON.
 Returns the endIndex of the last element in the body content."
   (let* ((body (alist-get 'body json))
-         (content (alist-get 'content body))
-         (last-elem (aref content (1- (length content)))))
-    (alist-get 'endIndex last-elem)))
+         (content (alist-get 'content body)))
+    (if (or (null content) (= (length content) 0))
+        1
+      (alist-get 'endIndex (aref content (1- (length content)))))))
 
 (defun gdocs-sync--push-incremental (current-ir buf link-ctx json)
   "Push CURRENT-IR as an incremental diff against the remote document.
@@ -187,13 +188,17 @@ CURRENT-IR is the IR that was pushed.  BUF is the originating
 buffer.  LINK-CTX is the link context for re-binding when setting
 the shadow."
   (lambda (response)
-    (condition-case err
-        (with-current-buffer buf
-          (let ((gdocs-convert--link-context link-ctx))
-            (gdocs-sync--handle-push-success current-ir response)))
-      (error
-       (with-current-buffer buf
-         (gdocs-sync--handle-push-error err))))))
+    (if (not (buffer-live-p buf))
+        (message "gdocs: push completed but buffer was killed")
+      (condition-case err
+          (with-current-buffer buf
+            (let ((gdocs-convert--link-context link-ctx))
+              (gdocs-sync--handle-push-success current-ir response)))
+        (error
+         (if (buffer-live-p buf)
+             (with-current-buffer buf
+               (gdocs-sync--handle-push-error err))
+           (message "Push failed: %s" (error-message-string err))))))))
 
 (defun gdocs-sync--handle-push-success (current-ir response)
   "Update sync state after a successful push.
@@ -219,8 +224,10 @@ ERR is the error that occurred."
 BUF is the originating buffer.  Resets push state so subsequent
 pushes are not blocked."
   (lambda (err)
-    (with-current-buffer buf
-      (gdocs-sync--handle-push-error err))))
+    (if (buffer-live-p buf)
+        (with-current-buffer buf
+          (gdocs-sync--handle-push-error err))
+      (message "Push failed: %s" (error-message-string err)))))
 
 (defun gdocs-sync--drain-push-queue ()
   "If a push is queued, trigger it now."
@@ -249,8 +256,9 @@ pushes are not blocked."
     (gdocs-api-get-file-metadata
      gdocs-sync--document-id
      (lambda (metadata)
-       (with-current-buffer buf
-         (gdocs-sync--handle-metadata-for-pull metadata)))
+       (when (buffer-live-p buf)
+         (with-current-buffer buf
+           (gdocs-sync--handle-metadata-for-pull metadata))))
      gdocs-sync--account)))
 
 (defun gdocs-sync--handle-metadata-for-pull (metadata)
@@ -273,8 +281,9 @@ REVISION-ID is the remote revision to store on success."
     (gdocs-api-get-document
      gdocs-sync--document-id
      (lambda (json)
-       (with-current-buffer buf
-         (gdocs-sync--apply-pull json rev)))
+       (when (buffer-live-p buf)
+         (with-current-buffer buf
+           (gdocs-sync--apply-pull json rev))))
      gdocs-sync--account)))
 
 (defun gdocs-sync--apply-pull (json revision-id)
@@ -305,7 +314,7 @@ on elements that were not changed remotely."
           (let ((result (gdocs-sync--three-way-merge remote-ir)))
             (if (plist-get result :has-conflicts)
                 (gdocs-sync--start-conflict-resolution
-                 (plist-get result :merged-org))
+                 (plist-get result :merged-org) revision-id)
               (gdocs-sync--replace-buffer-content
                (plist-get result :merged-org) revision-id))))))))
 
@@ -339,7 +348,8 @@ The shadow is set by re-parsing the buffer so it matches what
     (goto-char (min saved-point (point-max))))
   ;; Persist pulled content to disk so it survives buffer kill.
   (when buffer-file-name
-    (save-buffer))
+    (let ((gdocs-auto-push-on-save nil))
+      (save-buffer)))
   ;; The cache is stale after a full buffer replacement with
   ;; `inhibit-modification-hooks' bound — reset it to avoid
   ;; org-element parser errors.
@@ -357,36 +367,47 @@ The shadow is set by re-parsing the buffer so it matches what
   (gdocs-sync--set-status 'synced)
   (message "Pulled remote changes."))
 
-(defun gdocs-sync--start-conflict-resolution (remote-org)
-  "Begin merge resolution between local content and REMOTE-ORG."
+(defun gdocs-sync--start-conflict-resolution (remote-org revision-id)
+  "Begin merge resolution between local content and REMOTE-ORG.
+REVISION-ID is the remote revision to store after resolution."
   (require 'gdocs-merge)
   (gdocs-sync--set-status 'conflict)
   (let ((local-org (buffer-substring-no-properties (point-min) (point-max)))
         (buf (current-buffer))
-        (link-ctx gdocs-convert--link-context))
+        (link-ctx gdocs-convert--link-context)
+        (rev revision-id))
     (gdocs-merge-start
      local-org
      remote-org
      (lambda (merged-org)
-       (with-current-buffer buf
-         (let ((gdocs-convert--link-context link-ctx))
-           (gdocs-sync--apply-merge-result merged-org)))))))
+       (when (buffer-live-p buf)
+         (with-current-buffer buf
+           (let ((gdocs-convert--link-context link-ctx))
+             (gdocs-sync--apply-merge-result merged-org rev))))))))
 
-(defun gdocs-sync--apply-merge-result (merged-org)
-  "Apply MERGED-ORG as the resolved content and push."
+(defun gdocs-sync--apply-merge-result (merged-org &optional revision-id)
+  "Apply MERGED-ORG as the resolved content and push.
+REVISION-ID, if non-nil, is stored as the current revision."
   ;; Suppress modification hooks to prevent recursive push-on-save
   (let ((inhibit-modification-hooks t)
+        (doc-id gdocs-sync--document-id)
+        (acct gdocs-sync--account)
         (saved-point (point)))
     (erase-buffer)
     (insert merged-org)
+    (when doc-id
+      (gdocs-sync--write-file-local-vars doc-id acct))
     (gdocs--ensure-org-tag)
     (goto-char (min saved-point (point-max))))
   (when (derived-mode-p 'org-mode)
     (org-element-cache-reset))
   (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
+  (when revision-id
+    (setq gdocs-sync--revision-id revision-id))
   (gdocs-sync--update-last-sync-time)
   (gdocs-sync--set-status 'synced)
-  (save-buffer)
+  (let ((gdocs-auto-push-on-save nil))
+    (save-buffer))
   (message "Merge complete."))
 
 ;;;; Three-way merge
@@ -553,7 +574,7 @@ heading line."
           (let ((line (car rest)))
             (if (or (null heading-part)  ; first line is always heading
                     (string-match-p
-                     "^\\(SCHEDULED\\|DEADLINE\\):" line))
+                     "^\\(SCHEDULED\\|DEADLINE\\|CLOSED\\):" line))
                 (progn
                   (push line heading-part)
                   (setq rest (cdr rest)))

@@ -233,7 +233,9 @@ CALLBACK is called with the parsed JSON response.  ACCOUNT is an
 optional account name."
   (gdocs-api-list-files
    (format "fullText contains '%s'"
-           (replace-regexp-in-string "'" "\\\\'" query))
+           (replace-regexp-in-string
+            "'" "\\\\'"
+            (replace-regexp-in-string "\\\\" "\\\\\\\\" query)))
    callback
    account))
 
@@ -277,7 +279,8 @@ called with the error condition instead of signaling."
                    (gdocs-api--hide-progress)
                    (condition-case api-err
                        (gdocs-api--handle-error
-                        err method url callback account body attempt)
+                        err method url callback account body attempt
+                        on-error)
                      (error
                       (if on-error
                           (funcall on-error api-err)
@@ -295,17 +298,18 @@ BODY, if non-nil, causes a Content-Type header to be included."
 
 ;;;; Error handling
 
-(defun gdocs-api--handle-error (err method url callback account body attempt)
+(defun gdocs-api--handle-error (err method url callback account body attempt
+                                    &optional on-error)
   "Handle an API error, retrying on transient failures.
 ERR is the `plz-error' structure.  METHOD, URL, CALLBACK,
 ACCOUNT, BODY, and ATTEMPT are from the original request, used
-for retries."
+for retries.  ON-ERROR is propagated through retries."
   (let ((status (gdocs-api--extract-http-status err)))
     (cond
      ((and status (gdocs-api--retryable-status-p status)
            (< attempt gdocs-api--max-retries))
       (gdocs-api--schedule-retry
-       err method url callback account body attempt))
+       err method url callback account body attempt on-error))
      ((and status (memq status '(401 403)))
       (error "Authentication failed (HTTP %d) for account %s; run `gdocs-authenticate' to re-authorize"
              status account))
@@ -313,10 +317,12 @@ for retries."
       (error "Google API request failed: %s"
              (gdocs-api--format-error err))))))
 
-(defun gdocs-api--schedule-retry (err method url callback account body attempt)
+(defun gdocs-api--schedule-retry (err method url callback account body attempt
+                                      &optional on-error)
   "Schedule a retry after an appropriate backoff delay.
 ERR is the error from the failed request.  METHOD, URL, CALLBACK,
-ACCOUNT, BODY, and ATTEMPT are from the original request."
+ACCOUNT, BODY, and ATTEMPT are from the original request.
+ON-ERROR is propagated to the retried request."
   (let ((delay (gdocs-api--retry-delay err attempt)))
     (message "Google API request failed (attempt %d/%d), retrying in %ds..."
              (1+ attempt) gdocs-api--max-retries delay)
@@ -325,7 +331,8 @@ ACCOUNT, BODY, and ATTEMPT are from the original request."
                  method url callback
                  :account account
                  :body body
-                 :attempt (1+ attempt))))
+                 :attempt (1+ attempt)
+                 :on-error on-error)))
 
 (defun gdocs-api--extract-http-status (err)
   "Extract the HTTP status code from a `plz-error' ERR.
@@ -349,13 +356,13 @@ exponential backoff: 2^ATTEMPT seconds, capped at
 
 (defun gdocs-api--extract-retry-after (err)
   "Extract the Retry-After header value from a `plz-error' ERR.
-Return the value as an integer, or nil if the header is absent."
+Return the value as a positive integer, or nil if the header is
+absent or contains an HTTP-date instead of seconds."
   (when-let* ((response (plz-error-response err))
               (headers (plz-response-headers response))
-              (retry-after (alist-get 'retry-after headers)))
-    (condition-case nil
-        (string-to-number retry-after)
-      (error nil))))
+              (retry-after (alist-get 'retry-after headers))
+              (seconds (string-to-number retry-after)))
+    (when (> seconds 0) seconds)))
 
 (defun gdocs-api--format-error (err)
   "Format a `plz-error' ERR into a human-readable string."

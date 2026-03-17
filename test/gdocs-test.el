@@ -31,8 +31,8 @@
 
 (ert-deftest gdocs-test-sanitize-non-ascii-replaced ()
   "Non-ASCII characters are replaced with hyphens."
-  (should (equal "caf-" (gdocs--sanitize-filename "caf\u00e9")))
-  (should (equal "-" (gdocs--sanitize-filename "\u00fc"))))
+  (should (equal "caf" (gdocs--sanitize-filename "caf\u00e9")))
+  (should (equal "untitled" (gdocs--sanitize-filename "\u00fc"))))
 
 (ert-deftest gdocs-test-sanitize-unsafe-characters ()
   "Filesystem-unsafe characters (/ \\ : ? * < > | \") are replaced."

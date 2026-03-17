@@ -178,9 +178,15 @@ directories are created as needed."
         (dir (file-name-directory (gdocs-auth--token-file-path account))))
     (make-directory dir t)
     (set-file-modes dir #o700)
-    (with-temp-file path
-      (insert (json-encode data)))
-    (set-file-modes path #o600)))
+    ;; Create the file with restrictive permissions from the start to
+    ;; avoid a window where secrets are world-readable.
+    (let ((old-modes (default-file-modes)))
+      (unwind-protect
+          (progn
+            (set-default-file-modes #o600)
+            (with-temp-file path
+              (insert (json-encode data))))
+        (set-default-file-modes old-modes)))))
 
 ;;;; Token validation and refresh
 
@@ -317,9 +323,11 @@ on success."
           (delete-process server)
           (gdocs-auth--exchange-code-for-tokens
            code redirect-uri client-id client-secret account callback))
-      (gdocs-auth--send-error-response proc)
-      (delete-process server)
-      (error "OAuth callback did not contain an authorization code"))))
+      ;; Non-auth request (favicon, prefetch, etc.): respond but keep
+      ;; the server alive for the real OAuth redirect.
+      (process-send-string
+       proc "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+      (delete-process proc))))
 
 (defun gdocs-auth--extract-auth-code (http-request)
   "Extract the authorization code from HTTP-REQUEST string.

@@ -1559,7 +1559,8 @@ may have trailing whitespace-only runs before it."
 LISTS-MAP is the document's lists property for type lookup."
   (let* ((list-id (alist-get 'listId bullet))
          (nesting-level (or (alist-get 'nestingLevel bullet) 0))
-         (list-props (alist-get (intern list-id) lists-map))
+         (list-props (when list-id
+                       (alist-get (intern list-id) lists-map)))
          (list-type (gdocs-convert--docs-list-type list-props nesting-level)))
     (list :type list-type :level nesting-level)))
 
@@ -1598,7 +1599,7 @@ the IR element.  Returns an alist mapping element IDs to marker plists."
             (push (cons (nth 2 parts)
                         (list :type (intern (nth 1 parts))
                               :data (when (> (length parts) 3)
-                                      (nth 3 parts))))
+                                      (s-join ":" (nthcdr 3 parts)))))
                   result)))))
     result))
 
@@ -1897,17 +1898,22 @@ GROUP is a plist with :start, :end, and :preset."
 
 (defun gdocs-convert--make-marker-requests (element start end)
   "Create named range requests for org-only markers in ELEMENT.
-START and END define the text range in the document."
+START and END define the text range in the document.
+Handles both single-plist and list-of-plists marker shapes."
   (let ((marker (plist-get element :gdocs-marker))
         (id (plist-get element :id)))
     (when (and marker id)
-      (let* ((marker-type (plist-get marker :type))
-             (name (format "gdocs-org-marker:%s:%s"
-                           marker-type id)))
-        (list `((createNamedRange
-                 . ((name . ,name)
-                    (range . ((startIndex . ,start)
-                              (endIndex . ,(1- end))))))))))))
+      (let ((markers (if (listp (car marker))
+                         marker
+                       (list marker))))
+        (mapcar (lambda (m)
+                  (let ((marker-type (plist-get m :type)))
+                    `((createNamedRange
+                       . ((name . ,(format "gdocs-org-marker:%s:%s"
+                                           marker-type id))
+                          (range . ((startIndex . ,start)
+                                    (endIndex . ,(1- end)))))))))
+                markers)))))
 
 ;; ---------------------------------------------------------------------------
 ;;; Table -> requests
