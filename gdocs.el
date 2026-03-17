@@ -369,11 +369,12 @@ In a `dired' buffer, operate on the file or directory at point."
   "Return the `gdocs-document-id' file-local variable from FILE, or nil."
   (with-temp-buffer
     (insert-file-contents file)
-    ;; `hack-local-variables--find-variables' requires the buffer to
-    ;; have a file name so that `enable-local-variables' checks pass.
-    (setq buffer-file-name file)
-    (hack-local-variables)
-    (bound-and-true-p gdocs-document-id)))
+    (goto-char (point-max))
+    (when (search-backward "Local Variables:" nil t)
+      (let ((case-fold-search t))
+        (when (re-search-forward
+               "gdocs-document-id:[[:space:]]+\"\\([^\"]+\\)\"" nil t)
+          (match-string 1))))))
 
 (defun gdocs--dir-folder-id (dir)
   "Return the `gdocs-folder-id' dir-local variable for DIR, or nil."
