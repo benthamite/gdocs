@@ -708,7 +708,7 @@
       (delete-directory temp-dir))))
 
 (ert-deftest gdocs-convert-test-link-url-file-no-doc-id ()
-  "file: links to org files without doc IDs preserve file: prefix."
+  "file: links to org files without doc IDs become plain text."
   (let ((temp-dir (make-temp-file "gdocs-test" t))
         (source-file nil)
         (target-file nil))
@@ -727,10 +727,10 @@
               (insert-file-contents source-file)
               (org-mode)
               (let* ((ir (gdocs-convert-org-buffer-to-ir))
-                     (runs (plist-get (car ir) :contents))
-                     (link-run (nth 1 runs)))
-                (should (string= (plist-get link-run :link)
-                                  "file:target.org"))))))
+                     (runs (plist-get (car ir) :contents)))
+                ;; Link text merges with surrounding text as plain text
+                (should (string= (plist-get (car runs) :text) "Link to Target"))
+                (should-not (plist-get (car runs) :link))))))
       (delete-file source-file)
       (delete-file target-file)
       (delete-directory temp-dir))))
@@ -745,7 +745,7 @@
       (should (string= (plist-get link-run :link) "file:other.org")))))
 
 (ert-deftest gdocs-convert-test-link-url-id-no-doc-id ()
-  "id: links to files without doc IDs preserve id: prefix."
+  "id: links to files without doc IDs become plain text."
   (let ((temp-dir (make-temp-file "gdocs-test" t))
         (source-file nil)
         (target-file nil))
@@ -770,10 +770,10 @@
                 (insert-file-contents source-file)
                 (org-mode)
                 (let* ((ir (gdocs-convert-org-buffer-to-ir))
-                       (runs (plist-get (car ir) :contents))
-                       (link-run (nth 1 runs)))
-                  (should (string= (plist-get link-run :link)
-                                    "id:TEST-UUID-1234")))))))
+                       (runs (plist-get (car ir) :contents)))
+                  ;; Link text merges with surrounding text as plain text
+                  (should (string= (plist-get (car runs) :text) "Link to Target"))
+                  (should-not (plist-get (car runs) :link)))))))
       (delete-file source-file)
       (delete-file target-file)
       (delete-directory temp-dir))))

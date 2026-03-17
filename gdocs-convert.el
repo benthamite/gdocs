@@ -641,17 +641,25 @@ Post-blank whitespace is handled by `gdocs-convert--object-to-runs'."
 (defun gdocs-convert--link-to-runs (link inherited-props)
   "Convert a LINK object to text runs with :link set.
 INHERITED-PROPS carries parent formatting.  Preserves any
-formatting (e.g. italic, bold) within the link description."
+formatting (e.g. italic, bold) within the link description.
+When the URL is nil (e.g. an org file with no Google Doc
+counterpart), emits plain text with no hyperlink."
   (let* ((url (gdocs-convert--link-url link))
          (children (org-element-contents link))
-         (new-props (plist-put (copy-sequence inherited-props) :link url)))
+         (props (if url
+                    (plist-put (copy-sequence inherited-props) :link url)
+                  inherited-props)))
     (if children
         (let ((runs nil))
           (dolist (child children)
             (setq runs (nconc runs
-                              (gdocs-convert--object-to-runs child new-props))))
-          (or runs (list (gdocs-convert--make-run url new-props))))
-      (list (gdocs-convert--make-run url new-props)))))
+                              (gdocs-convert--object-to-runs child props))))
+          (or runs (list (gdocs-convert--make-run
+                          (or url (org-element-property :raw-link link))
+                          props))))
+      (list (gdocs-convert--make-run
+             (or url (org-element-property :raw-link link))
+             props)))))
 
 (defun gdocs-convert--link-url (link)
   "Extract the URL string from a LINK element.
@@ -685,7 +693,9 @@ id: links to Google Docs URLs for cross-document linking."
 (defun gdocs-convert--resolve-file-link (path search)
   "Resolve a file: link PATH to a Google Docs URL.
 SEARCH is the search option from org-element (e.g. \"*Heading\").
-If the target has no Google Doc ID, returns the path with file: prefix."
+If the target is an org file with no Google Doc ID, returns nil so
+the link is rendered as plain text in Google Docs.  Non-org file
+links are preserved with a file: prefix."
   (let* ((buffer-file (plist-get gdocs-convert--link-context :buffer-file))
          (abs-path (if (file-name-absolute-p path)
                        path
@@ -695,24 +705,28 @@ If the target has no Google Doc ID, returns the path with file: prefix."
          ;; Strip * prefix from heading search options
          (heading-text (when (and search (string-prefix-p "*" search))
                          (substring search 1))))
-    (if target-doc-id
-        (gdocs-convert--make-docs-url target-doc-id heading-text)
-      (concat "file:" path))))
+    (cond
+     (target-doc-id
+      (gdocs-convert--make-docs-url target-doc-id heading-text))
+     ;; Org file without a Google Doc: no link (plain text)
+     ((string-suffix-p ".org" path t)
+      nil)
+     (t
+      (concat "file:" path)))))
 
 (defun gdocs-convert--resolve-id-link (id)
   "Resolve an id: link ID to a Google Docs URL.
 Uses `org-id-find' to locate the target file, then reads its
-`gdocs-document-id'.  Falls back to id:ID if unresolvable."
-  (if-let* ((location (org-id-find id)))
-      (let* ((file (if (consp location) (car location) location))
-             (target-doc-id (gdocs-convert--read-file-local-gdocs-id file)))
-        (if target-doc-id
-            (let* ((pos (when (consp location) (cdr location)))
-                   (heading-text (when pos
-                                   (gdocs-convert--heading-at-pos file pos))))
-              (gdocs-convert--make-docs-url target-doc-id heading-text))
-          (concat "id:" id)))
-    (concat "id:" id)))
+`gdocs-document-id'.  Returns nil when the target has no Google
+Doc, so the link is rendered as plain text."
+  (when-let* ((location (org-id-find id)))
+    (let* ((file (if (consp location) (car location) location))
+           (target-doc-id (gdocs-convert--read-file-local-gdocs-id file)))
+      (when target-doc-id
+        (let* ((pos (when (consp location) (cdr location)))
+               (heading-text (when pos
+                               (gdocs-convert--heading-at-pos file pos))))
+          (gdocs-convert--make-docs-url target-doc-id heading-text))))))
 
 (defun gdocs-convert--resolve-same-doc-heading-link (heading-text)
   "Resolve a same-document heading link to HEADING-TEXT.
