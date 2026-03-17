@@ -70,18 +70,12 @@ Used during org-to-IR link resolution to append heading anchors.")
 Reverse mapping of `gdocs-convert--heading-cache', used during
 IR-to-org conversion to resolve heading anchors back to text.")
 
-(defconst gdocs-convert--file-local-tail-bytes 3072
-  "Bytes to read from the end of a file when scanning for Local Variables.
-Org files place their Local Variables block in the last few lines.
-3KB is generous enough to include multi-variable blocks while
-avoiding a full file read for large org documents.")
-
 (defun gdocs-convert--read-file-local-gdocs-id (file-path)
   "Read `gdocs-document-id' from FILE-PATH's Local Variables block.
-Reads only the tail of the file and uses a regexp.
+Reads only the tail of the file (~3KB) and uses a regexp.
 Returns the document ID string or nil."
   (when (and file-path (file-readable-p file-path))
-    (let ((tail-bytes gdocs-convert--file-local-tail-bytes)
+    (let ((tail-bytes 3072)
           (content nil))
       (with-temp-buffer
         (insert-file-contents file-path nil
