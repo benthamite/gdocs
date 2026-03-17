@@ -328,14 +328,10 @@ are deleted in full to avoid partial structural deletions."
 
 (defun gdocs-diff--insert-all-requests (new-ir start-index)
   "Generate insert requests for all elements in NEW-IR.
-START-INDEX is the UTF-16 index where the first element begins."
-  (let ((requests nil)
-        (index start-index))
-    (dolist (element new-ir)
-      (let ((result (gdocs-convert--ir-element-to-requests element index)))
-        (setq requests (append requests (plist-get result :requests)))
-        (setq index (plist-get result :index))))
-    requests))
+START-INDEX is the UTF-16 index where the first element begins.
+Delegates to `gdocs-convert-ir-to-docs-requests' so that list
+nesting fixups (e.g. alternating numbered presets) are applied."
+  (gdocs-convert-ir-to-docs-requests new-ir start-index))
 
 ;; ---------------------------------------------------------------------------
 ;;; Request generation from diff operations
