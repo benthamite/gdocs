@@ -3,7 +3,7 @@
 ;; Copyright (C) 2026  Pablo Stafforini
 
 ;; Author: gdocs contributors
-;; Version: 0.1.0
+;; Version: 0.2.0
 ;; Package-Requires: ((emacs "29.1") (plz "0.7") (dash "2.19") (s "1.13") (org "9.6"))
 ;; Keywords: docs, outlines, hypermedia
 ;; URL: https://github.com/benthamite/gdocs
