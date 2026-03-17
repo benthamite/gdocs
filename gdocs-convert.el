@@ -175,49 +175,6 @@ Creates a temporary buffer, inserts STRING, and calls
             :source 'metadata
             :id (gdocs-convert--next-id)))))
 
-(defun gdocs-convert--walk-org-data (ast)
-  "Walk an org-element AST and return a flat list of IR elements."
-  (let ((result nil))
-    (org-element-map ast '(headline paragraph plain-list table
-                           horizontal-rule keyword src-block
-                           example-block quote-block)
-      (lambda (el)
-        (let ((parent-type (org-element-type (org-element-parent el))))
-          (pcase (org-element-type el)
-            ('headline
-             (push (gdocs-convert--headline-to-ir el) result))
-            ('paragraph
-             (when (gdocs-convert--top-level-paragraph-p el)
-               (dolist (ir (gdocs-convert--paragraph-to-ir el))
-                 (push ir result))))
-            ('plain-list
-             (when (gdocs-convert--top-level-list-p el)
-               ;; Prepend reversed sub-list; final nreverse restores order
-               (setq result (nconc (nreverse
-                                    (gdocs-convert--plain-list-to-ir el 0))
-                                   result))))
-            ('table
-             (when (eq (org-element-property :type el) 'org)
-               (push (gdocs-convert--table-to-ir el) result)))
-            ('horizontal-rule
-             (push (list :type 'horizontal-rule
-                         :id (gdocs-convert--next-id))
-                   result))
-            ('quote-block
-             (when (not (eq parent-type 'item))
-               (push (gdocs-convert--quote-block-to-ir el) result)))
-            ('src-block
-             (push (gdocs-convert--src-block-to-ir el) result))
-            ('example-block
-             (setq result (nconc (nreverse
-                                  (gdocs-convert--example-block-to-ir el))
-                                 result)))
-            ('keyword
-             (when (gdocs-convert--preservable-keyword-p el)
-               (push (gdocs-convert--keyword-to-ir el) result)))
-            (_ nil)))))
-    (nreverse result)))
-
 ;; ---------------------------------------------------------------------------
 ;;; Segmented org -> IR (for three-way merge)
 
@@ -335,6 +292,11 @@ The result is sorted by buffer position."
     (sort (nreverse result)
           (lambda (a b) (< (plist-get a :begin) (plist-get b :begin))))))
 
+(defun gdocs-convert--walk-org-data (ast)
+  "Walk an org-element AST and return a flat list of IR elements."
+  (mapcar (lambda (entry) (plist-get entry :ir))
+          (gdocs-convert--walk-org-data-positioned ast)))
+
 (defun gdocs-convert--plain-list-positioned (plain-list depth)
   "Convert PLAIN-LIST to positioned IR entries at nesting DEPTH.
 Returns a list of (:ir ELEMENT :begin POS) plists."
@@ -425,9 +387,8 @@ Levels above 6 are clamped to heading-6."
 (defun gdocs-convert--headline-marker (headline)
   "Extract org-only marker data from HEADLINE, or return nil.
 Preserves TODO keywords, tags, priority, and scheduling info.
-Returns a single marker plist when there is exactly one marker
-part, or a list of marker plists when there are multiple.
-Returns nil if the headline has no preservable metadata."
+Returns a list of marker plists, or nil if the headline has no
+preservable metadata."
   (let* ((todo (org-element-property :todo-keyword headline))
          (tags (org-element-property :tags headline))
          (priority (org-element-property :priority headline))
@@ -452,8 +413,6 @@ Returns nil if the headline has no preservable metadata."
             parts))
     (when todo
       (push (list :type 'todo :data todo) parts))
-    (when (= (length parts) 1)
-      (setq parts (car parts)))
     (when parts
       parts)))
 
@@ -804,14 +763,8 @@ INHERITED-PROPS carries parent formatting."
 
 (defun gdocs-convert--plain-list-to-ir (plain-list depth)
   "Convert a PLAIN-LIST element to a list of IR elements at nesting DEPTH."
-  (let ((list-type (gdocs-convert--org-list-type plain-list))
-        (result nil))
-    (dolist (item (org-element-contents plain-list))
-      (when (eq (org-element-type item) 'item)
-        (setq result
-              (nconc result
-                     (gdocs-convert--item-to-ir item list-type depth)))))
-    result))
+  (mapcar (lambda (entry) (plist-get entry :ir))
+          (gdocs-convert--plain-list-positioned plain-list depth)))
 
 (defun gdocs-convert--org-list-type (plain-list)
   "Determine the IR list type symbol for PLAIN-LIST.
@@ -849,31 +802,8 @@ it so the IR text is clean for round-tripping."
   "Convert a list ITEM to IR elements.
 LIST-TYPE is `bullet', `number', or `check'.  DEPTH is the
 0-based nesting level."
-  (let* ((checkbox (org-element-property :checkbox item))
-         (effective-type (if checkbox 'check list-type))
-         (checked (eq checkbox 'on))
-         (paragraph (org-element-map item 'paragraph #'identity nil t))
-         (runs (when paragraph
-                 (gdocs-convert--strip-continuation-indent
-                  (gdocs-convert--objects-to-runs
-                   (org-element-contents paragraph)))))
-         (trimmed (gdocs-convert--trim-runs runs))
-         (list-plist (append (list :type effective-type :level depth)
-                             (when (eq effective-type 'check)
-                               (list :checked checked))))
-         (ir-element (list :type 'paragraph
-                           :style 'normal
-                           :list list-plist
-                           :contents (or trimmed
-                                         (list (gdocs-convert--make-plain-run "")))
-                           :id (gdocs-convert--next-id)))
-         (result (list ir-element)))
-    (dolist (child (org-element-contents item))
-      (when (eq (org-element-type child) 'plain-list)
-        (setq result
-              (nconc result
-                     (gdocs-convert--plain-list-to-ir child (1+ depth))))))
-    result))
+  (mapcar (lambda (entry) (plist-get entry :ir))
+          (gdocs-convert--item-positioned item list-type depth)))
 
 ;; ---------------------------------------------------------------------------
 ;;; Tables -> IR
@@ -937,9 +867,9 @@ Skips horizontal rule rows."
           :style 'normal
           :contents (list (gdocs-convert--make-run display-text
                                                    (list :code t)))
-          :gdocs-marker (list :type 'src-block
-                              :data (list :language language
-                                          :value value))
+          :gdocs-marker (list (list :type 'src-block
+                                    :data (list :language language
+                                                :value value)))
           :id (gdocs-convert--next-id))))
 
 (defun gdocs-convert--example-block-to-ir (example-block)
@@ -964,8 +894,8 @@ the Google Docs representation."
           :style 'normal
           :contents (list (gdocs-convert--make-plain-run
                            (format "#+%s: %s" key value)))
-          :gdocs-marker (list :type 'keyword
-                              :data (list :key key :value value))
+          :gdocs-marker (list (list :type 'keyword
+                                    :data (list :key key :value value)))
           :id (gdocs-convert--next-id))))
 
 ;; ---------------------------------------------------------------------------
@@ -1067,10 +997,11 @@ PREV-TYPE is the :type of the previous element."
       (gdocs-convert--format-heading style text marker))
      ((eq style 'quote)
       (format "#+BEGIN_QUOTE\n%s\n#+END_QUOTE" text))
-     ((and marker (eq (plist-get marker :type) 'src-block))
-      (gdocs-convert--format-src-block marker))
-     ((and marker (eq (plist-get marker :type) 'keyword))
-      (let ((data (plist-get marker :data)))
+     ((gdocs-convert--extract-marker-field marker 'src-block)
+      (gdocs-convert--format-src-block
+       (gdocs-convert--extract-marker-field marker 'src-block)))
+     ((gdocs-convert--extract-marker-field marker 'keyword)
+      (let ((data (gdocs-convert--extract-marker-field marker 'keyword)))
         (format "#+%s: %s" (plist-get data :key) (plist-get data :value))))
      (t text))))
 
@@ -1112,20 +1043,11 @@ PREV-TYPE is the :type of the previous element."
 
 (defun gdocs-convert--extract-marker-field (marker type-sym)
   "Extract the :data value for TYPE-SYM from MARKER.
-MARKER can be a single marker plist or a list of marker plists."
-  (cond
-   ((null marker) nil)
-   ((and (plist-get marker :type)
-         (eq (plist-get marker :type) type-sym))
-    (plist-get marker :data))
-   ;; List-of-plists shape: first element is itself a list
-   ((listp (car marker))
-    (let ((found nil))
-      (dolist (m marker)
-        (when (eq (plist-get m :type) type-sym)
-          (setq found (plist-get m :data))))
-      found))
-   (t nil)))
+MARKER is a list of marker plists."
+  (when marker
+    (cl-loop for m in marker
+             when (eq (plist-get m :type) type-sym)
+             return (plist-get m :data))))
 
 (defun gdocs-convert--format-list-item (list-info text)
   "Format a list item with LIST-INFO plist and TEXT content.
@@ -1149,10 +1071,9 @@ indent continuation lines to keep them inside the list item."
                 "- [X] "
               "- [ ] "))))
 
-(defun gdocs-convert--format-src-block (marker)
-  "Format a src block from its MARKER data."
-  (let* ((data (plist-get marker :data))
-         (language (plist-get data :language))
+(defun gdocs-convert--format-src-block (data)
+  "Format a src block from its marker DATA plist."
+  (let* ((language (plist-get data :language))
          (value (plist-get data :value)))
     (concat "#+BEGIN_SRC" (if (s-present? language)
                               (concat " " language)
@@ -1899,21 +1820,18 @@ GROUP is a plist with :start, :end, and :preset."
 (defun gdocs-convert--make-marker-requests (element start end)
   "Create named range requests for org-only markers in ELEMENT.
 START and END define the text range in the document.
-Handles both single-plist and list-of-plists marker shapes."
+ELEMENT's :gdocs-marker is a list of marker plists."
   (let ((marker (plist-get element :gdocs-marker))
         (id (plist-get element :id)))
     (when (and marker id)
-      (let ((markers (if (listp (car marker))
-                         marker
-                       (list marker))))
-        (mapcar (lambda (m)
-                  (let ((marker-type (plist-get m :type)))
-                    `((createNamedRange
-                       . ((name . ,(format "gdocs-org-marker:%s:%s"
-                                           marker-type id))
-                          (range . ((startIndex . ,start)
-                                    (endIndex . ,(1- end)))))))))
-                markers)))))
+      (mapcar (lambda (m)
+                (let ((marker-type (plist-get m :type)))
+                  `((createNamedRange
+                     . ((name . ,(format "gdocs-org-marker:%s:%s"
+                                         marker-type id))
+                        (range . ((startIndex . ,start)
+                                  (endIndex . ,(1- end)))))))))
+              marker))))
 
 ;; ---------------------------------------------------------------------------
 ;;; Table -> requests

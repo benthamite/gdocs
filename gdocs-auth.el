@@ -79,12 +79,7 @@ configured.  If only one account exists, return its name without
 prompting.  Signal an error if `gdocs-accounts' is nil.
 See also `gdocs-auth--resolve-account' which additionally accepts
 an already-known ACCOUNT argument."
-  (gdocs-auth--validate-accounts-configured)
-  (if (= 1 (length gdocs-accounts))
-      (caar gdocs-accounts)
-    (completing-read (or prompt "Google account: ")
-                     (mapcar #'car gdocs-accounts)
-                     nil t)))
+  (gdocs-auth--resolve-account nil prompt))
 
 (defun gdocs-auth-get-access-token (account callback)
   "Ensure a valid access token for ACCOUNT, then call CALLBACK with it.
@@ -126,21 +121,20 @@ If ACCOUNT is nil, prompt the user to select one."
 
 ;;;; Account resolution
 
-(defun gdocs-auth--resolve-account (account)
+(defun gdocs-auth--resolve-account (account &optional prompt)
   "Resolve ACCOUNT to a concrete account name string.
 If ACCOUNT is non-nil, return it.  If nil and only one account
 exists in `gdocs-accounts', return that account's name.  If nil
-and multiple accounts exist, prompt with `completing-read'.
-Signal an error if `gdocs-accounts' is nil.
-See also `gdocs-auth-select-account' for the interactive-only
-variant that always prompts when multiple accounts exist."
+and multiple accounts exist, prompt with `completing-read' using
+PROMPT (default \"Google account: \").
+Signal an error if `gdocs-accounts' is nil."
   (gdocs-auth--validate-accounts-configured)
   (cond
    (account account)
    ((= 1 (length gdocs-accounts))
     (caar gdocs-accounts))
    (t
-    (completing-read "Google account: "
+    (completing-read (or prompt "Google account: ")
                      (mapcar #'car gdocs-accounts)
                      nil t))))
 
@@ -335,36 +329,36 @@ Return the code string, or nil if not found."
   (when (string-match "[?&]code=\\([^& \r\n]+\\)" http-request)
     (match-string 1 http-request)))
 
+(defun gdocs-auth--send-http-response (proc status-code body)
+  "Send an HTTP response with STATUS-CODE and BODY to PROC.
+Closes the connection after sending."
+  ;; Content-Length uses character count; safe here since body is ASCII-only
+  (process-send-string
+   proc
+   (format (concat "HTTP/1.1 %s\r\n"
+                   "Content-Type: text/html\r\n"
+                   "Content-Length: %d\r\n"
+                   "Connection: close\r\n\r\n%s")
+           status-code (length body) body))
+  (delete-process proc))
+
 (defun gdocs-auth--send-success-response (proc)
   "Send an HTTP success response to PROC and close the connection."
-  (let ((body (concat "<html><body>"
-                      "<h1>Authentication successful!</h1>"
-                      "<p>You can close this tab and return to Emacs.</p>"
-                      "</body></html>")))
-    ;; Content-Length uses character count; safe here since body is ASCII-only
-    (process-send-string
-     proc
-     (format (concat "HTTP/1.1 200 OK\r\n"
-                     "Content-Type: text/html\r\n"
-                     "Content-Length: %d\r\n"
-                     "Connection: close\r\n\r\n%s")
-             (length body) body))
-    (delete-process proc)))
+  (gdocs-auth--send-http-response
+   proc "200 OK"
+   (concat "<html><body>"
+           "<h1>Authentication successful!</h1>"
+           "<p>You can close this tab and return to Emacs.</p>"
+           "</body></html>")))
 
 (defun gdocs-auth--send-error-response (proc)
   "Send an HTTP error response to PROC and close the connection."
-  (let ((body (concat "<html><body>"
-                      "<h1>Authentication failed</h1>"
-                      "<p>Please try again.</p>"
-                      "</body></html>")))
-    (process-send-string
-     proc
-     (format (concat "HTTP/1.1 400 Bad Request\r\n"
-                     "Content-Type: text/html\r\n"
-                     "Content-Length: %d\r\n"
-                     "Connection: close\r\n\r\n%s")
-             (length body) body))
-    (delete-process proc)))
+  (gdocs-auth--send-http-response
+   proc "400 Bad Request"
+   (concat "<html><body>"
+           "<h1>Authentication failed</h1>"
+           "<p>Please try again.</p>"
+           "</body></html>")))
 
 ;;;; Token exchange
 

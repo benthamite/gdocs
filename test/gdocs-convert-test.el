@@ -445,22 +445,24 @@
 ;;; Org-only marker preservation
 
 (ert-deftest gdocs-convert-test-todo-marker ()
-  "TODO keywords are stored in :gdocs-marker."
+  "TODO keywords are stored in :gdocs-marker as a list of plists."
   (let* ((ir (gdocs-convert-org-string-to-ir "* TODO Task"))
          (elem (car ir))
          (marker (plist-get elem :gdocs-marker)))
     (should marker)
-    (should (eq (plist-get marker :type) 'todo))
-    (should (string= (plist-get marker :data) "TODO"))))
+    (should (listp marker))
+    (should (eq (plist-get (car marker) :type) 'todo))
+    (should (string= (plist-get (car marker) :data) "TODO"))))
 
 (ert-deftest gdocs-convert-test-tags-marker ()
-  "Tags are stored in :gdocs-marker."
+  "Tags are stored in :gdocs-marker as a list of plists."
   (let* ((ir (gdocs-convert-org-string-to-ir "* Heading :tag1:tag2:"))
          (elem (car ir))
          (marker (plist-get elem :gdocs-marker)))
     (should marker)
-    (should (eq (plist-get marker :type) 'tags))
-    (should (string= (plist-get marker :data) "tag1:tag2"))))
+    (should (listp marker))
+    (should (eq (plist-get (car marker) :type) 'tags))
+    (should (string= (plist-get (car marker) :data) "tag1:tag2"))))
 
 (ert-deftest gdocs-convert-test-todo-round-trip ()
   "TODO keywords survive round-trip via markers."
@@ -486,8 +488,9 @@
          (elem (car ir))
          (marker (plist-get elem :gdocs-marker)))
     (should marker)
-    (should (eq (plist-get marker :type) 'src-block))
-    (should (string= (plist-get (plist-get marker :data) :language) "python"))))
+    (should (listp marker))
+    (should (eq (plist-get (car marker) :type) 'src-block))
+    (should (string= (plist-get (plist-get (car marker) :data) :language) "python"))))
 
 ;; ---------------------------------------------------------------------------
 ;;; Priority markers
@@ -498,8 +501,9 @@
          (elem (car ir))
          (marker (plist-get elem :gdocs-marker)))
     (should marker)
-    (should (eq (plist-get marker :type) 'priority))
-    (should (string= (plist-get marker :data) "A"))))
+    (should (listp marker))
+    (should (eq (plist-get (car marker) :type) 'priority))
+    (should (string= (plist-get (car marker) :data) "A"))))
 
 ;; ---------------------------------------------------------------------------
 ;;; Scheduled/Deadline markers
@@ -511,8 +515,9 @@
          (elem (car ir))
          (marker (plist-get elem :gdocs-marker)))
     (should marker)
-    (should (eq (plist-get marker :type) 'scheduled))
-    (should (string-match-p "2026-03-15" (plist-get marker :data)))))
+    (should (listp marker))
+    (should (eq (plist-get (car marker) :type) 'scheduled))
+    (should (string-match-p "2026-03-15" (plist-get (car marker) :data)))))
 
 (ert-deftest gdocs-convert-test-deadline-marker ()
   "DEADLINE produces a marker with :type deadline."
@@ -521,8 +526,9 @@
          (elem (car ir))
          (marker (plist-get elem :gdocs-marker)))
     (should marker)
-    (should (eq (plist-get marker :type) 'deadline))
-    (should (string-match-p "2026-03-20" (plist-get marker :data)))))
+    (should (listp marker))
+    (should (eq (plist-get (car marker) :type) 'deadline))
+    (should (string-match-p "2026-03-20" (plist-get (car marker) :data)))))
 
 ;; ---------------------------------------------------------------------------
 ;;; Empty paragraph handling
@@ -578,13 +584,14 @@
   "#+AUTHOR: Pablo produces an IR element with :gdocs-marker of :type keyword."
   (let* ((ir (gdocs-convert-org-string-to-ir "#+AUTHOR: Pablo"))
          (elem (--first (let ((m (plist-get it :gdocs-marker)))
-                          (and m (eq (plist-get m :type) 'keyword)))
+                          (and m (eq (plist-get (car m) :type) 'keyword)))
                         ir))
          (marker (plist-get elem :gdocs-marker)))
     (should marker)
-    (should (eq (plist-get marker :type) 'keyword))
-    (should (string= (plist-get (plist-get marker :data) :key) "AUTHOR"))
-    (should (string= (plist-get (plist-get marker :data) :value) "Pablo"))))
+    (should (listp marker))
+    (should (eq (plist-get (car marker) :type) 'keyword))
+    (should (string= (plist-get (plist-get (car marker) :data) :key) "AUTHOR"))
+    (should (string= (plist-get (plist-get (car marker) :data) :value) "Pablo"))))
 
 ;; ---------------------------------------------------------------------------
 ;;; gdocs-convert--runs-to-plain-text

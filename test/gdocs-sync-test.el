@@ -336,10 +336,10 @@ local changes) but remote has new content."
         (local (list :type 'paragraph :style 'heading-1
                      :contents (list (list :text "Hello"))
                      :id "l-001"
-                     :gdocs-marker (list :type 'todo :data "TODO"))))
+                     :gdocs-marker (list (list :type 'todo :data "TODO")))))
     (let ((result (gdocs-sync--graft-markers remote local)))
       (should (equal (plist-get result :gdocs-marker)
-                     (list :type 'todo :data "TODO")))
+                     (list (list :type 'todo :data "TODO"))))
       ;; Remote content should be preserved
       (should (eq (plist-get result :style) 'heading-1)))))
 

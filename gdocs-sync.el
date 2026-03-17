@@ -328,11 +328,12 @@ markers do not cause false mismatches."
            (gdocs-diff--element-keys
             (gdocs-sync--filter-title gdocs-sync--shadow-ir)))))
 
-(defun gdocs-sync--replace-buffer-content (org-string &optional revision-id)
-  "Replace buffer content with ORG-STRING and update the shadow IR.
+(defun gdocs-sync--install-content (org-string &optional revision-id)
+  "Replace buffer content with ORG-STRING and update sync state.
 REVISION-ID, if non-nil, is stored as the current revision.
-The shadow is set by re-parsing the buffer so it matches what
-`gdocs-convert-org-buffer-to-ir' produces on the next push."
+Handles suppressing modification hooks, writing file-local
+variables, resetting org-element cache, and setting the shadow
+IR from the buffer."
   ;; Suppress modification hooks to prevent recursive push-on-save
   (let ((inhibit-modification-hooks t)
         (doc-id gdocs-sync--document-id)
@@ -346,7 +347,7 @@ The shadow is set by re-parsing the buffer so it matches what
       (gdocs-sync--write-file-local-vars doc-id acct))
     (gdocs--ensure-org-tag)
     (goto-char (min saved-point (point-max))))
-  ;; Persist pulled content to disk so it survives buffer kill.
+  ;; Persist content to disk so it survives buffer kill.
   (when buffer-file-name
     (let ((gdocs-auto-push-on-save nil))
       (save-buffer)))
@@ -364,7 +365,12 @@ The shadow is set by re-parsing the buffer so it matches what
   (when revision-id
     (setq gdocs-sync--revision-id revision-id))
   (gdocs-sync--update-last-sync-time)
-  (gdocs-sync--set-status 'synced)
+  (gdocs-sync--set-status 'synced))
+
+(defun gdocs-sync--replace-buffer-content (org-string &optional revision-id)
+  "Replace buffer content with ORG-STRING and update the shadow IR.
+REVISION-ID, if non-nil, is stored as the current revision."
+  (gdocs-sync--install-content org-string revision-id)
   (message "Pulled remote changes."))
 
 (defun gdocs-sync--start-conflict-resolution (remote-org revision-id)
@@ -388,26 +394,7 @@ REVISION-ID is the remote revision to store after resolution."
 (defun gdocs-sync--apply-merge-result (merged-org &optional revision-id)
   "Apply MERGED-ORG as the resolved content and push.
 REVISION-ID, if non-nil, is stored as the current revision."
-  ;; Suppress modification hooks to prevent recursive push-on-save
-  (let ((inhibit-modification-hooks t)
-        (doc-id gdocs-sync--document-id)
-        (acct gdocs-sync--account)
-        (saved-point (point)))
-    (erase-buffer)
-    (insert merged-org)
-    (when doc-id
-      (gdocs-sync--write-file-local-vars doc-id acct))
-    (gdocs--ensure-org-tag)
-    (goto-char (min saved-point (point-max))))
-  (when (derived-mode-p 'org-mode)
-    (org-element-cache-reset))
-  (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
-  (when revision-id
-    (setq gdocs-sync--revision-id revision-id))
-  (gdocs-sync--update-last-sync-time)
-  (gdocs-sync--set-status 'synced)
-  (let ((gdocs-auto-push-on-save nil))
-    (save-buffer))
+  (gdocs-sync--install-content merged-org revision-id)
   (message "Merge complete."))
 
 ;;;; Three-way merge
@@ -438,9 +425,9 @@ grafted back.  Returns a plist with :merged-org and
                   shadow-ir remote-filtered rs-lcs))
          ;; LCS: local vs shadow (what changed locally)
          (ls-lcs (gdocs-diff--lcs shadow-keys local-keys))
-         ;; Build a map: shadow-index -> local-segment-index
-         (shadow-to-local (gdocs-sync--build-shadow-to-local-map
-                           ls-lcs local-ir))
+         ;; Map: shadow-index -> local-segment-index
+         ;; ls-lcs is already in (SHADOW-INDEX . LOCAL-INDEX) form.
+         (shadow-to-local ls-lcs)
          ;; Merge
          (merged-parts nil)
          (has-conflicts nil))
@@ -523,13 +510,6 @@ grafted back.  Returns a plist with :merged-org and
                               (apply #'concat (nreverse merged-parts))
                               postamble)
           :has-conflicts has-conflicts)))
-
-(defun gdocs-sync--build-shadow-to-local-map (ls-lcs _local-ir)
-  "Build an alist mapping shadow indices to local segment indices.
-LS-LCS is the LCS pairs from diffing local vs shadow keys, already
-in (SHADOW-INDEX . LOCAL-INDEX) form.  LOCAL-IR is unused but
-accepted for API consistency."
-  ls-lcs)
 
 (defun gdocs-sync--ir-element-to-org-segment (element drawer)
   "Convert an IR ELEMENT to an org text segment.

@@ -471,31 +471,28 @@ RANGE is a (START . END) cons.  Returns a plist with
    (t
     (gdocs-diff--content-modification old-elem new-elem range))))
 
-(defun gdocs-diff--only-style-changed-p (old-elem new-elem)
-  "Return non-nil if only the paragraph style differs between elements.
-OLD-ELEM and NEW-ELEM must both be paragraphs with the same text
-content and formatting but different :style."
+(defun gdocs-diff--same-text-paragraphs-p (old-elem new-elem)
+  "Return non-nil if OLD-ELEM and NEW-ELEM are paragraphs with identical text."
   (and (eq (plist-get old-elem :type) 'paragraph)
        (eq (plist-get new-elem :type) 'paragraph)
+       (equal (gdocs-convert--runs-to-plain-text (plist-get old-elem :contents))
+              (gdocs-convert--runs-to-plain-text (plist-get new-elem :contents)))))
+
+(defun gdocs-diff--only-style-changed-p (old-elem new-elem)
+  "Return non-nil if only the paragraph style differs between elements."
+  (and (gdocs-diff--same-text-paragraphs-p old-elem new-elem)
        (not (equal (plist-get old-elem :style)
                    (plist-get new-elem :style)))
-       (equal (gdocs-convert--runs-to-plain-text (plist-get old-elem :contents))
-              (gdocs-convert--runs-to-plain-text (plist-get new-elem :contents)))
        (equal (gdocs-diff--runs-formatting-key
                (plist-get old-elem :contents))
               (gdocs-diff--runs-formatting-key
                (plist-get new-elem :contents)))))
 
 (defun gdocs-diff--only-formatting-changed-p (old-elem new-elem)
-  "Return non-nil if only run formatting differs between elements.
-OLD-ELEM and NEW-ELEM must be paragraphs with the same text and
-style but different run formatting."
-  (and (eq (plist-get old-elem :type) 'paragraph)
-       (eq (plist-get new-elem :type) 'paragraph)
+  "Return non-nil if only run formatting differs between elements."
+  (and (gdocs-diff--same-text-paragraphs-p old-elem new-elem)
        (equal (plist-get old-elem :style)
               (plist-get new-elem :style))
-       (equal (gdocs-convert--runs-to-plain-text (plist-get old-elem :contents))
-              (gdocs-convert--runs-to-plain-text (plist-get new-elem :contents)))
        (not (equal (gdocs-diff--runs-formatting-key
                     (plist-get old-elem :contents))
                    (gdocs-diff--runs-formatting-key
