@@ -214,6 +214,22 @@ ACCOUNT is an optional account name."
    :account account
    :body (json-encode `((name . ,new-name)))))
 
+(defun gdocs-api-create-folder (name callback &optional account parent-folder-id)
+  "Create a new Google Drive folder named NAME.
+CALLBACK is called with the parsed JSON response containing the
+folder id.  ACCOUNT is an optional account name.
+PARENT-FOLDER-ID, if non-nil, places the folder inside the
+specified parent."
+  (let ((body `((name . ,name)
+                (mimeType . "application/vnd.google-apps.folder"))))
+    (when parent-folder-id
+      (push `(parents . [,parent-folder-id]) body))
+    (gdocs-api--request 'post
+                        gdocs-api--drive-base-url
+                        callback
+                        :account account
+                        :body (json-encode body))))
+
 (defun gdocs-api-move-file (file-id folder-id callback &optional account)
   "Move the Google Drive file FILE-ID into FOLDER-ID.
 The file is added to FOLDER-ID and removed from the root folder.

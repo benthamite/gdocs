@@ -292,25 +292,29 @@ documents in the linked folder and uses the linked account."
      (gdocs-auth--validate-accounts-configured)
      (list (read-string "Google Drive folder ID or URL: "))))
   (let ((fid (gdocs-sync--parse-folder-id folder-id))
-        (acct (or account (gdocs-auth-select-account "Account: ")))
-        (dir default-directory))
-    ;; Ensure a `.dir-locals.el' exists in the current directory so
-    ;; that `modify-dir-local-variable' edits THIS file rather than a
-    ;; parent directory's.
-    (let ((dl-file (expand-file-name ".dir-locals.el" dir)))
-      (unless (file-exists-p dl-file)
-        (write-region "" nil dl-file nil 'silent)))
-    ;; Flush the dir-locals cache so `dir-locals-find-file' discovers
-    ;; the local `.dir-locals.el' instead of returning a cached parent.
-    (setq dir-locals-directory-cache
-          (assoc-delete-all dir dir-locals-directory-cache))
-    (modify-dir-local-variable 'org-mode 'gdocs-folder-id fid 'add-or-replace)
-    (modify-dir-local-variable 'org-mode 'gdocs-account acct 'add-or-replace)
-    (gdocs--save-dir-locals-buffer)
-    ;; Apply dir-locals to the current buffer immediately.
+        (acct (or account (gdocs-auth-select-account "Account: "))))
+    (gdocs--link-directory-noninteractive default-directory fid acct)
     (hack-dir-local-variables)
     (hack-local-variables-apply)
-    (message "Linked %s to Google Drive folder %s" dir fid)))
+    (message "Linked %s to Google Drive folder %s" default-directory fid)))
+
+(defun gdocs--link-directory-noninteractive (dir folder-id account)
+  "Link DIR to Google Drive FOLDER-ID using ACCOUNT.
+Writes the mapping to `.dir-locals.el' in DIR without any
+interactive prompts or buffer-local side effects."
+  (let ((default-directory (file-name-as-directory dir)))
+    (gdocs--ensure-dir-locals-file)
+    (setq dir-locals-directory-cache
+          (assoc-delete-all default-directory dir-locals-directory-cache))
+    (modify-dir-local-variable 'org-mode 'gdocs-folder-id folder-id 'add-or-replace)
+    (modify-dir-local-variable 'org-mode 'gdocs-account account 'add-or-replace)
+    (gdocs--save-dir-locals-buffer)))
+
+(defun gdocs--ensure-dir-locals-file ()
+  "Ensure a `.dir-locals.el' exists in `default-directory'."
+  (let ((dl-file (expand-file-name ".dir-locals.el" default-directory)))
+    (unless (file-exists-p dl-file)
+      (write-region "" nil dl-file nil 'silent))))
 
 ;;;###autoload
 (defun gdocs-unlink-directory ()
@@ -328,6 +332,116 @@ Removes `gdocs-folder-id' and `gdocs-account' from
   (kill-local-variable 'gdocs-folder-id)
   (kill-local-variable 'gdocs-account)
   (message "Unlinked %s from Google Drive folder" default-directory))
+
+;;;###autoload
+(defun gdocs-create-folder ()
+  "Create a Google Drive folder for a local directory.
+Prompt for a directory, defaulting to `default-directory' or the
+directory at point in `dired-mode'.  The target must be inside a
+directory already linked to a Google Drive folder.
+
+If there are unlinked intermediate directories between the target
+and the nearest linked ancestor, prompt before creating them."
+  (interactive)
+  (gdocs-auth--validate-accounts-configured)
+  (let* ((target-dir (gdocs--create-folder-read-target))
+         (existing-id (gdocs--dir-folder-id target-dir)))
+    (when existing-id
+      (user-error "Directory %s is already linked (folder ID: %s)"
+                  target-dir existing-id))
+    (let* ((link-info (gdocs--find-linked-ancestor target-dir))
+           (linked-dir (nth 0 link-info))
+           (parent-folder-id (nth 1 link-info))
+           (account (nth 2 link-info))
+           (dirs-to-create (gdocs--intermediate-dirs linked-dir target-dir)))
+      (gdocs--confirm-intermediate-dirs dirs-to-create)
+      (gdocs--create-folders-chain
+       dirs-to-create parent-folder-id account
+       (lambda (_final-id)
+         (message "Created Google Drive folder%s for %s"
+                  (if (> (length dirs-to-create) 1) "s" "")
+                  target-dir))))))
+
+(defun gdocs--create-folder-read-target ()
+  "Prompt for the target directory for `gdocs-create-folder'.
+Default to the directory at point in `dired-mode', or
+`default-directory' otherwise."
+  (let ((default (if (derived-mode-p 'dired-mode)
+                     (let ((file (dired-get-filename nil t)))
+                       (when (and file (file-directory-p file))
+                         (file-name-as-directory file)))
+                   default-directory)))
+    (file-name-as-directory
+     (read-directory-name "Create Google Drive folder for: " default nil t))))
+
+(defun gdocs--find-linked-ancestor (dir)
+  "Find the nearest proper ancestor of DIR linked to Google Drive.
+Return a list (LINKED-DIR FOLDER-ID ACCOUNT).  Signal an error
+if no linked ancestor is found.  DIR itself is not considered."
+  (let* ((dir (file-name-as-directory (expand-file-name dir)))
+         (current (file-name-directory (directory-file-name dir)))
+         folder-id)
+    (while (and current (not (setq folder-id (gdocs--dir-folder-id current))))
+      (let ((parent (file-name-directory (directory-file-name current))))
+        (if (equal parent current)
+            (setq current nil)
+          (setq current parent))))
+    (unless folder-id
+      (user-error "No linked ancestor directory found for %s" dir))
+    (list (file-name-as-directory current)
+          folder-id
+          (gdocs--dir-account current))))
+
+(defun gdocs--intermediate-dirs (ancestor-dir target-dir)
+  "Return directories between ANCESTOR-DIR and TARGET-DIR.
+Each entry is (DIR . NAME) where DIR is the full path and NAME
+is the directory basename for the Google Drive folder.
+ANCESTOR-DIR must be a proper ancestor of TARGET-DIR.  The
+returned list includes TARGET-DIR but excludes ANCESTOR-DIR."
+  (let* ((ancestor (file-name-as-directory (expand-file-name ancestor-dir)))
+         (target (file-name-as-directory (expand-file-name target-dir)))
+         (relative (string-remove-prefix ancestor target))
+         (components (split-string (directory-file-name relative) "/" t))
+         (current ancestor)
+         result)
+    (dolist (name components)
+      (setq current (file-name-as-directory (expand-file-name name current)))
+      (push (cons current name) result))
+    (nreverse result)))
+
+(defun gdocs--confirm-intermediate-dirs (dirs)
+  "Prompt the user if DIRS contains intermediate directories.
+DIRS is the list from `gdocs--intermediate-dirs'."
+  (when (> (length dirs) 1)
+    (let ((intermediates (mapcar #'cdr (butlast dirs))))
+      (unless (yes-or-no-p
+               (format "Also create intermediate folder%s %s? "
+                       (if (> (length intermediates) 1) "s" "")
+                       (mapconcat (lambda (n) (format "`%s'" n))
+                                  intermediates ", ")))
+        (user-error "Aborted")))))
+
+(defun gdocs--create-folders-chain (dirs parent-folder-id account callback)
+  "Create Google Drive folders for DIRS sequentially.
+DIRS is a list of (LOCAL-DIR . FOLDER-NAME) pairs.  Each folder
+is created as a child of the previous, starting with
+PARENT-FOLDER-ID.  ACCOUNT is the Google account name.  CALLBACK
+is called with the final folder ID when all folders have been
+created and linked locally."
+  (if (null dirs)
+      (funcall callback parent-folder-id)
+    (let* ((entry (car dirs))
+           (local-dir (car entry))
+           (folder-name (cdr entry)))
+      (gdocs-api-create-folder
+       folder-name
+       (lambda (json)
+         (let ((new-id (alist-get 'id json)))
+           (gdocs--link-directory-noninteractive local-dir new-id account)
+           (gdocs--create-folders-chain
+            (cdr dirs) new-id account callback)))
+       account
+       parent-folder-id))))
 
 (defun gdocs--save-dir-locals-buffer ()
   "Save and kill the `.dir-locals.el' buffer if visiting."
@@ -398,6 +512,16 @@ In a `dired' buffer, operate on the file or directory at point."
         (let ((alist (ignore-errors (read (current-buffer)))))
           (when-let* ((org-entry (alist-get 'org-mode alist)))
             (alist-get 'gdocs-folder-id org-entry)))))))
+
+(defun gdocs--dir-account (dir)
+  "Return the `gdocs-account' dir-local variable for DIR, or nil."
+  (let ((dl-file (expand-file-name ".dir-locals.el" dir)))
+    (when (file-exists-p dl-file)
+      (with-temp-buffer
+        (insert-file-contents dl-file)
+        (let ((alist (ignore-errors (read (current-buffer)))))
+          (when-let* ((org-entry (alist-get 'org-mode alist)))
+            (alist-get 'gdocs-account org-entry)))))))
 
 (defun gdocs--document-url (doc-id)
   "Return the Google Docs edit URL for DOC-ID."
@@ -532,7 +656,8 @@ present."
     ("L" "Link buffer" gdocs-link)
     ("U" "Unlink buffer" gdocs-unlink)
     ("D" "Link directory" gdocs-link-directory)
-    ("X" "Unlink directory" gdocs-unlink-directory)]
+    ("X" "Unlink directory" gdocs-unlink-directory)
+    ("F" "Create folder" gdocs-create-folder)]
    ["Auth"
     ("a" "Authenticate" gdocs-authenticate)
     ("x" "Logout" gdocs-logout)]]
