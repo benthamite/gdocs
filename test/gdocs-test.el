@@ -249,6 +249,63 @@
         (should (equal "https://docs.google.com/document/d/test-doc-id/edit"
                        captured-url))))))
 
+(ert-deftest gdocs-test-open-in-browser-dired-file ()
+  "Opens linked doc from dired when point is on a linked file."
+  (let* ((dir (make-temp-file "gdocs-test-" t))
+         (file (expand-file-name "test.org" dir))
+         (captured-url nil))
+    (unwind-protect
+        (progn
+          (write-region
+           (concat "* Test\n\n"
+                   ";; Local Variables:\n"
+                   ";; gdocs-document-id: \"dired-doc-id\"\n"
+                   ";; End:\n")
+           nil file)
+          (with-current-buffer (dired dir)
+            (dired-goto-file file)
+            (cl-letf (((symbol-function 'browse-url)
+                       (lambda (url) (setq captured-url url))))
+              (gdocs-open-in-browser)
+              (should (equal "https://docs.google.com/document/d/dired-doc-id/edit"
+                             captured-url)))
+            (kill-buffer)))
+      (delete-directory dir t))))
+
+(ert-deftest gdocs-test-open-in-browser-dired-directory ()
+  "Opens linked folder from dired when point is on a linked directory."
+  (let* ((parent (make-temp-file "gdocs-test-" t))
+         (subdir (expand-file-name "sub" parent))
+         (captured-url nil))
+    (unwind-protect
+        (progn
+          (make-directory subdir)
+          (write-region
+           "((org-mode . ((gdocs-folder-id . \"test-folder-id\"))))\n"
+           nil (expand-file-name ".dir-locals.el" subdir))
+          (with-current-buffer (dired parent)
+            (dired-goto-file (directory-file-name subdir))
+            (cl-letf (((symbol-function 'browse-url)
+                       (lambda (url) (setq captured-url url))))
+              (gdocs-open-in-browser)
+              (should (equal "https://drive.google.com/drive/folders/test-folder-id"
+                             captured-url)))
+            (kill-buffer)))
+      (delete-directory parent t))))
+
+(ert-deftest gdocs-test-open-in-browser-dired-unlinked-file ()
+  "Signals user-error in dired when file at point is not linked."
+  (let* ((dir (make-temp-file "gdocs-test-" t))
+         (file (expand-file-name "plain.org" dir)))
+    (unwind-protect
+        (progn
+          (write-region "* Plain file\n" nil file)
+          (with-current-buffer (dired dir)
+            (dired-goto-file file)
+            (should-error (gdocs-open-in-browser) :type 'user-error)
+            (kill-buffer)))
+      (delete-directory dir t))))
+
 ;;;; Org tag management
 
 (ert-deftest gdocs-test-ensure-org-tag-adds-to-bare-heading ()

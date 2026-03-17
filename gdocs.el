@@ -34,6 +34,7 @@
 
 (declare-function modify-dir-local-variable "files-x"
                   (mode variable value op))
+(declare-function dired-get-filename "dired" (&optional localp no-error-if-not-filep))
 
 ;;;; Customizable variables
 
@@ -340,15 +341,57 @@ Removes `gdocs-folder-id' and `gdocs-account' from
            (or gdocs-sync--last-sync-time "never")))
 
 (defun gdocs-open-in-browser ()
-  "Open the linked Google Doc in the default web browser."
+  "Open the linked Google Doc or folder in the default web browser.
+In a `dired' buffer, operate on the file or directory at point."
   (interactive)
-  (unless gdocs-sync--document-id
-    (user-error "Buffer is not linked to a Google Doc"))
-  (browse-url (gdocs--document-url gdocs-sync--document-id)))
+  (if (derived-mode-p 'dired-mode)
+      (gdocs--open-dired-entry-in-browser)
+    (unless gdocs-sync--document-id
+      (user-error "Buffer is not linked to a Google Doc"))
+    (browse-url (gdocs--document-url gdocs-sync--document-id))))
+
+(defun gdocs--open-dired-entry-in-browser ()
+  "Open the Google Doc or folder linked to the dired entry at point."
+  (let ((file (dired-get-filename nil t)))
+    (unless file
+      (user-error "No file at point"))
+    (if (file-directory-p file)
+        (let ((folder-id (gdocs--dir-folder-id file)))
+          (unless folder-id
+            (user-error "Directory is not linked to a Google Drive folder"))
+          (browse-url (gdocs--folder-url folder-id)))
+      (let ((doc-id (gdocs--file-document-id file)))
+        (unless doc-id
+          (user-error "File is not linked to a Google Doc"))
+        (browse-url (gdocs--document-url doc-id))))))
+
+(defun gdocs--file-document-id (file)
+  "Return the `gdocs-document-id' file-local variable from FILE, or nil."
+  (with-temp-buffer
+    (insert-file-contents file)
+    ;; `hack-local-variables--find-variables' requires the buffer to
+    ;; have a file name so that `enable-local-variables' checks pass.
+    (setq buffer-file-name file)
+    (hack-local-variables)
+    (bound-and-true-p gdocs-document-id)))
+
+(defun gdocs--dir-folder-id (dir)
+  "Return the `gdocs-folder-id' dir-local variable for DIR, or nil."
+  (let ((dl-file (expand-file-name ".dir-locals.el" dir)))
+    (when (file-exists-p dl-file)
+      (with-temp-buffer
+        (insert-file-contents dl-file)
+        (let ((alist (ignore-errors (read (current-buffer)))))
+          (when-let* ((org-entry (alist-get 'org-mode alist)))
+            (alist-get 'gdocs-folder-id org-entry)))))))
 
 (defun gdocs--document-url (doc-id)
   "Return the Google Docs edit URL for DOC-ID."
   (format "https://docs.google.com/document/d/%s/edit" doc-id))
+
+(defun gdocs--folder-url (folder-id)
+  "Return the Google Drive folder URL for FOLDER-ID."
+  (format "https://drive.google.com/drive/folders/%s" folder-id))
 
 ;;;; Auto-activation
 
