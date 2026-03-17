@@ -190,12 +190,14 @@ account or prompt.  If the current directory is linked to a
 Google Drive folder via `gdocs-folder-id', the new document is
 placed in that folder."
   (interactive)
-  (let ((doc-title (or title (gdocs--buffer-title)))
-        (acct (or account
-                  (bound-and-true-p gdocs-account)
-                  (gdocs-auth-select-account "Account: ")))
-        (folder-id (bound-and-true-p gdocs-folder-id))
-        (buf (current-buffer)))
+  (let* ((dir-locals (gdocs--effective-dir-locals))
+         (doc-title (or title (gdocs--buffer-title)))
+         (acct (or account
+                   (cdr dir-locals)
+                   (bound-and-true-p gdocs-account)
+                   (gdocs-auth-select-account "Account: ")))
+         (folder-id (car dir-locals))
+         (buf (current-buffer)))
     (gdocs-api-create-document
      doc-title
      (lambda (json)
@@ -522,6 +524,21 @@ In a `dired' buffer, operate on the file or directory at point."
         (let ((alist (ignore-errors (read (current-buffer)))))
           (when-let* ((org-entry (alist-get 'org-mode alist)))
             (alist-get 'gdocs-account org-entry)))))))
+
+(defun gdocs--effective-dir-locals ()
+  "Return the effective (FOLDER-ID . ACCOUNT) for `default-directory'.
+Walk up from `default-directory' reading `.dir-locals.el' files
+on disk.  This avoids relying on potentially stale buffer-local
+values that were set before a `.dir-locals.el' was created."
+  (let ((dir (file-name-as-directory default-directory))
+        folder-id)
+    (while (and dir (not (setq folder-id (gdocs--dir-folder-id dir))))
+      (let ((parent (file-name-directory (directory-file-name dir))))
+        (if (equal parent dir)
+            (setq dir nil)
+          (setq dir parent))))
+    (when folder-id
+      (cons folder-id (gdocs--dir-account dir)))))
 
 (defun gdocs--document-url (doc-id)
   "Return the Google Docs edit URL for DOC-ID."
