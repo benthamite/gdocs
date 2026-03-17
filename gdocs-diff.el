@@ -275,19 +275,27 @@ at the insertion point (an extra +1 not part of the table itself)."
 ;; ---------------------------------------------------------------------------
 ;;; Fallback detection
 
+(defconst gdocs-diff--full-replace-min-elements 3
+  "Minimum element count before the full-replacement fallback can trigger.
+Documents with 2 or fewer elements always use incremental diff,
+which is simpler and cheaper at that scale.")
+
+(defconst gdocs-diff--full-replace-kept-ratio 0.5
+  "Minimum fraction of kept elements to stay in incremental mode.
+When the fraction of unchanged elements drops below this value,
+the diff engine falls back to full document replacement to avoid
+generating a large number of granular requests.")
+
 (defun gdocs-diff--should-use-full-replace-p (old-ir new-ir diff-ops)
   "Return non-nil if the diff is too complex for incremental update.
 OLD-IR and NEW-IR are the element lists.  DIFF-OPS is the
-classified operation list.  Triggers when more than 50% of
-elements changed and there are enough elements to justify it."
+classified operation list."
   (let* ((total (max (length old-ir) (length new-ir) 1))
          (kept (cl-count-if
                 (lambda (op) (eq (plist-get op :op) 'keep))
                 diff-ops)))
-    ;; Skip for tiny documents (<=2 elements) where incremental is
-    ;; always cheaper; use full replacement when >50% changed.
-    (and (> total 2)
-         (< (* 2 kept) total))))
+    (and (>= total gdocs-diff--full-replace-min-elements)
+         (< kept (* gdocs-diff--full-replace-kept-ratio total)))))
 
 ;; ---------------------------------------------------------------------------
 ;;; Full replacement requests
@@ -332,6 +340,14 @@ START-INDEX is the UTF-16 index where the first element begins."
 ;; ---------------------------------------------------------------------------
 ;;; Request generation from diff operations
 
+;; Sort phases for request ordering.  Deletions and modifications
+;; must run before insertions at the same index so that content is
+;; freed before new content is inserted at that location.
+(defconst gdocs-diff--sort-phase-delete/modify 0
+  "Sort phase for deletion and modification request groups.")
+(defconst gdocs-diff--sort-phase-insert 1
+  "Sort phase for insertion request groups.")
+
 (defun gdocs-diff--generate-requests (old-ir new-ir diff-ops start-index)
   "Generate batchUpdate requests from OLD-IR, NEW-IR, and DIFF-OPS.
 All operations are grouped by their document index and processed
@@ -359,7 +375,8 @@ START-INDEX is the UTF-16 index where the first element begins."
                         (1- (cdr range))
                       (cdr range))))
           (when (< start end)
-            (push (list :index start :sort-phase 0
+            (push (list :index start
+                        :sort-phase gdocs-diff--sort-phase-delete/modify
                         :reqs (list (gdocs-diff--make-delete-request start end)))
                   groups)))))
     ;; Modifications (keep delete+insert+style together)
@@ -376,7 +393,8 @@ START-INDEX is the UTF-16 index where the first element begins."
                              (plist-get result :insert-reqs)
                              (plist-get result :style-reqs))))
           (when reqs
-            (push (list :index (car range) :sort-phase 0
+            (push (list :index (car range)
+                        :sort-phase gdocs-diff--sort-phase-delete/modify
                         :reqs reqs)
                   groups)))))
     ;; Insertions
@@ -388,15 +406,16 @@ START-INDEX is the UTF-16 index where the first element begins."
                               op diff-ops old-indices start-index))
                (result (gdocs-convert--ir-element-to-requests
                         element insert-index)))
-          (push (list :index insert-index :sort-phase 1 :new-index ni
+          (push (list :index insert-index
+                      :sort-phase gdocs-diff--sort-phase-insert
+                      :new-index ni
                       :reqs (plist-get result :requests))
                 groups))))
     ;; Sort groups for correct index stability:
     ;; 1. Descending by index — process from end to start so earlier
     ;;    indices are not shifted by later operations.
-    ;; 2. At the same index, deletions/modifications (:sort-phase 0)
-    ;;    before insertions (:sort-phase 1) — delete first, then insert
-    ;;    at the freed location.
+    ;; 2. At the same index, deletions/modifications before insertions
+    ;;    — delete first, then insert at the freed location.
     ;; 3. Among insertions at the same index, higher :new-index first
     ;;    so they stack in the correct forward order after reversal.
     (setq groups
@@ -408,8 +427,10 @@ START-INDEX is the UTF-16 index where the first element begins."
                      ((/= ia ib) (> ia ib))
                      ((/= (plist-get a :sort-phase) (plist-get b :sort-phase))
                       (< (plist-get a :sort-phase) (plist-get b :sort-phase)))
-                     ((and (= (plist-get a :sort-phase) 1)
-                           (= (plist-get b :sort-phase) 1))
+                     ((and (= (plist-get a :sort-phase)
+                              gdocs-diff--sort-phase-insert)
+                           (= (plist-get b :sort-phase)
+                              gdocs-diff--sort-phase-insert))
                       (> (or (plist-get a :new-index) 0)
                          (or (plist-get b :new-index) 0)))
                      (t nil))))))

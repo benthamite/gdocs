@@ -65,6 +65,12 @@
   "Current sync status.
 One of `synced', `modified', `pushing', `conflict', or `error'.")
 
+(defconst gdocs-sync--empty-body-end-index 2
+  "End index of a Google Docs body that contains only the mandatory newline.
+The body always has at least one structural element (a paragraph
+with a trailing newline).  Index 1 = body start, index 2 = after
+that newline.  A body-end above this value means real content exists.")
+
 ;;;; Link context
 
 (defun gdocs-sync--make-link-context ()
@@ -123,12 +129,9 @@ to determine the body end index."
            (remote-title (alist-get 'title json))
            (filtered-ir (gdocs-sync--filter-title current-ir))
            (insert-reqs (gdocs-convert-ir-to-docs-requests filtered-ir))
-           ;; body-end > 2 means the document has content beyond the
-           ;; mandatory trailing newline (body with only a newline has
-           ;; endIndex = 2: index 1 = body start, index 2 = after newline)
-           (delete-req (when (> body-end 2)
+           (delete-req (when (> body-end gdocs-sync--empty-body-end-index)
                          (list (gdocs-diff--make-delete-request
-                                1 (1- body-end))))) ;; 1 = body start index
+                                1 (1- body-end)))))
            (requests (append delete-req insert-reqs)))
       (gdocs-sync--maybe-rename-document
        current-ir remote-title doc-id acct)

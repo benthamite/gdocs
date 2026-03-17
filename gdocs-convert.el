@@ -65,12 +65,23 @@ than full URLs.")
 Populated during push/pull when we fetch a document's JSON.
 Used during org-to-IR link resolution to append heading anchors.")
 
+(defvar gdocs-convert--heading-reverse-cache (make-hash-table :test 'equal)
+  "Session cache: doc-id -> alist of ((heading-id . heading-text) ...).
+Reverse mapping of `gdocs-convert--heading-cache', used during
+IR-to-org conversion to resolve heading anchors back to text.")
+
+(defconst gdocs-convert--file-local-tail-bytes 3072
+  "Bytes to read from the end of a file when scanning for Local Variables.
+Org files place their Local Variables block in the last few lines.
+3KB is generous enough to include multi-variable blocks while
+avoiding a full file read for large org documents.")
+
 (defun gdocs-convert--read-file-local-gdocs-id (file-path)
   "Read `gdocs-document-id' from FILE-PATH's Local Variables block.
-Reads only the tail of the file (~3KB) and uses a regexp.
+Reads only the tail of the file and uses a regexp.
 Returns the document ID string or nil."
   (when (and file-path (file-readable-p file-path))
-    (let ((tail-bytes 3072)
+    (let ((tail-bytes gdocs-convert--file-local-tail-bytes)
           (content nil))
       (with-temp-buffer
         (insert-file-contents file-path nil
@@ -118,8 +129,8 @@ DOC-ID-reverse."
                     (push (cons text heading-id) forward)
                     (push (cons heading-id text) reverse)))))))))
     (puthash doc-id (nreverse forward) gdocs-convert--heading-cache)
-    (puthash (concat doc-id "-reverse") (nreverse reverse)
-             gdocs-convert--heading-cache)))
+    (puthash doc-id (nreverse reverse)
+             gdocs-convert--heading-reverse-cache)))
 
 (defun gdocs-convert--docs-paragraph-plain-text (elements)
   "Extract plain text from Google Docs paragraph ELEMENTS.
@@ -1141,9 +1152,8 @@ Falls back to URL unchanged for unknown documents."
   "Look up heading text for HEADING-ID in DOC-ID's cache.
 Returns the heading text string or nil."
   (when heading-id
-    (let* ((reverse-key (concat doc-id "-reverse"))
-           (reverse-alist (gethash reverse-key
-                                   gdocs-convert--heading-cache)))
+    (let ((reverse-alist (gethash doc-id
+                                  gdocs-convert--heading-reverse-cache)))
       (cdr (assoc heading-id reverse-alist)))))
 
 (defun gdocs-convert--same-file-p (file-a file-b)
@@ -1712,19 +1722,24 @@ Returns nil if no formatting is applied."
             (list indent-req bullet-req)
           (list bullet-req))))))
 
+(defconst gdocs-convert--list-indent-pt 36
+  "Points of indentation per list nesting level in Google Docs.
+The first-line indent is half this value (18pt) less, leaving
+room for the bullet glyph.")
+
 (defun gdocs-convert--make-list-indent-request (level start end)
   "Create an updateParagraphStyle request for list nesting LEVEL.
 START and END define the paragraph range.  Returns nil for level 0,
 since `createParagraphBullets' already sets the correct indentation.
-Each nesting level corresponds to 36pt of indent in Google Docs.
 
 IMPORTANT: This request must appear BEFORE the corresponding
 `createParagraphBullets' request in the batchUpdate sequence.
 Google Docs reads pre-existing paragraph indentation when creating
 bullets and uses it to determine the nesting level."
   (when (> level 0)
-    (let ((indent-start (* 36 (1+ level)))
-          (indent-first (+ 18 (* 36 level))))
+    (let ((indent-start (* gdocs-convert--list-indent-pt (1+ level)))
+          (indent-first (+ (/ gdocs-convert--list-indent-pt 2)
+                           (* gdocs-convert--list-indent-pt level))))
       `((updateParagraphStyle
          . ((paragraphStyle
              . ((indentStart . ((magnitude . ,indent-start)
@@ -1836,6 +1851,14 @@ ELEMENT's :gdocs-marker is a list of marker plists."
 ;; ---------------------------------------------------------------------------
 ;;; Table -> requests
 
+(defconst gdocs-convert--table-insert-overhead 3
+  "Structural overhead of `insertTable' beyond the table itself.
+Accounts for: preserved paragraph (+1, insertTable keeps the
+paragraph at the insertion point), table-start (+1), table-end (+1).
+See `gdocs-diff--table-utf16-length' for the read-side formula,
+which uses 2 instead of 3 because the preserved paragraph is not
+part of the table itself.")
+
 (defun gdocs-convert--table-to-requests (element index)
   "Convert an IR table ELEMENT to requests starting at INDEX.
 Returns a plist (:requests LIST :index NEW-INDEX).
@@ -1849,18 +1872,21 @@ each non-empty cell, processed last-to-first so indices stay stable."
                            (columns . ,ncols)
                            (location . ((index . ,index)))))))
          (cell-text-len (gdocs-convert--table-total-cell-text-length rows))
-         ;; Table UTF-16 overhead: 1 for the preserved paragraph (insertTable
-         ;; keeps the paragraph at the insertion point), 1 for table-start,
-         ;; 1 for table-end, plus per-row and per-cell structural markers.
-         ;; See `gdocs-diff--table-utf16-length' for the corresponding
-         ;; read-side formula (which uses 2 instead of 3 because the
-         ;; preserved paragraph is not part of the table itself).
-         (table-overhead (+ 3 (* nrows (+ 1 (* ncols 2))) cell-text-len))
+         ;; Per-row: 1 row-start marker + ncols * 2 (cell-start + cell-newline).
+         (table-overhead (+ gdocs-convert--table-insert-overhead
+                            (* nrows (+ 1 (* ncols 2)))
+                            cell-text-len))
          (new-index (+ index table-overhead))
          (cell-reqs (gdocs-convert--table-cell-requests rows index ncols))
          (requests (cons insert-req cell-reqs)))
     (list :requests requests
           :index new-index)))
+
+(defconst gdocs-convert--table-base-cell-offset 4
+  "Offset from `insertTable' index to the first cell's content.
+Accounts for: preserved paragraph (+1), table-start structural
+element (+1), first row-start marker (+1), first cell-start
+marker (+1).")
 
 (defun gdocs-convert--table-cell-requests (rows table-index ncols)
   "Generate insertText requests for non-empty cells in ROWS.
@@ -1876,11 +1902,10 @@ Iterates forward and pushes, so the result is in reverse order
         (dolist (cell row)
           (let ((text (gdocs-convert--runs-to-plain-text cell)))
             (when (> (length text) 0)
-              ;; Cell content index: table-index + 4 accounts for the preserved
-              ;; paragraph (+1), table-start (+1), first row-start (+1), and
-              ;; first cell-start (+1).  Each subsequent row adds 1 + ncols*2
-              ;; structural markers; each subsequent cell adds 2.
-              (let ((cell-start (+ table-index 4
+              ;; Each subsequent row adds 1 + ncols*2 structural markers;
+              ;; each subsequent cell adds 2.
+              (let ((cell-start (+ table-index
+                                   gdocs-convert--table-base-cell-offset
                                    (* r (+ 1 (* ncols 2)))
                                    (* c 2))))
                 (push (gdocs-convert--make-insert-text-request
