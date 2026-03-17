@@ -915,7 +915,9 @@ grouped into a single =#+BEGIN_EXAMPLE= block."
         (prev-type nil)
         (elements (seq-into ir 'vector))
         (i 0)
-        (len (length ir)))
+        (len (length ir))
+        (list-counter 0)
+        (prev-list-level nil))
     (while (< i len)
       (let ((element (aref elements i)))
         (cond
@@ -938,17 +940,30 @@ grouped into a single =#+BEGIN_EXAMPLE= block."
             (push (format "#+BEGIN_EXAMPLE\n%s\n#+END_EXAMPLE"
                           (s-join "\n" (nreverse code-lines)))
                   parts)
-            (setq prev-type 'paragraph)))
+            (setq prev-type 'paragraph)
+            (setq list-counter 0 prev-list-level nil)))
          ;; Normal element
          (t
           (let* ((type (plist-get element :type))
-                 (needs-blank (gdocs-convert--needs-blank-line-p
-                               prev-type element))
-                 (org-text (gdocs-convert--ir-element-to-org element)))
-            (when (and needs-blank parts)
-              (push "" parts))
-            (push org-text parts)
-            (setq prev-type type))
+                 (list-info (plist-get element :list))
+                 (list-level (when list-info (plist-get list-info :level)))
+                 (list-type (when list-info (plist-get list-info :type))))
+            ;; Track sequential numbering for ordered list items
+            (if (eq list-type 'number)
+                (if (eql list-level prev-list-level)
+                    (cl-incf list-counter)
+                  (setq list-counter 1))
+              (setq list-counter 0))
+            (setq prev-list-level (when (eq list-type 'number) list-level))
+            (when (and list-info (> list-counter 0))
+              (plist-put list-info :counter list-counter))
+            (let ((needs-blank (gdocs-convert--needs-blank-line-p
+                                prev-type element))
+                  (org-text (gdocs-convert--ir-element-to-org element)))
+              (when (and needs-blank parts)
+                (push "" parts))
+              (push org-text parts)
+              (setq prev-type type)))
           (setq i (1+ i))))))
     (concat (s-join "\n" (nreverse parts)) "\n")))
 
@@ -1071,7 +1086,7 @@ indent continuation lines to keep them inside the list item."
   "Return the org list marker string for TYPE and LIST-INFO."
   (pcase type
     ('bullet "- ")
-    ('number "1. ")
+    ('number (format "%d. " (or (plist-get list-info :counter) 1)))
     ('check (if (plist-get list-info :checked)
                 "- [X] "
               "- [ ] "))))
@@ -1105,6 +1120,13 @@ Google Docs URLs back to org file: links."
         (link (plist-get run :link)))
     (when code
       (setq text (format "~%s~" text)))
+    ;; Apply link before emphasis so emphasis wraps the whole link,
+    ;; producing *[[url][text]]* rather than [[url][*text*]].
+    (when link
+      (let ((resolved-link (if gdocs-convert--link-context
+                               (gdocs-convert--reverse-resolve-link link)
+                             link)))
+        (setq text (format "[[%s][%s]]" resolved-link text))))
     (when bold
       (setq text (gdocs-convert--wrap-emphasis "*" text)))
     (when italic
@@ -1113,11 +1135,6 @@ Google Docs URLs back to org file: links."
       (setq text (gdocs-convert--wrap-emphasis "_" text)))
     (when strikethrough
       (setq text (gdocs-convert--wrap-emphasis "+" text)))
-    (when link
-      (let ((resolved-link (if gdocs-convert--link-context
-                               (gdocs-convert--reverse-resolve-link link)
-                             link)))
-        (setq text (format "[[%s][%s]]" resolved-link text))))
     text))
 
 (defun gdocs-convert--reverse-resolve-link (url)
