@@ -744,6 +744,49 @@
            (link-run (nth 1 runs)))
       (should (string= (plist-get link-run :link) "file:other.org")))))
 
+(ert-deftest gdocs-convert-test-link-url-id-no-doc-id ()
+  "id: links to files without doc IDs preserve id: prefix."
+  (let ((temp-dir (make-temp-file "gdocs-test" t))
+        (source-file nil)
+        (target-file nil))
+    (unwind-protect
+        (progn
+          (setq source-file (expand-file-name "source.org" temp-dir))
+          (setq target-file (expand-file-name "target.org" temp-dir))
+          (with-temp-file target-file
+            (insert "* Target heading\n"
+                    ":PROPERTIES:\n"
+                    ":ID:       TEST-UUID-1234\n"
+                    ":END:\n"))
+          ;; Register the ID in org-id so org-id-find can locate it
+          (let ((org-id-locations (make-hash-table :test 'equal)))
+            (puthash "TEST-UUID-1234" target-file org-id-locations)
+            (with-temp-file source-file
+              (insert "Link to [[id:TEST-UUID-1234][Target]]"))
+            (let ((gdocs-convert--link-context
+                   (list :buffer-file source-file
+                         :docid-map (make-hash-table :test 'equal))))
+              (with-temp-buffer
+                (insert-file-contents source-file)
+                (org-mode)
+                (let* ((ir (gdocs-convert-org-buffer-to-ir))
+                       (runs (plist-get (car ir) :contents))
+                       (link-run (nth 1 runs)))
+                  (should (string= (plist-get link-run :link)
+                                    "id:TEST-UUID-1234")))))))
+      (delete-file source-file)
+      (delete-file target-file)
+      (delete-directory temp-dir))))
+
+(ert-deftest gdocs-convert-test-link-url-id-no-context ()
+  "Without link context, id: links preserve id: prefix."
+  (let ((gdocs-convert--link-context nil))
+    (let* ((ir (gdocs-convert-org-string-to-ir
+                "Link to [[id:SOME-UUID][Other]]"))
+           (runs (plist-get (car ir) :contents))
+           (link-run (nth 1 runs)))
+      (should (string= (plist-get link-run :link) "id:SOME-UUID")))))
+
 ;; ---------------------------------------------------------------------------
 ;;; Heading cache
 

@@ -671,6 +671,9 @@ id: links to Google Docs URLs for cross-document linking."
      ;; Preserve file: prefix for non-org file links
      ((string= type "file")
       (concat "file:" path))
+     ;; Preserve id: prefix for org-id links
+     ((string= type "id")
+      (concat "id:" path))
      (t path))))
 
 (defun gdocs-convert--resolve-file-link (path search)
@@ -693,7 +696,7 @@ If the target has no Google Doc ID, returns the path with file: prefix."
 (defun gdocs-convert--resolve-id-link (id)
   "Resolve an id: link ID to a Google Docs URL.
 Uses `org-id-find' to locate the target file, then reads its
-`gdocs-document-id'.  Falls back to the raw ID if unresolvable."
+`gdocs-document-id'.  Falls back to id:ID if unresolvable."
   (if-let* ((location (org-id-find id)))
       (let* ((file (if (consp location) (car location) location))
              (target-doc-id (gdocs-convert--read-file-local-gdocs-id file)))
@@ -702,8 +705,8 @@ Uses `org-id-find' to locate the target file, then reads its
                    (heading-text (when pos
                                    (gdocs-convert--heading-at-pos file pos))))
               (gdocs-convert--make-docs-url target-doc-id heading-text))
-          id))
-    id))
+          (concat "id:" id)))
+    (concat "id:" id)))
 
 (defun gdocs-convert--resolve-same-doc-heading-link (heading-text)
   "Resolve a same-document heading link to HEADING-TEXT.
