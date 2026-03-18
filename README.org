@@ -38,6 +38,15 @@ The package addresses three main workflows:
   files.  The files remain synchronized, but you may later choose to
   unlink or delete the Google Doc.
 
+Additionally, the package supports *directory-level linking*: you can
+associate a local directory with a Google Drive folder so that newly
+created documents are automatically placed in the corresponding Drive
+folder, mirroring your local directory structure
+([[#h:directory-linking][Directory linking]]).
+
+All commands are accessible through a =transient= popup menu
+([[#h:transient-menu][Transient menu]]).
+
 ** Architecture
 :PROPERTIES:
 :CUSTOM_ID: h:architecture
@@ -264,6 +273,44 @@ automatically if it does not exist.  If you already have an org file
 and use ~gdocs-create~ or ~gdocs-link~, the file stays at its current
 location regardless of this setting.
 
+** Org tagging
+:PROPERTIES:
+:CUSTOM_ID: h:org-tagging
+:END:
+
+#+vindex: gdocs-org-tag
+The user option ~gdocs-org-tag~ specifies an org tag to add to the
+first heading of linked org files.  When non-nil, every org file that
+has a Google Doc counterpart receives this tag on its first heading,
+making it easy to filter linked files in agenda views or tag-based
+searches.
+
+The value is a string (e.g., ="gdocs"=) or ~nil~ to disable tagging.
+The default value is ="gdocs"=.  The tag is added automatically when
+you link, open, or create a document, and removed when you unlink
+([[#h:linking-and-unlinking][Linking and unlinking]]).
+
+** Cross-document link resolution
+:PROPERTIES:
+:CUSTOM_ID: h:link-directories
+:END:
+
+#+vindex: gdocs-link-directories
+The user option ~gdocs-link-directories~ specifies additional
+directories to scan when resolving cross-document links during
+push.  When you push an org file that contains =file:= or =id:= links
+pointing to other org files with Google Doc counterparts, the
+converter replaces those links with Google Docs URLs so they work in
+the browser.  ~gdocs-directory~ ([[#h:file-storage][File storage]]) is always scanned;
+this option lets you add further directories that also contain linked
+org files.
+
+The value is a list of directory paths.  The default value is ~nil~,
+meaning only ~gdocs-directory~ is scanned.  You would add directories
+here if your linked org files are spread across multiple locations
+(for example, a project-specific directory alongside your main gdocs
+directory).
+
 * Commands
 :PROPERTIES:
 :CUSTOM_ID: h:commands
@@ -288,9 +335,12 @@ with ~gdocs-mode~ active.
 
 The command ~gdocs-create~ does the reverse: it creates a new Google
 Doc from the current org buffer's content.  The title defaults to the
-buffer's =#+TITLE= keyword, falling back to the buffer name.  After
-creating the document, the buffer is linked to it and ~gdocs-mode~ is
-activated.  Subsequent saves push changes to the newly created Doc.
+buffer's =#+TITLE= keyword, falling back to the buffer name.  If the
+current directory is linked to a Google Drive folder via
+~gdocs-folder-id~ ([[#h:directory-linking][Directory linking]]), the new document is
+automatically placed in that folder.  After creating the document, the
+buffer is linked to it and ~gdocs-mode~ is activated.  Subsequent saves
+push changes to the newly created Doc.
 
 Both commands are autoloaded, so they are available without explicitly
 loading the package.
@@ -341,6 +391,45 @@ all buffer-local sync state, turning the org file back into a
 standalone document.  The file content is preserved; only the sync
 metadata is removed.
 
+** Directory linking
+:PROPERTIES:
+:CUSTOM_ID: h:directory-linking
+:END:
+
+#+findex: gdocs-link-directory
+#+findex: gdocs-unlink-directory
+#+findex: gdocs-create-folder
+When you have a local directory of org files that you want to mirror in
+a Google Drive folder, you can link the directory so that ~gdocs-create~
+automatically places new documents in the correct Google Drive folder
+and uses the associated account.
+
+The command ~gdocs-link-directory~ links the current directory to a
+Google Drive folder.  It prompts for a folder ID or a full Google Drive
+folder URL (e.g., =https://drive.google.com/drive/folders/FOLDER-ID=)
+and, if needed, an account.  The mapping is written to =.dir-locals.el=
+in the current directory as ~gdocs-folder-id~ and ~gdocs-account~
+entries.  After linking, any call to ~gdocs-create~
+([[#h:opening-and-creating][Opening and creating documents]]) from within that directory
+automatically places the new document in the linked folder.
+
+The command ~gdocs-unlink-directory~ removes the ~gdocs-folder-id~ and
+~gdocs-account~ entries from the current directory's =.dir-locals.el=.
+The local files are not affected; only the Drive folder association is
+removed.
+
+The command ~gdocs-create-folder~ creates a Google Drive folder
+corresponding to a local directory.  It prompts for the target
+directory, defaulting to ~default-directory~ or the directory at point
+in ~dired-mode~.  The target must be inside a directory that is already
+linked to a Google Drive folder ([[#h:directory-linking][Directory linking]]).  If there are
+unlinked intermediate directories between the target and its nearest
+linked ancestor, the command prompts before creating the intermediate
+Drive folders as well, so the folder hierarchy on Drive matches the
+local directory structure.
+
+All three commands are autoloaded.
+
 ** Status and browser
 :PROPERTIES:
 :CUSTOM_ID: h:status-and-browser
@@ -358,7 +447,10 @@ The command ~gdocs-open-in-browser~ opens the linked Google Doc in your
 default web browser using ~browse-url~.  It constructs the URL from
 the stored document ID.  This is convenient when you need to check
 formatting, share the link with someone, or use Google Docs features
-that are not yet supported in =gdocs=.
+that are not yet supported in =gdocs=.  In a ~dired~ buffer, the
+command operates on the file or directory at point: for files, it opens
+the linked Google Doc; for directories, it opens the linked Google
+Drive folder ([[#h:directory-linking][Directory linking]]).
 
 ** Authentication
 :PROPERTIES:
@@ -420,6 +512,36 @@ are available in the merge buffer:
   unresolved.
 - ~gdocs-merge-abort~ (=C-c C-k= or =q=) aborts the merge after
   confirmation, leaving the buffer unchanged.
+
+** Transient menu
+:PROPERTIES:
+:CUSTOM_ID: h:transient-menu
+:END:
+
+#+findex: gdocs-menu
+The command ~gdocs-menu~ opens a =transient= popup menu that provides
+quick access to all =gdocs= commands and options from a single
+interface.  It is autoloaded, so you can invoke it with =M-x gdocs-menu=
+without loading the package first.
+
+The menu is organized into the following groups:
+
+- *Sync*: ~gdocs-push~ (=p=), ~gdocs-pull~ (=l=), ~gdocs-status~ (=s=).
+- *Documents*: ~gdocs-open~ (=o=), ~gdocs-create~ (=c=),
+  ~gdocs-open-in-browser~ (=b=).
+- *Linking*: ~gdocs-link~ (=L=), ~gdocs-unlink~ (=U=),
+  ~gdocs-link-directory~ (=D=), ~gdocs-unlink-directory~ (=X=),
+  ~gdocs-create-folder~ (=F=).
+- *Auth*: ~gdocs-authenticate~ (=a=), ~gdocs-logout~ (=x=).
+- *Options*: toggle ~gdocs-auto-push-on-save~ (=-p=), toggle
+  ~gdocs-auto-pull-on-open~ (=-l=), set ~gdocs-directory~ (=-d=), set
+  ~gdocs-org-tag~ (=-t=), set ~gdocs-link-directories~ (=-L=).
+
+The Options group uses =transient= infix commands that let you view and
+modify user options directly from the menu without visiting your init
+file.  Changes made through the menu take effect immediately for the
+current session but are not persisted to disk; use ~setopt~ in your
+configuration to persist them.
 
 * Functions
 :PROPERTIES:
@@ -509,6 +631,27 @@ An optional FOLDER-ID argument specifies the parent folder in Drive.
 The function ~gdocs-api-search-files~ performs a full-text search across
 Google Drive by wrapping ~gdocs-api-list-files~ with a
 =fullText contains= query.
+
+#+findex: gdocs-api-rename-file
+#+findex: gdocs-api-create-folder
+#+findex: gdocs-api-move-file
+The function ~gdocs-api-rename-file~ renames a Google Drive file
+identified by FILE-ID to NEW-NAME.  This is used internally by
+~gdocs-push~ when the local =#+TITLE= has changed since the last sync,
+so the Google Doc title stays in sync with the org file
+([[#h:pushing-and-pulling][Pushing and pulling]]).
+
+The function ~gdocs-api-create-folder~ creates a new folder in Google
+Drive.  An optional PARENT-FOLDER-ID argument places the folder inside
+a specific parent.  This function is called by ~gdocs-create-folder~
+when building the Drive folder hierarchy for local directories
+([[#h:directory-linking][Directory linking]]).
+
+The function ~gdocs-api-move-file~ moves a Google Drive file into a
+different folder by adding the file to the target folder and removing
+it from its current parent.  This is used by ~gdocs-create~ to place
+newly created documents in the linked Drive folder
+([[#h:directory-linking][Directory linking]]).
 
 ** Format conversion
 :PROPERTIES:
@@ -810,6 +953,18 @@ the end of the file:
 These variables are declared safe for file-local use (via
 ~safe-local-variable~) so Emacs does not prompt for confirmation when
 opening a linked file.
+
+Directories linked to Google Drive folders ([[#h:directory-linking][Directory linking]]) store
+their association in =.dir-locals.el= rather than per-file:
+
+#+begin_example
+((org-mode . ((gdocs-folder-id . "1A2B3C4D5E6F...")
+              (gdocs-account . "personal"))))
+#+end_example
+
+This means every org file in the directory inherits the folder and
+account settings.  ~gdocs-create~ uses these values to place new
+documents in the correct Drive folder.
 
 ** Shadow copy
 :PROPERTIES:
