@@ -444,6 +444,12 @@ START-INDEX is the UTF-16 index where the first element begins."
                   ;; (as opposed to headers, footers, or footnotes)
                   (segmentId . "")))))))
 
+(defun gdocs-diff--make-delete-bullets-request (start end)
+  "Create a deleteParagraphBullets request covering START to END."
+  `((deleteParagraphBullets
+     . ((range . ((startIndex . ,start)
+                  (endIndex . ,(1- end))))))))
+
 ;; ---------------------------------------------------------------------------
 ;;; Insertion requests
 
@@ -480,13 +486,24 @@ preceding kept element."
   "Generate requests to modify OLD-ELEM into NEW-ELEM at RANGE.
 RANGE is a (START . END) cons.  Returns a plist with
 :delete-reqs, :insert-reqs, and :style-reqs."
-  (cond
-   ((gdocs-diff--only-style-changed-p old-elem new-elem)
-    (gdocs-diff--style-only-modification old-elem new-elem range))
-   ((gdocs-diff--only-formatting-changed-p old-elem new-elem)
-    (gdocs-diff--formatting-only-modification new-elem range))
-   (t
-    (gdocs-diff--content-modification old-elem new-elem range))))
+  (let ((result
+         (cond
+          ((gdocs-diff--only-style-changed-p old-elem new-elem)
+           (gdocs-diff--style-only-modification old-elem new-elem range))
+          ((gdocs-diff--only-formatting-changed-p old-elem new-elem)
+           (gdocs-diff--formatting-only-modification new-elem range))
+          (t
+           (gdocs-diff--content-modification old-elem new-elem range)))))
+    ;; Handle bullet removal: all modification paths preserve the
+    ;; trailing newline (paragraph identity), so residual bullets
+    ;; persist unless explicitly deleted.
+    (when (and (plist-get old-elem :list)
+               (not (plist-get new-elem :list)))
+      (plist-put result :style-reqs
+                 (append (plist-get result :style-reqs)
+                         (list (gdocs-diff--make-delete-bullets-request
+                                (car range) (cdr range))))))
+    result))
 
 (defun gdocs-diff--same-text-paragraphs-p (old-elem new-elem)
   "Return non-nil if OLD-ELEM and NEW-ELEM are paragraphs with identical text."

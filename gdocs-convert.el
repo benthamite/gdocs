@@ -1863,7 +1863,9 @@ Google Docs from merging them into one continuous list."
                    requests)))
     (gdocs-convert--alternate-numbered-presets groups)
     (append filtered
-            (mapcar #'gdocs-convert--list-group-bullet-request groups))))
+            (mapcar #'gdocs-convert--list-group-bullet-request groups)
+            (gdocs-convert--guard-non-list-paragraphs
+             element-ranges groups))))
 
 (defun gdocs-convert--find-list-groups (element-ranges)
   "Find contiguous groups of list elements in ELEMENT-RANGES.
@@ -1920,6 +1922,37 @@ GROUP is a plist with :start, :end, and :preset."
        . ((range . ((startIndex . ,start)
                     (endIndex . ,(1- end))))
           (bulletPreset . ,preset))))))
+
+(defun gdocs-convert--guard-non-list-paragraphs (element-ranges groups)
+  "Generate `deleteParagraphBullets' for non-list paragraphs between GROUPS.
+ELEMENT-RANGES is the full list of element ranges.  GROUPS is the
+list of list groups from `gdocs-convert--find-list-groups'.
+
+The Google Docs API can extend bullet formatting to heading
+paragraphs adjacent to `createParagraphBullets' ranges.  This
+function emits defensive `deleteParagraphBullets' requests for
+every non-list paragraph that sits between two consecutive list
+groups, ensuring headings are never accidentally bulleted."
+  (when (>= (length groups) 2)
+    (let ((requests nil))
+      (cl-loop for (g1 g2) on groups
+               while g2
+               do (let ((gap-start (plist-get g1 :end))
+                        (gap-end (plist-get g2 :start)))
+                    (dolist (range element-ranges)
+                      (let* ((elem (plist-get range :element))
+                             (start (plist-get range :start))
+                             (end (plist-get range :end)))
+                        (when (and (eq (plist-get elem :type) 'paragraph)
+                                   (not (plist-get elem :list))
+                                   (>= start gap-start)
+                                   (<= end gap-end))
+                          (push `((deleteParagraphBullets
+                                   . ((range
+                                       . ((startIndex . ,start)
+                                          (endIndex . ,(1- end)))))))
+                                requests))))))
+      (nreverse requests))))
 
 (defun gdocs-convert--make-marker-requests (element start end)
   "Create named range requests for org-only markers in ELEMENT.

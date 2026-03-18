@@ -1122,5 +1122,55 @@
            (result (gdocs-convert--reverse-resolve-link url)))
       (should (string= result "file:doc.org")))))
 
+;;;; Guard non-list paragraphs between list groups
+
+(ert-deftest gdocs-convert-test-guard-non-list-paragraphs ()
+  "Headings between list groups get deleteParagraphBullets."
+  (let* ((heading (list :type 'paragraph :style 'heading-3
+                        :contents (list (list :text "Heading"))
+                        :id "h1"))
+         (item1 (list :type 'paragraph :style 'normal
+                      :contents (list (list :text "Item 1"))
+                      :list (list :type 'number :level 0)
+                      :id "i1"))
+         (item2 (list :type 'paragraph :style 'normal
+                      :contents (list (list :text "Item 2"))
+                      :list (list :type 'number :level 0)
+                      :id "i2"))
+         ;; Simulate element-ranges: item1=[1,8), heading=[8,16), item2=[16,23)
+         (element-ranges (list (list :element item1 :start 1 :end 8)
+                               (list :element heading :start 8 :end 16)
+                               (list :element item2 :start 16 :end 23)))
+         ;; Two groups: [1,8) and [16,23)
+         (groups (list (list :start 1 :end 8
+                             :preset "NUMBERED_DECIMAL_ALPHA_ROMAN")
+                       (list :start 16 :end 23
+                             :preset "NUMBERED_DECIMAL_NESTED")))
+         (result (gdocs-convert--guard-non-list-paragraphs
+                  element-ranges groups)))
+    ;; Should produce one deleteParagraphBullets for the heading
+    (should (= (length result) 1))
+    (let* ((req (car result))
+           (range (alist-get 'range
+                             (alist-get 'deleteParagraphBullets req))))
+      (should (= (alist-get 'startIndex range) 8))
+      (should (= (alist-get 'endIndex range) 15)))))
+
+(ert-deftest gdocs-convert-test-guard-no-request-for-list-item ()
+  "List items between groups do not get deleteParagraphBullets."
+  (let* ((item-between (list :type 'paragraph :style 'normal
+                             :contents (list (list :text "X"))
+                             :list (list :type 'bullet :level 0)
+                             :id "ib"))
+         (element-ranges (list (list :element item-between
+                                     :start 8 :end 10)))
+         (groups (list (list :start 1 :end 8
+                             :preset "NUMBERED_DECIMAL_ALPHA_ROMAN")
+                       (list :start 10 :end 17
+                             :preset "NUMBERED_DECIMAL_NESTED")))
+         (result (gdocs-convert--guard-non-list-paragraphs
+                  element-ranges groups)))
+    (should (null result))))
+
 (provide 'gdocs-convert-test)
 ;;; gdocs-convert-test.el ends here

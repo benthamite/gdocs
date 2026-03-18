@@ -405,5 +405,64 @@ paragraph from the document."
       (should (= (alist-get 'startIndex range) 9))
       (should (= (alist-get 'endIndex range) 15)))))
 
+;;;; Bullet removal tests
+
+(ert-deftest gdocs-diff-test-modify-removes-bullet ()
+  "Modifying a list item into a heading removes the bullet.
+When the old element has :list but the new one does not, the diff
+should emit a deleteParagraphBullets request to remove the
+residual bullet from the preserved paragraph."
+  (let* ((old-elem (list :type 'paragraph :style 'normal
+                         :contents (list (list :text "Title"
+                                               :bold t :italic nil
+                                               :underline nil
+                                               :strikethrough nil
+                                               :code nil :link nil))
+                         :list (list :type 'number :level 0)
+                         :id "e1"))
+         (new-elem (list :type 'paragraph :style 'heading-3
+                         :contents (list (list :text "Title"
+                                               :bold t :italic nil
+                                               :underline nil
+                                               :strikethrough nil
+                                               :code nil :link nil))
+                         :list nil
+                         :id "e1"))
+         (old-ir (list old-elem))
+         (new-ir (list new-elem))
+         (result (gdocs-diff-generate old-ir new-ir))
+         (has-delete-bullets
+          (cl-some (lambda (req)
+                     (alist-get 'deleteParagraphBullets req))
+                   result)))
+    (should has-delete-bullets)))
+
+(ert-deftest gdocs-diff-test-modify-no-bullet-removal-when-both-lists ()
+  "No deleteParagraphBullets when both old and new are list items."
+  (let* ((old-elem (list :type 'paragraph :style 'normal
+                         :contents (list (list :text "Item"
+                                               :bold nil :italic nil
+                                               :underline nil
+                                               :strikethrough nil
+                                               :code nil :link nil))
+                         :list (list :type 'number :level 0)
+                         :id "e1"))
+         (new-elem (list :type 'paragraph :style 'normal
+                         :contents (list (list :text "Changed"
+                                               :bold nil :italic nil
+                                               :underline nil
+                                               :strikethrough nil
+                                               :code nil :link nil))
+                         :list (list :type 'number :level 0)
+                         :id "e1"))
+         (old-ir (list old-elem))
+         (new-ir (list new-elem))
+         (result (gdocs-diff-generate old-ir new-ir))
+         (has-delete-bullets
+          (cl-some (lambda (req)
+                     (alist-get 'deleteParagraphBullets req))
+                   result)))
+    (should-not has-delete-bullets)))
+
 (provide 'gdocs-diff-test)
 ;;; gdocs-diff-test.el ends here
