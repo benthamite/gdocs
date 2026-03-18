@@ -428,5 +428,194 @@
       (gdocs--remove-org-tag)
       (should (equal before (buffer-string))))))
 
+;;;; Folder URL construction
+
+(ert-deftest gdocs-test-folder-url-format ()
+  "URL has the correct Google Drive folders path."
+  (should (equal "https://drive.google.com/drive/folders/abc123"
+                 (gdocs--folder-url "abc123"))))
+
+(ert-deftest gdocs-test-folder-url-preserves-id ()
+  "Folder ID is embedded verbatim in the URL."
+  (let ((id "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"))
+    (should (string-match-p (regexp-quote id)
+                            (gdocs--folder-url id)))))
+
+;;;; Dir-local reading (gdocs--dir-folder-id)
+
+(ert-deftest gdocs-test-dir-folder-id-reads-from-dir-locals ()
+  "Reads `gdocs-folder-id' from a `.dir-locals.el' file."
+  (let ((dir (make-temp-file "gdocs-test-" t)))
+    (unwind-protect
+        (progn
+          (write-region
+           "((org-mode . ((gdocs-folder-id . \"folder-abc\"))))\n"
+           nil (expand-file-name ".dir-locals.el" dir))
+          (should (equal "folder-abc" (gdocs--dir-folder-id dir))))
+      (delete-directory dir t))))
+
+(ert-deftest gdocs-test-dir-folder-id-nil-when-no-dir-locals ()
+  "Returns nil when no `.dir-locals.el' exists."
+  (let ((dir (make-temp-file "gdocs-test-" t)))
+    (unwind-protect
+        (should-not (gdocs--dir-folder-id dir))
+      (delete-directory dir t))))
+
+(ert-deftest gdocs-test-dir-folder-id-nil-when-no-entry ()
+  "Returns nil when `.dir-locals.el' has no `gdocs-folder-id'."
+  (let ((dir (make-temp-file "gdocs-test-" t)))
+    (unwind-protect
+        (progn
+          (write-region
+           "((org-mode . ((fill-column . 80))))\n"
+           nil (expand-file-name ".dir-locals.el" dir))
+          (should-not (gdocs--dir-folder-id dir)))
+      (delete-directory dir t))))
+
+;;;; Dir-local reading (gdocs--dir-account)
+
+(ert-deftest gdocs-test-dir-account-reads-from-dir-locals ()
+  "Reads `gdocs-account' from a `.dir-locals.el' file."
+  (let ((dir (make-temp-file "gdocs-test-" t)))
+    (unwind-protect
+        (progn
+          (write-region
+           "((org-mode . ((gdocs-account . \"personal\"))))\n"
+           nil (expand-file-name ".dir-locals.el" dir))
+          (should (equal "personal" (gdocs--dir-account dir))))
+      (delete-directory dir t))))
+
+(ert-deftest gdocs-test-dir-account-nil-when-no-dir-locals ()
+  "Returns nil when no `.dir-locals.el' exists."
+  (let ((dir (make-temp-file "gdocs-test-" t)))
+    (unwind-protect
+        (should-not (gdocs--dir-account dir))
+      (delete-directory dir t))))
+
+;;;; File document-id reading (gdocs--file-document-id)
+
+(ert-deftest gdocs-test-file-document-id-reads-from-local-vars ()
+  "Reads `gdocs-document-id' from file-local variables."
+  (let ((file (make-temp-file "gdocs-test-" nil ".org")))
+    (unwind-protect
+        (progn
+          (write-region
+           (concat "* Test heading\n\n"
+                   ";; Local Variables:\n"
+                   ";; gdocs-document-id: \"doc-xyz-789\"\n"
+                   ";; End:\n")
+           nil file)
+          (should (equal "doc-xyz-789" (gdocs--file-document-id file))))
+      (delete-file file))))
+
+(ert-deftest gdocs-test-file-document-id-nil-when-absent ()
+  "Returns nil when no `gdocs-document-id' is present."
+  (let ((file (make-temp-file "gdocs-test-" nil ".org")))
+    (unwind-protect
+        (progn
+          (write-region "* Plain org file\nSome content.\n" nil file)
+          (should-not (gdocs--file-document-id file)))
+      (delete-file file))))
+
+(ert-deftest gdocs-test-file-document-id-nil-when-no-local-vars ()
+  "Returns nil when there is no Local Variables block at all."
+  (let ((file (make-temp-file "gdocs-test-" nil ".org")))
+    (unwind-protect
+        (progn
+          (write-region "#+TITLE: Just a title\n" nil file)
+          (should-not (gdocs--file-document-id file)))
+      (delete-file file))))
+
+;;;; Effective dir-locals (gdocs--effective-dir-locals)
+
+(ert-deftest gdocs-test-effective-dir-locals-walks-up ()
+  "Finds a linked ancestor by walking up the directory tree."
+  (let* ((parent (make-temp-file "gdocs-test-" t))
+         (child (expand-file-name "sub/" parent)))
+    (unwind-protect
+        (progn
+          (make-directory child t)
+          (write-region
+           "((org-mode . ((gdocs-folder-id . \"parent-folder\") (gdocs-account . \"work\"))))\n"
+           nil (expand-file-name ".dir-locals.el" parent))
+          (let ((default-directory (file-name-as-directory child)))
+            (let ((result (gdocs--effective-dir-locals)))
+              (should (equal "parent-folder" (car result)))
+              (should (equal "work" (cdr result))))))
+      (delete-directory parent t))))
+
+(ert-deftest gdocs-test-effective-dir-locals-nil-when-none ()
+  "Returns nil when no ancestor has a `.dir-locals.el' with a folder ID."
+  (let ((dir (make-temp-file "gdocs-test-" t)))
+    (unwind-protect
+        (let ((default-directory (file-name-as-directory dir)))
+          (should-not (gdocs--effective-dir-locals)))
+      (delete-directory dir t))))
+
+(ert-deftest gdocs-test-effective-dir-locals-prefers-nearest ()
+  "Returns the nearest ancestor's dir-locals, not a more distant one."
+  (let* ((grandparent (make-temp-file "gdocs-test-" t))
+         (parent (expand-file-name "mid/" grandparent))
+         (child (expand-file-name "leaf/" parent)))
+    (unwind-protect
+        (progn
+          (make-directory child t)
+          (write-region
+           "((org-mode . ((gdocs-folder-id . \"gp-folder\") (gdocs-account . \"gp-acct\"))))\n"
+           nil (expand-file-name ".dir-locals.el" grandparent))
+          (write-region
+           "((org-mode . ((gdocs-folder-id . \"parent-folder\") (gdocs-account . \"parent-acct\"))))\n"
+           nil (expand-file-name ".dir-locals.el" parent))
+          (let ((default-directory (file-name-as-directory child)))
+            (let ((result (gdocs--effective-dir-locals)))
+              (should (equal "parent-folder" (car result)))
+              (should (equal "parent-acct" (cdr result))))))
+      (delete-directory grandparent t))))
+
+;;;; Ensure dir-locals file (gdocs--ensure-dir-locals-file)
+
+(ert-deftest gdocs-test-ensure-dir-locals-file-creates-when-missing ()
+  "Creates `.dir-locals.el' when it does not exist."
+  (let* ((dir (make-temp-file "gdocs-test-" t))
+         (dl-file (expand-file-name ".dir-locals.el" dir)))
+    (unwind-protect
+        (let ((default-directory (file-name-as-directory dir)))
+          (should-not (file-exists-p dl-file))
+          (gdocs--ensure-dir-locals-file)
+          (should (file-exists-p dl-file)))
+      (delete-directory dir t))))
+
+(ert-deftest gdocs-test-ensure-dir-locals-file-noop-when-exists ()
+  "Does not overwrite an existing `.dir-locals.el'."
+  (let* ((dir (make-temp-file "gdocs-test-" t))
+         (dl-file (expand-file-name ".dir-locals.el" dir))
+         (contents "((org-mode . ((fill-column . 80))))\n"))
+    (unwind-protect
+        (let ((default-directory (file-name-as-directory dir)))
+          (write-region contents nil dl-file)
+          (gdocs--ensure-dir-locals-file)
+          (should (equal contents
+                         (with-temp-buffer
+                           (insert-file-contents dl-file)
+                           (buffer-string)))))
+      (delete-directory dir t))))
+
+;;;; Sanitize filename edge cases
+
+(ert-deftest gdocs-test-sanitize-empty-string ()
+  "Empty string input returns \"untitled\"."
+  (should (equal "untitled" (gdocs--sanitize-filename ""))))
+
+(ert-deftest gdocs-test-sanitize-only-special-chars ()
+  "String of only special characters returns \"untitled\"."
+  (should (equal "untitled" (gdocs--sanitize-filename "///***???")))
+  (should (equal "untitled" (gdocs--sanitize-filename "   "))))
+
+(ert-deftest gdocs-test-sanitize-leading-trailing-hyphens-trimmed ()
+  "Leading and trailing hyphens are trimmed after sanitization."
+  (should (equal "middle" (gdocs--sanitize-filename "-middle-")))
+  (should (equal "ok" (gdocs--sanitize-filename "---ok---")))
+  (should (equal "a" (gdocs--sanitize-filename " a "))))
+
 (provide 'gdocs-test)
 ;;; gdocs-test.el ends here
