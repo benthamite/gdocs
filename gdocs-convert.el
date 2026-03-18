@@ -1729,7 +1729,7 @@ Each run that has any formatting generates a request."
              (len (gdocs-convert--string-to-utf16-length text))
              (end (+ index len))
              (style-fields (gdocs-convert--run-to-docs-style run)))
-        (when style-fields
+        (when (and style-fields (> len 0))
           (push `((updateTextStyle
                    . ((textStyle . ,style-fields)
                       (range . ((startIndex . ,index)

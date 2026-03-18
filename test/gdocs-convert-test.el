@@ -1380,5 +1380,18 @@
     (should (string= (plist-get (car (plist-get (nth 3 ir) :contents)) :text)
                       "Third paragraph"))))
 
+(ert-deftest gdocs-convert-test-empty-run-no-style-request ()
+  "Empty-text formatted runs must not produce updateTextStyle requests.
+Regression test: the Google API rejects ranges where startIndex == endIndex."
+  (let* ((runs (list (list :text "" :bold t)
+                     (list :text "hello" :bold t)))
+         (requests (gdocs-convert--make-text-style-requests runs 1)))
+    ;; Only the non-empty run should produce a request.
+    (should (= (length requests) 1))
+    (let* ((req (car requests))
+           (range (alist-get 'range (alist-get 'updateTextStyle req))))
+      (should (< (alist-get 'startIndex range)
+                 (alist-get 'endIndex range))))))
+
 (provide 'gdocs-convert-test)
 ;;; gdocs-convert-test.el ends here
