@@ -149,5 +149,98 @@
   (gdocs-test-with-temp-dir
     (should-not (gdocs-auth--read-token-file-if-exists "no-such-account"))))
 
+;;;; Auth code extraction
+
+(ert-deftest gdocs-auth-test-extract-auth-code-valid ()
+  "extract-auth-code extracts the code from a standard OAuth GET request."
+  (let ((request "GET /?code=4/0AbCdEf HTTP/1.1\r\nHost: localhost\r\n\r\n"))
+    (should (equal "4/0AbCdEf"
+                   (gdocs-auth--extract-auth-code request)))))
+
+(ert-deftest gdocs-auth-test-extract-auth-code-no-code ()
+  "extract-auth-code returns nil for a request without a code parameter."
+  (let ((request "GET /favicon.ico HTTP/1.1\r\n\r\n"))
+    (should-not (gdocs-auth--extract-auth-code request))))
+
+(ert-deftest gdocs-auth-test-extract-auth-code-with-other-params ()
+  "extract-auth-code extracts the code when other query params are present."
+  (let ((request "GET /?scope=foo&code=ABC123&other=bar HTTP/1.1\r\n\r\n"))
+    (should (equal "ABC123"
+                   (gdocs-auth--extract-auth-code request)))))
+
+;;;; Token data construction
+
+(ert-deftest gdocs-auth-test-build-token-data-fields ()
+  "build-token-data includes all 6 expected fields with expires_at in the future."
+  (let* ((response '((access_token . "at-123")
+                     (refresh_token . "rt-456")
+                     (expires_in . 3600)))
+         (data (gdocs-auth--build-token-data response "cid" "csec")))
+    (should (equal "at-123" (alist-get 'access_token data)))
+    (should (equal "rt-456" (alist-get 'refresh_token data)))
+    (should (equal "Bearer" (alist-get 'token_type data)))
+    (should (equal "cid" (alist-get 'client_id data)))
+    (should (equal "csec" (alist-get 'client_secret data)))
+    (should (> (alist-get 'expires_at data) (float-time)))))
+
+;;;; Token merge
+
+(ert-deftest gdocs-auth-test-merge-refreshed-token-preserves-refresh-token ()
+  "merge-refreshed-token preserves the old refresh_token while updating access_token."
+  (let* ((old-data '((access_token . "old-at")
+                     (refresh_token . "keep-this-rt")
+                     (expires_at . 1000)
+                     (token_type . "Bearer")
+                     (client_id . "cid")
+                     (client_secret . "csec")))
+         (response '((access_token . "new-at")
+                     (expires_in . 3600)))
+         (merged (gdocs-auth--merge-refreshed-token old-data response)))
+    (should (equal "new-at" (alist-get 'access_token merged)))
+    (should (equal "keep-this-rt" (alist-get 'refresh_token merged)))
+    (should (> (alist-get 'expires_at merged) (float-time)))))
+
+(ert-deftest gdocs-auth-test-merge-refreshed-token-preserves-credentials ()
+  "merge-refreshed-token preserves client_id and client_secret from old data."
+  (let* ((old-data '((access_token . "old-at")
+                     (refresh_token . "rt")
+                     (expires_at . 1000)
+                     (token_type . "Bearer")
+                     (client_id . "my-client-id")
+                     (client_secret . "my-client-secret")))
+         (response '((access_token . "new-at")
+                     (expires_in . 3600)))
+         (merged (gdocs-auth--merge-refreshed-token old-data response)))
+    (should (equal "my-client-id" (alist-get 'client_id merged)))
+    (should (equal "my-client-secret" (alist-get 'client_secret merged)))))
+
+;;;; Token directory creation
+
+(ert-deftest gdocs-auth-test-token-directory-creation ()
+  "write-token-file creates parent directories if they don't exist."
+  (let* ((temp-dir (make-temp-file "gdocs-test-" t))
+         (nested-dir (expand-file-name "a/b/c/" temp-dir))
+         (gdocs-token-directory nested-dir)
+         (data '((access_token . "tok"))))
+    (unwind-protect
+        (progn
+          (should-not (file-directory-p nested-dir))
+          (gdocs-auth--write-token-file "deep-account" data)
+          (should (file-directory-p nested-dir))
+          (should (file-exists-p (gdocs-auth--token-file-path "deep-account"))))
+      (delete-directory temp-dir t))))
+
+;;;; URL encoding
+
+(ert-deftest gdocs-auth-test-url-encode-params ()
+  "url-encode-params correctly encodes special characters in values."
+  (let ((result (gdocs-auth--url-encode-params
+                 '(("key" . "hello world")
+                   ("url" . "http://example.com/?a=1&b=2")))))
+    (should (string-match-p "key=hello%20world" result))
+    (should (string-match-p "url=http%3A%2F%2Fexample.com%2F%3Fa%3D1%26b%3D2"
+                            result))
+    (should (string-match-p "&" result))))
+
 (provide 'gdocs-auth-test)
 ;;; gdocs-auth-test.el ends here

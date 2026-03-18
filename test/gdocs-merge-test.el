@@ -434,5 +434,119 @@ Cleans up the buffer afterwards."
       (let ((result (gdocs-merge--build-result)))
         (should (equal result remote))))))
 
+;;;; Complex interleaved hunks
+
+(ert-deftest gdocs-merge-test-complex-interleaved-hunks ()
+  "Interleaved common and conflict regions produce the expected hunk pattern."
+  (let* ((local  "A\nB\nC\nD\nE\nF\nG")
+         (remote "A\nX\nC\nY\nE\nZ\nG")
+         (hunks (gdocs-merge-test--make-hunks local remote))
+         (conflict-hunks (cl-remove-if
+                          (lambda (h) (plist-get h :choice))
+                          hunks))
+         (common-hunks (cl-remove-if-not
+                        (lambda (h) (eq (plist-get h :choice) 'common))
+                        hunks)))
+    ;; Pattern: common(A) conflict(B/X) common(C) conflict(D/Y) common(E) conflict(F/Z) common(G)
+    (should (= (length hunks) 7))
+    (should (= (length conflict-hunks) 3))
+    (should (= (length common-hunks) 4))
+    (dolist (h conflict-hunks)
+      (should (null (plist-get h :choice))))
+    (dolist (h common-hunks)
+      (should (eq (plist-get h :choice) 'common)))))
+
+;;;; Mixed accept operations
+
+(ert-deftest gdocs-merge-test-accept-local-then-remote ()
+  "Resolve first conflict as local, second as remote, verify build-result."
+  (let* ((local  "A\nB\nC\nD\nE")
+         (remote "A\nX\nC\nY\nE")
+         (hunks (gdocs-merge--compute-hunks local remote)))
+    (gdocs-merge-test--with-merge-buffer hunks
+      ;; Find conflict hunks and resolve them
+      (let ((conflicts (gdocs-merge--conflict-hunks)))
+        (should (= (length conflicts) 2))
+        ;; Resolve first conflict as local
+        (plist-put (nth (car conflicts) gdocs-merge--hunks) :choice 'local)
+        ;; Resolve second conflict as remote
+        (plist-put (nth (cadr conflicts) gdocs-merge--hunks) :choice 'remote))
+      (let ((result (gdocs-merge--build-result)))
+        (should (equal result "A\nB\nC\nY\nE"))))))
+
+;;;; Edit flow
+
+(ert-deftest gdocs-merge-test-edit-finalize-sets-text ()
+  "Setting :choice to edited and :edited-text returns the edited text."
+  (let ((hunk (gdocs-merge--make-hunk "original-local" "original-remote")))
+    (plist-put hunk :choice 'edited)
+    (plist-put hunk :edited-text "custom edited text")
+    (should (equal (gdocs-merge--hunk-resolved-text hunk)
+                   "custom edited text"))))
+
+;;;; Full finalization workflow
+
+(ert-deftest gdocs-merge-test-finalize-calls-callback-with-merged ()
+  "Full workflow: create merge buffer, accept-all-local, finalize receives merged string."
+  (let* ((local  "alpha\nbeta\ngamma")
+         (remote "alpha\nBETA\nGAMMA")
+         (hunks (gdocs-merge--compute-hunks local remote))
+         (callback-result nil)
+         (buf (gdocs-merge--setup-buffer
+               hunks
+               (lambda (result) (setq callback-result result)))))
+    (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+      (with-current-buffer buf
+        (gdocs-merge--resolve-all 'local)
+        (gdocs-merge-finalize)))
+    (should (equal callback-result local))
+    ;; Buffer should have been killed by finalize
+    (should-not (buffer-live-p buf))))
+
+;;;; Resolved face overlay
+
+(ert-deftest gdocs-merge-test-render-resolved-local-uses-resolved-face ()
+  "After accepting local, the overlay has gdocs-merge-resolved-face."
+  (let* ((hunks (list (gdocs-merge--make-hunk "local-text" "remote-text"))))
+    (gdocs-merge-test--with-merge-buffer hunks
+      (setq gdocs-merge--current-hunk-index 0)
+      (cl-letf (((symbol-function 'message) #'ignore))
+        (gdocs-merge-accept-local))
+      (let ((ovs (overlays-in (point-min) (point-max))))
+        (should (cl-some (lambda (ov)
+                           (eq (overlay-get ov 'face)
+                               'gdocs-merge-resolved-face))
+                         ovs))))))
+
+;;;; Empty local text
+
+(ert-deftest gdocs-merge-test-empty-local-text-hunk ()
+  "A hunk where local is empty and remote has content creates a conflict."
+  (let* ((hunks (gdocs-merge-test--make-hunks "" "remote content")))
+    (let ((conflict-hunks (cl-remove-if
+                           (lambda (h) (plist-get h :choice))
+                           hunks)))
+      (should (> (length conflict-hunks) 0))
+      (let ((h (car conflict-hunks)))
+        (should (equal (plist-get h :local-text) ""))
+        (should (string-match-p "remote content"
+                                (plist-get h :remote-text)))))))
+
+;;;; Goto hunk navigation
+
+(ert-deftest gdocs-merge-test-goto-hunk-moves-to-overlay-start ()
+  "After goto-hunk, point is at the overlay start of the target hunk."
+  (let* ((hunks (list (gdocs-merge--make-common-hunk "common line")
+                      (gdocs-merge--make-hunk "L1" "R1")
+                      (gdocs-merge--make-common-hunk "another common")
+                      (gdocs-merge--make-hunk "L2" "R2"))))
+    (gdocs-merge-test--with-merge-buffer hunks
+      (goto-char (point-min))
+      (gdocs-merge--goto-hunk 3)
+      (let* ((hunk (nth 3 gdocs-merge--hunks))
+             (ov (plist-get hunk :overlay)))
+        (should ov)
+        (should (= (point) (overlay-start ov)))))))
+
 (provide 'gdocs-merge-test)
 ;;; gdocs-merge-test.el ends here
