@@ -1172,5 +1172,209 @@
                   element-ranges groups)))
     (should (null result))))
 
+;; ---------------------------------------------------------------------------
+;;; Empty/minimal inputs
+
+(ert-deftest gdocs-convert-test-empty-buffer-to-ir ()
+  "An empty buffer returns an empty IR list."
+  (let ((ir (gdocs-convert-org-string-to-ir "")))
+    (should (null ir))))
+
+(ert-deftest gdocs-convert-test-title-only-to-ir ()
+  "A buffer with just #+TITLE returns one title element."
+  (let ((ir (gdocs-convert-org-string-to-ir "#+TITLE: My doc")))
+    (should (= (length ir) 1))
+    (should (eq (plist-get (car ir) :type) 'paragraph))
+    (should (eq (plist-get (car ir) :style) 'title))
+    (should (string= (plist-get (gdocs-convert-test--first-content-run ir)
+                                :text)
+                      "My doc"))))
+
+(ert-deftest gdocs-convert-test-whitespace-only-to-ir ()
+  "A buffer with only whitespace returns an empty IR list."
+  (let ((ir (gdocs-convert-org-string-to-ir "   \n\n  \n")))
+    (should (null ir))))
+
+;; ---------------------------------------------------------------------------
+;;; Src block conversion
+
+(ert-deftest gdocs-convert-test-src-block-to-ir ()
+  "A src block produces an IR element with code content and :gdocs-marker."
+  (let* ((ir (gdocs-convert-org-string-to-ir
+              "#+begin_src emacs-lisp\n(message \"hello\")\n#+end_src"))
+         (elem (car ir))
+         (contents (plist-get elem :contents))
+         (marker (plist-get elem :gdocs-marker)))
+    (should (= (length ir) 1))
+    (should (eq (plist-get elem :type) 'paragraph))
+    ;; The contents should have a code run with the source text
+    (should (plist-get (car contents) :code))
+    (should (string= (plist-get (car contents) :text)
+                      "(message \"hello\")"))
+    ;; The marker should record it as a src-block with the language
+    (should marker)
+    (should (eq (plist-get (car marker) :type) 'src-block))
+    (should (string= (plist-get (plist-get (car marker) :data) :language)
+                      "emacs-lisp"))))
+
+;; ---------------------------------------------------------------------------
+;;; Round-trip stability for complex documents
+
+(ert-deftest gdocs-convert-test-round-trip-horizontal-rule ()
+  "A horizontal rule survives org -> IR -> org round-trip."
+  (let* ((original "First paragraph\n\n-----\n\nSecond paragraph\n")
+         (ir (gdocs-convert-org-string-to-ir original))
+         (result (gdocs-convert-ir-to-org ir))
+         ;; Re-parse result to verify semantic equivalence
+         (re-ir (gdocs-convert-org-string-to-ir result)))
+    ;; The round-trip should preserve all three elements
+    (should (= (length re-ir) 3))
+    (should (gdocs-convert-test--find-element re-ir 'horizontal-rule))
+    (should (string-match-p "-----" result))
+    (should (string-match-p "First paragraph" result))
+    (should (string-match-p "Second paragraph" result))))
+
+(ert-deftest gdocs-convert-test-round-trip-multiple-headings ()
+  "Multiple headings at different levels survive round-trip."
+  (let* ((original "* Heading one\n\n** Heading two\n\n*** Heading three\n")
+         (ir (gdocs-convert-org-string-to-ir original))
+         (result (gdocs-convert-ir-to-org ir)))
+    (should (string= (s-trim result) (s-trim original)))))
+
+(ert-deftest gdocs-convert-test-round-trip-mixed-formatting-paragraph ()
+  "Paragraph with bold, italic, AND code in one line survives round-trip."
+  (let* ((original "Here is *bold*, /italic/, and ~code~ together.\n")
+         (ir (gdocs-convert-org-string-to-ir original))
+         (result (gdocs-convert-ir-to-org ir)))
+    (should (string= (s-trim result) (s-trim original)))))
+
+;; ---------------------------------------------------------------------------
+;;; Segmented parsing edge cases
+
+(ert-deftest gdocs-convert-test-segments-preamble-captured ()
+  "Preamble text before the first body element is captured."
+  (with-temp-buffer
+    (insert "#+STARTUP: showall\n\n* Heading\n\nBody text\n")
+    (org-mode)
+    (let* ((result (gdocs-convert-org-buffer-to-segments))
+           (preamble (plist-get result :preamble)))
+      ;; The preamble should contain the STARTUP keyword
+      (should (stringp preamble))
+      (should (string-match-p "STARTUP" preamble)))))
+
+(ert-deftest gdocs-convert-test-segments-postamble-captured ()
+  "Postamble (file-local variables) is captured."
+  (with-temp-buffer
+    (insert "* Heading\n\nBody text\n\n# Local Variables:\n# gdocs-document-id: \"abc\"\n# End:\n")
+    (org-mode)
+    (let* ((result (gdocs-convert-org-buffer-to-segments))
+           (postamble (plist-get result :postamble)))
+      (should (stringp postamble))
+      (should (string-match-p "Local Variables" postamble))
+      (should (string-match-p "gdocs-document-id" postamble)))))
+
+(ert-deftest gdocs-convert-test-segments-count-matches-ir ()
+  "Number of segments matches number of body IR elements."
+  (with-temp-buffer
+    (insert "#+TITLE: Doc\n\n* Heading one\n\nParagraph one\n\n* Heading two\n\nParagraph two\n")
+    (org-mode)
+    (let* ((result (gdocs-convert-org-buffer-to-segments))
+           (ir (plist-get result :ir))
+           (segments (plist-get result :segments))
+           ;; Body elements = all IR minus the title element
+           (title-count (if (eq (plist-get (car ir) :style) 'title) 1 0))
+           (body-count (- (length ir) title-count)))
+      (should (= (length segments) body-count)))))
+
+;; ---------------------------------------------------------------------------
+;;; IR to org edge cases
+
+(ert-deftest gdocs-convert-test-ir-to-org-empty-ir ()
+  "An empty IR produces a minimal string."
+  (let ((result (gdocs-convert-ir-to-org nil)))
+    (should (stringp result))
+    (should (string= (s-trim result) ""))))
+
+(ert-deftest gdocs-convert-test-ir-to-org-empty-paragraph ()
+  "An IR with a paragraph that has nil contents is skipped."
+  (let* ((ir (list (list :type 'paragraph
+                         :style 'normal
+                         :contents nil
+                         :id "elem-001")))
+         (result (gdocs-convert-ir-to-org ir)))
+    (should (stringp result))
+    ;; Empty paragraph is skipped, result should be empty/whitespace
+    (should (string= (s-trim result) ""))))
+
+;; ---------------------------------------------------------------------------
+;;; Org-to-IR formatting edge cases
+
+(ert-deftest gdocs-convert-test-nested-bold-inside-link ()
+  "Bold text inside a link produces a run with both :bold and :link."
+  (let* ((ir (gdocs-convert-org-string-to-ir
+              "Click [[https://example.com][*here*]]"))
+         (runs (plist-get (car ir) :contents))
+         ;; Find the run that has the link
+         (link-run (--first (plist-get it :link) runs)))
+    (should link-run)
+    (should (string= (plist-get link-run :link) "https://example.com"))
+    (should (plist-get link-run :bold))
+    (should (string= (plist-get link-run :text) "here"))))
+
+(ert-deftest gdocs-convert-test-adjacent-formatting-runs ()
+  "Adjacent *bold* /italic/ produces separate bold and italic runs."
+  (let* ((ir (gdocs-convert-org-string-to-ir "*bold* /italic/"))
+         (runs (plist-get (car ir) :contents)))
+    ;; Should have at least a bold run and an italic run
+    (should (>= (length runs) 2))
+    (let ((bold-run (--first (plist-get it :bold) runs))
+          (italic-run (--first (plist-get it :italic) runs)))
+      (should bold-run)
+      (should (string= (plist-get bold-run :text) "bold"))
+      (should italic-run)
+      (should (string= (plist-get italic-run :text) "italic")))))
+
+;; ---------------------------------------------------------------------------
+;;; Docs JSON with multiple paragraphs
+
+(ert-deftest gdocs-convert-test-docs-json-multiple-paragraphs ()
+  "JSON with 2+ paragraphs produces the correct IR count."
+  (let* ((json `((title . "Test Doc")
+                 (body
+                  . ((content
+                      . [((paragraph
+                           . ((elements
+                               . [((textRun
+                                    . ((content . "First paragraph\n")
+                                       (textStyle . ()))))])
+                              (paragraphStyle
+                               . ((namedStyleType . "NORMAL_TEXT"))))))
+                         ((paragraph
+                           . ((elements
+                               . [((textRun
+                                    . ((content . "Second paragraph\n")
+                                       (textStyle . ()))))])
+                              (paragraphStyle
+                               . ((namedStyleType . "NORMAL_TEXT"))))))
+                         ((paragraph
+                           . ((elements
+                               . [((textRun
+                                    . ((content . "Third paragraph\n")
+                                       (textStyle . ()))))])
+                              (paragraphStyle
+                               . ((namedStyleType . "NORMAL_TEXT"))))))])))))
+         (ir (gdocs-convert-docs-json-to-ir json)))
+    ;; 1 title + 3 body paragraphs = 4 elements
+    (should (= (length ir) 4))
+    ;; First element is the title
+    (should (eq (plist-get (nth 0 ir) :style) 'title))
+    ;; Body paragraphs
+    (should (string= (plist-get (car (plist-get (nth 1 ir) :contents)) :text)
+                      "First paragraph"))
+    (should (string= (plist-get (car (plist-get (nth 2 ir) :contents)) :text)
+                      "Second paragraph"))
+    (should (string= (plist-get (car (plist-get (nth 3 ir) :contents)) :text)
+                      "Third paragraph"))))
+
 (provide 'gdocs-convert-test)
 ;;; gdocs-convert-test.el ends here
