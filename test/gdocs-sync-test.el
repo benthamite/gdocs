@@ -586,5 +586,180 @@ local changes) but remote has new content."
         (should drawer-pos)
         (should (< sched-pos drawer-pos))))))
 
+;;;; Folder URL parsing
+
+(ert-deftest gdocs-sync-test-parse-folder-id-from-url ()
+  "Extracts folder ID from a Google Drive folder URL."
+  (should (equal "1AbCdEfGhIjKlMnOpQrStUvWxYz"
+                 (gdocs-sync--parse-folder-id
+                  "https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz"))))
+
+(ert-deftest gdocs-sync-test-parse-folder-id-plain ()
+  "A plain folder ID passes through unchanged."
+  (should (equal "1AbCdEfGhIjKlMnOpQrStUvWxYz"
+                 (gdocs-sync--parse-folder-id "1AbCdEfGhIjKlMnOpQrStUvWxYz"))))
+
+(ert-deftest gdocs-sync-test-parse-folder-id-with-user-segment ()
+  "URL with /u/0/ user segment extracts folder ID correctly."
+  (should (equal "1AbCdEfGhIjKlMnOpQrStUvWxYz"
+                 (gdocs-sync--parse-folder-id
+                  "https://drive.google.com/drive/u/0/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz"))))
+
+;;;; Three-way merge
+
+(ert-deftest gdocs-sync-test-three-way-merge-remote-only-change ()
+  "Remote modifies one element, local unchanged -> merged uses remote."
+  (gdocs-sync-test-with-org-buffer "Hello\n"
+    (let* ((shadow-ir (gdocs-convert-org-buffer-to-ir))
+           (remote-ir
+            (list (list :type 'paragraph :style 'normal
+                        :contents (list (list :text "Goodbye"
+                                              :bold nil :italic nil
+                                              :underline nil
+                                              :strikethrough nil
+                                              :code nil :link nil))
+                        :id "elem-001"))))
+      (setq gdocs-sync--shadow-ir shadow-ir)
+      (let ((result (gdocs-sync--three-way-merge remote-ir)))
+        (should-not (plist-get result :has-conflicts))
+        (should (string-match-p "Goodbye" (plist-get result :merged-org)))))))
+
+(ert-deftest gdocs-sync-test-three-way-merge-local-only-change ()
+  "Remote unchanged, local adds a property drawer -> preserves local text.
+The local modification (a property drawer) does not alter element
+keys, so the LCS between shadow and local still matches.  The
+merge should preserve the local org text verbatim, including the
+drawer that Google Docs cannot represent."
+  (gdocs-sync-test-with-org-buffer "* Heading\n\nBody text\n"
+    (let* ((shadow-ir (gdocs-convert-org-buffer-to-ir))
+           ;; Remote is the same as shadow (no remote changes)
+           (remote-ir (gdocs-convert-org-buffer-to-ir)))
+      (setq gdocs-sync--shadow-ir shadow-ir)
+      ;; Now add a property drawer locally -- this does not change
+      ;; the element key because drawers are org-only metadata.
+      (goto-char (point-min))
+      (forward-line 1)
+      (insert ":PROPERTIES:\n:ID: local-id\n:END:\n")
+      (let ((result (gdocs-sync--three-way-merge remote-ir)))
+        (should-not (plist-get result :has-conflicts))
+        (let ((merged (plist-get result :merged-org)))
+          (should (string-match-p ":PROPERTIES:" merged))
+          (should (string-match-p ":ID: local-id" merged)))))))
+
+(ert-deftest gdocs-sync-test-three-way-merge-both-modify-same-element ()
+  "Both sides modify the same element -> remote wins (no conflict).
+When both sides change an element's content, the LCS cannot map
+the shadow element to either local or remote.  The merge treats
+the local change as a deletion and the remote change as the new
+version, producing a clean merge that takes the remote text."
+  (gdocs-sync-test-with-org-buffer "Anchor paragraph\n\nBase text\n"
+    (let* ((shadow-ir (gdocs-convert-org-buffer-to-ir))
+           ;; Remote changes the second paragraph
+           (remote-ir
+            (list (car shadow-ir)
+                  (list :type 'paragraph :style 'normal
+                        :contents (list (list :text "Remote text"
+                                              :bold nil :italic nil
+                                              :underline nil
+                                              :strikethrough nil
+                                              :code nil :link nil))
+                        :id "elem-remote"))))
+      (setq gdocs-sync--shadow-ir shadow-ir)
+      ;; Local also changes the second paragraph
+      (erase-buffer)
+      (insert "Anchor paragraph\n\nLocal text\n")
+      (let ((result (gdocs-sync--three-way-merge remote-ir)))
+        ;; No conflict: the LCS cannot map the mutually-modified element,
+        ;; so the merge defaults to the remote version.
+        (should-not (plist-get result :has-conflicts))
+        (let ((merged (plist-get result :merged-org)))
+          (should (string-match-p "Anchor paragraph" merged))
+          (should (string-match-p "Remote text" merged)))))))
+
+(ert-deftest gdocs-sync-test-three-way-merge-remote-insert ()
+  "Remote adds a new element not in shadow -> appears in merged output."
+  (gdocs-sync-test-with-org-buffer "First\n"
+    (let* ((shadow-ir (gdocs-convert-org-buffer-to-ir))
+           ;; Remote has the original element plus a new one
+           (remote-ir
+            (append
+             (gdocs-convert-org-buffer-to-ir)
+             (list (list :type 'paragraph :style 'normal
+                         :contents (list (list :text "Inserted"
+                                               :bold nil :italic nil
+                                               :underline nil
+                                               :strikethrough nil
+                                               :code nil :link nil))
+                         :id "elem-new")))))
+      (setq gdocs-sync--shadow-ir shadow-ir)
+      (let ((result (gdocs-sync--three-way-merge remote-ir)))
+        (should-not (plist-get result :has-conflicts))
+        (let ((merged (plist-get result :merged-org)))
+          (should (string-match-p "First" merged))
+          (should (string-match-p "Inserted" merged)))))))
+
+(ert-deftest gdocs-sync-test-three-way-merge-remote-delete-local-unchanged ()
+  "Remote deletes element, local unchanged -> element removed."
+  (gdocs-sync-test-with-org-buffer "Alpha\n\nBravo\n"
+    (let* ((shadow-ir (gdocs-convert-org-buffer-to-ir))
+           ;; Remote keeps only the first paragraph (deletes Bravo)
+           (remote-ir
+            (list (car shadow-ir))))
+      (setq gdocs-sync--shadow-ir shadow-ir)
+      (let ((result (gdocs-sync--three-way-merge remote-ir)))
+        (should-not (plist-get result :has-conflicts))
+        (let ((merged (plist-get result :merged-org)))
+          (should (string-match-p "Alpha" merged))
+          (should-not (string-match-p "Bravo" merged)))))))
+
+;;;; Push-on-save: pushing status
+
+(ert-deftest gdocs-sync-test-should-auto-push-when-pushing ()
+  "Auto-push returns t when status is `pushing'.
+The `pushing' status is NOT blocked by `gdocs-sync--should-auto-push-p';
+serialization is handled separately by `gdocs-sync--serialize-push'."
+  (gdocs-sync-test-with-org-buffer "Content\n"
+    (let ((gdocs-auto-push-on-save t))
+      (setq gdocs-sync--status 'pushing)
+      ;; `pushing' is not in the exclusion list (conflict error),
+      ;; so auto-push returns t -- serialization guards against double-push.
+      (should (gdocs-sync--should-auto-push-p)))))
+
+;;;; Extract title
+
+(ert-deftest gdocs-sync-test-extract-title-present ()
+  "Returns title text from IR with a title element."
+  (let ((ir (list (list :type 'paragraph :style 'title
+                        :contents (list (list :text "My Document"))
+                        :source 'metadata
+                        :id "e-title")
+                  (list :type 'paragraph :style 'normal
+                        :contents (list (list :text "Body"))
+                        :id "e-body"))))
+    (should (equal "My Document" (gdocs-sync--extract-title ir)))))
+
+(ert-deftest gdocs-sync-test-extract-title-absent ()
+  "Returns nil when no title element exists."
+  (let ((ir (list (list :type 'paragraph :style 'normal
+                        :contents (list (list :text "Body"))
+                        :id "e-body"))))
+    (should-not (gdocs-sync--extract-title ir))))
+
+;;;; Body end index
+
+(ert-deftest gdocs-sync-test-body-end-index-with-content ()
+  "Returns correct end index from document JSON."
+  (let ((json '((body . ((content . [((startIndex . 0) (endIndex . 1)
+                                       (sectionBreak . t))
+                                      ((startIndex . 1) (endIndex . 42)
+                                       (paragraph . ((elements . []))))]))))))
+    (should (= 42 (gdocs-sync--body-end-index json)))))
+
+(ert-deftest gdocs-sync-test-body-end-index-empty ()
+  "Returns 1 for empty/nil content."
+  (should (= 1 (gdocs-sync--body-end-index '((body . ((content . [])))))))
+  (should (= 1 (gdocs-sync--body-end-index '((body . nil)))))
+  (should (= 1 (gdocs-sync--body-end-index nil))))
+
 (provide 'gdocs-sync-test)
 ;;; gdocs-sync-test.el ends here
