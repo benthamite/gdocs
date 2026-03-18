@@ -464,5 +464,217 @@ residual bullet from the preserved paragraph."
                    result)))
     (should-not has-delete-bullets)))
 
+;;;; Empty IR edge cases
+
+(ert-deftest gdocs-diff-test-both-empty ()
+  "Both old and new IR empty produces no requests."
+  (should (null (gdocs-diff-generate nil nil))))
+
+(ert-deftest gdocs-diff-test-empty-old-to-non-empty ()
+  "Empty old IR to non-empty new IR produces only insertions."
+  (let* ((new-ir (list (gdocs-diff-test--make-paragraph "e1" "hello")
+                       (gdocs-diff-test--make-paragraph "e2" "world")))
+         (result (gdocs-diff-generate nil new-ir)))
+    (should result)
+    (should (cl-every (lambda (req)
+                        (not (alist-get 'deleteContentRange req)))
+                      result))
+    (should (cl-some (lambda (req)
+                       (alist-get 'insertText req))
+                     result))))
+
+(ert-deftest gdocs-diff-test-non-empty-old-to-empty ()
+  "Non-empty old IR to empty new IR produces only deletions."
+  (let* ((old-ir (list (gdocs-diff-test--make-paragraph "e1" "hello")
+                       (gdocs-diff-test--make-paragraph "e2" "world")))
+         (result (gdocs-diff-generate old-ir nil)))
+    (should result)
+    (should (cl-some (lambda (req)
+                       (alist-get 'deleteContentRange req))
+                     result))
+    (should (cl-every (lambda (req)
+                        (not (alist-get 'insertText req)))
+                      result))))
+
+;;;; Single element tests
+
+(ert-deftest gdocs-diff-test-single-element-modify ()
+  "Modifying the only paragraph generates delete + insert."
+  (let* ((old-ir (list (gdocs-diff-test--make-paragraph "e1" "before")))
+         (new-ir (list (gdocs-diff-test--make-paragraph "e1" "after")))
+         (result (gdocs-diff-generate old-ir new-ir)))
+    (should (cl-some (lambda (req)
+                       (alist-get 'deleteContentRange req))
+                     result))
+    (should (cl-some (lambda (req)
+                       (alist-get 'insertText req))
+                     result))))
+
+(ert-deftest gdocs-diff-test-single-element-unchanged ()
+  "Single unchanged element produces no requests."
+  (let* ((ir (list (gdocs-diff-test--make-paragraph "e1" "same")))
+         (result (gdocs-diff-generate ir ir)))
+    (should (null result))))
+
+;;;; Threshold boundary tests
+
+(ert-deftest gdocs-diff-test-threshold-exactly-50-percent-kept ()
+  "Exactly 50% kept elements uses incremental diff (>= threshold).
+2 of 4 elements kept = 50%, which meets the threshold."
+  (let* ((p1 (gdocs-diff-test--make-paragraph "e1" "keep1"))
+         (p2 (gdocs-diff-test--make-paragraph "e2" "drop1"))
+         (p3 (gdocs-diff-test--make-paragraph "e3" "keep2"))
+         (p4 (gdocs-diff-test--make-paragraph "e4" "drop2"))
+         (p5 (gdocs-diff-test--make-paragraph "e5" "new1"))
+         (p6 (gdocs-diff-test--make-paragraph "e6" "new2"))
+         (old-ir (list p1 p2 p3 p4))
+         (new-ir (list p1 p3 p5 p6))
+         (old-keys (gdocs-diff--element-keys old-ir))
+         (new-keys (gdocs-diff--element-keys new-ir))
+         (lcs (gdocs-diff--lcs old-keys new-keys))
+         (ops (gdocs-diff--classify-operations old-ir new-ir lcs)))
+    ;; 2 kept out of max(4,4)=4 -> 50%, not below threshold
+    (should-not (gdocs-diff--should-use-full-replace-p old-ir new-ir ops))))
+
+(ert-deftest gdocs-diff-test-threshold-below-50-percent-kept ()
+  "Below 50% kept elements triggers full replace.
+1 of 4 elements kept = 25%, below the 50% threshold."
+  (let* ((p1 (gdocs-diff-test--make-paragraph "e1" "keep"))
+         (p2 (gdocs-diff-test--make-paragraph "e2" "drop1"))
+         (p3 (gdocs-diff-test--make-paragraph "e3" "drop2"))
+         (p4 (gdocs-diff-test--make-paragraph "e4" "drop3"))
+         (p5 (gdocs-diff-test--make-paragraph "e5" "new1"))
+         (p6 (gdocs-diff-test--make-paragraph "e6" "new2"))
+         (p7 (gdocs-diff-test--make-paragraph "e7" "new3"))
+         (old-ir (list p1 p2 p3 p4))
+         (new-ir (list p1 p5 p6 p7))
+         (old-keys (gdocs-diff--element-keys old-ir))
+         (new-keys (gdocs-diff--element-keys new-ir))
+         (lcs (gdocs-diff--lcs old-keys new-keys))
+         (ops (gdocs-diff--classify-operations old-ir new-ir lcs)))
+    ;; 1 kept out of max(4,4)=4 -> 25%, below threshold
+    (should (gdocs-diff--should-use-full-replace-p old-ir new-ir ops))))
+
+(ert-deftest gdocs-diff-test-threshold-small-doc-no-fallback ()
+  "Documents below min-elements never trigger full replace.
+2 elements with 0 kept is below min-elements (3), so incremental."
+  (let* ((p1 (gdocs-diff-test--make-paragraph "e1" "old1"))
+         (p2 (gdocs-diff-test--make-paragraph "e2" "old2"))
+         (p3 (gdocs-diff-test--make-paragraph "e3" "new1"))
+         (p4 (gdocs-diff-test--make-paragraph "e4" "new2"))
+         (old-ir (list p1 p2))
+         (new-ir (list p3 p4))
+         (old-keys (gdocs-diff--element-keys old-ir))
+         (new-keys (gdocs-diff--element-keys new-ir))
+         (lcs (gdocs-diff--lcs old-keys new-keys))
+         (ops (gdocs-diff--classify-operations old-ir new-ir lcs)))
+    ;; max(2,2)=2 < 3 min-elements, so no full replace
+    (should-not (gdocs-diff--should-use-full-replace-p old-ir new-ir ops))))
+
+;;;; Horizontal rule operation tests
+
+(ert-deftest gdocs-diff-test-insert-horizontal-rule ()
+  "Inserting a horizontal rule generates requests."
+  (let* ((p1 (gdocs-diff-test--make-paragraph "e1" "above"))
+         (hr (gdocs-diff-test--make-hrule "hr1"))
+         (old-ir (list p1))
+         (new-ir (list p1 hr))
+         (result (gdocs-diff-generate old-ir new-ir)))
+    (should result)))
+
+(ert-deftest gdocs-diff-test-delete-horizontal-rule ()
+  "Deleting a horizontal rule generates a deleteContentRange request."
+  (let* ((p1 (gdocs-diff-test--make-paragraph "e1" "above"))
+         (hr (gdocs-diff-test--make-hrule "hr1"))
+         (old-ir (list p1 hr))
+         (new-ir (list p1))
+         (result (gdocs-diff-generate old-ir new-ir)))
+    (should (cl-some (lambda (req)
+                       (alist-get 'deleteContentRange req))
+                     result))))
+
+;;;; List property change tests
+
+(ert-deftest gdocs-diff-test-change-list-type ()
+  "Changing list type from ordered to unordered modifies content."
+  (let* ((old-elem (list :type 'paragraph :style 'normal
+                         :contents (list (list :text "Item"
+                                               :bold nil :italic nil
+                                               :underline nil
+                                               :strikethrough nil
+                                               :code nil :link nil))
+                         :list (list :type 'number :level 0)
+                         :id "e1"))
+         (new-elem (list :type 'paragraph :style 'normal
+                         :contents (list (list :text "Item"
+                                               :bold nil :italic nil
+                                               :underline nil
+                                               :strikethrough nil
+                                               :code nil :link nil))
+                         :list (list :type 'bullet :level 0)
+                         :id "e1"))
+         (old-ir (list old-elem))
+         (new-ir (list new-elem))
+         (result (gdocs-diff-generate old-ir new-ir)))
+    ;; The list type change should produce requests
+    (should result)))
+
+(ert-deftest gdocs-diff-test-change-list-level ()
+  "Changing list nesting level produces requests."
+  (let* ((old-elem (list :type 'paragraph :style 'normal
+                         :contents (list (list :text "Nested"
+                                               :bold nil :italic nil
+                                               :underline nil
+                                               :strikethrough nil
+                                               :code nil :link nil))
+                         :list (list :type 'bullet :level 0)
+                         :id "e1"))
+         (new-elem (list :type 'paragraph :style 'normal
+                         :contents (list (list :text "Nested"
+                                               :bold nil :italic nil
+                                               :underline nil
+                                               :strikethrough nil
+                                               :code nil :link nil))
+                         :list (list :type 'bullet :level 2)
+                         :id "e1"))
+         (old-ir (list old-elem))
+         (new-ir (list new-elem))
+         (result (gdocs-diff-generate old-ir new-ir)))
+    (should result)))
+
+;;;; Insertion ordering tests
+
+(ert-deftest gdocs-diff-test-insert-at-beginning ()
+  "Insertion before all existing elements uses start-index."
+  (let* ((p1 (gdocs-diff-test--make-paragraph "e1" "existing"))
+         (p0 (gdocs-diff-test--make-paragraph "e0" "prepended"))
+         (old-ir (list p1))
+         (new-ir (list p0 p1))
+         (result (gdocs-diff-generate old-ir new-ir))
+         (insert-req (cl-find-if (lambda (req)
+                                   (alist-get 'insertText req))
+                                 result))
+         (loc (alist-get 'location
+                         (alist-get 'insertText insert-req))))
+    ;; The insertion should target index 1 (the default start-index),
+    ;; since there is no preceding kept element.
+    (should insert-req)
+    (should (= (alist-get 'index loc) 1))))
+
+(ert-deftest gdocs-diff-test-insert-at-beginning-custom-offset ()
+  "Insertion before all elements with custom start-index uses that offset."
+  (let* ((p1 (gdocs-diff-test--make-paragraph "e1" "existing"))
+         (p0 (gdocs-diff-test--make-paragraph "e0" "prepended"))
+         (old-ir (list p1))
+         (new-ir (list p0 p1))
+         (result (gdocs-diff-generate old-ir new-ir 15))
+         (insert-req (cl-find-if (lambda (req)
+                                   (alist-get 'insertText req))
+                                 result))
+         (loc (alist-get 'location
+                         (alist-get 'insertText insert-req))))
+    (should insert-req)
+    (should (= (alist-get 'index loc) 15))))
+
 (provide 'gdocs-diff-test)
 ;;; gdocs-diff-test.el ends here
