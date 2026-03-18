@@ -800,6 +800,7 @@
 (ert-deftest gdocs-convert-test-cache-heading-ids ()
   "Heading IDs are extracted and cached from docs JSON."
   (let ((gdocs-convert--heading-cache (make-hash-table :test 'equal))
+        (gdocs-convert--heading-reverse-cache (make-hash-table :test 'equal))
         (json `((body . ((content
                           . [((paragraph
                                . ((elements
@@ -812,7 +813,7 @@
                 (title . "Test"))))
     (gdocs-convert--cache-heading-ids "doc-001" json)
     (let ((forward (gethash "doc-001" gdocs-convert--heading-cache))
-          (reverse (gethash "doc-001-reverse" gdocs-convert--heading-cache)))
+          (reverse (gethash "doc-001" gdocs-convert--heading-reverse-cache)))
       (should (equal forward '(("Introduction" . "h123abc"))))
       (should (equal reverse '(("h123abc" . "Introduction")))))))
 
@@ -909,12 +910,13 @@
   "Google Docs URLs with heading anchors reverse-resolve with ::*Heading."
   (let* ((docid-map (make-hash-table :test 'equal))
          (gdocs-convert--heading-cache (make-hash-table :test 'equal))
+         (gdocs-convert--heading-reverse-cache (make-hash-table :test 'equal))
          (gdocs-convert--link-context
           (list :buffer-file "/home/user/org/source.org"
                 :docid-map docid-map)))
     (puthash "DOC_ABC" "/home/user/org/target.org" docid-map)
-    (puthash "DOC_ABC-reverse" '(("h_intro" . "Introduction"))
-             gdocs-convert--heading-cache)
+    (puthash "DOC_ABC" '(("h_intro" . "Introduction"))
+             gdocs-convert--heading-reverse-cache)
     (let* ((run (list :text "intro"
                       :bold nil :italic nil :underline nil
                       :strikethrough nil :code nil
@@ -1059,7 +1061,8 @@
   (let* ((temp-dir (make-temp-file "gdocs-test" t))
          (doc-file (expand-file-name "doc.org" temp-dir))
          (docid-map (make-hash-table :test 'equal))
-         (gdocs-convert--heading-cache (make-hash-table :test 'equal)))
+         (gdocs-convert--heading-cache (make-hash-table :test 'equal))
+         (gdocs-convert--heading-reverse-cache (make-hash-table :test 'equal)))
     (unwind-protect
         (progn
           (with-temp-file doc-file
@@ -1068,9 +1071,9 @@
                     ":ID:       DE2746D4-0EE2-4D37-9CCE-7264E953EB90\n"
                     ":END:\n"))
           (puthash "DOC_SELF" doc-file docid-map)
-          (puthash "DOC_SELF-reverse"
+          (puthash "DOC_SELF"
                    '(("h_build" . "Building a pipeline"))
-                   gdocs-convert--heading-cache)
+                   gdocs-convert--heading-reverse-cache)
           (let* ((gdocs-convert--link-context
                   (list :buffer-file doc-file
                         :docid-map docid-map))
@@ -1089,15 +1092,16 @@
   (let* ((temp-dir (make-temp-file "gdocs-test" t))
          (doc-file (expand-file-name "doc.org" temp-dir))
          (docid-map (make-hash-table :test 'equal))
-         (gdocs-convert--heading-cache (make-hash-table :test 'equal)))
+         (gdocs-convert--heading-cache (make-hash-table :test 'equal))
+         (gdocs-convert--heading-reverse-cache (make-hash-table :test 'equal)))
     (unwind-protect
         (progn
           (with-temp-file doc-file
             (insert "* Building a pipeline\n"))
           (puthash "DOC_SELF" doc-file docid-map)
-          (puthash "DOC_SELF-reverse"
+          (puthash "DOC_SELF"
                    '(("h_build" . "Building a pipeline"))
-                   gdocs-convert--heading-cache)
+                   gdocs-convert--heading-reverse-cache)
           (let* ((gdocs-convert--link-context
                   (list :buffer-file doc-file
                         :docid-map docid-map))
