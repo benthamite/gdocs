@@ -647,11 +647,10 @@ drawer that Google Docs cannot represent."
           (should (string-match-p ":ID: local-id" merged)))))))
 
 (ert-deftest gdocs-sync-test-three-way-merge-both-modify-same-element ()
-  "Both sides modify the same element -> remote wins (no conflict).
-When both sides change an element's content, the LCS cannot map
-the shadow element to either local or remote.  The merge treats
-the local change as a deletion and the remote change as the new
-version, producing a clean merge that takes the remote text."
+  "Both sides modify the same element -> conflict detected.
+The diff engine's adjacent delete+insert collapsing recognizes
+the positional correspondence between the shadow element and
+local modification, allowing the merge to detect the conflict."
   (gdocs-sync-test-with-org-buffer "Anchor paragraph\n\nBase text\n"
     (let* ((shadow-ir (gdocs-convert-org-buffer-to-ir))
            ;; Remote changes the second paragraph
@@ -669,11 +668,12 @@ version, producing a clean merge that takes the remote text."
       (erase-buffer)
       (insert "Anchor paragraph\n\nLocal text\n")
       (let ((result (gdocs-sync--three-way-merge remote-ir)))
-        ;; No conflict: the LCS cannot map the mutually-modified element,
-        ;; so the merge defaults to the remote version.
-        (should-not (plist-get result :has-conflicts))
+        (should (plist-get result :has-conflicts))
         (let ((merged (plist-get result :merged-org)))
           (should (string-match-p "Anchor paragraph" merged))
+          (should (string-match-p "<<<< LOCAL" merged))
+          (should (string-match-p "Local text" merged))
+          (should (string-match-p ">>>> REMOTE" merged))
           (should (string-match-p "Remote text" merged)))))))
 
 (ert-deftest gdocs-sync-test-three-way-merge-remote-insert ()
@@ -711,6 +711,45 @@ version, producing a clean merge that takes the remote text."
         (let ((merged (plist-get result :merged-org)))
           (should (string-match-p "Alpha" merged))
           (should-not (string-match-p "Bravo" merged)))))))
+
+(ert-deftest gdocs-sync-test-three-way-merge-remote-delete-local-modified ()
+  "Remote deletes an element that local modified -> conflict.
+The diff engine recognizes the local modification via adjacent
+delete+insert collapsing, so the merge detects that remote
+deleted something local still cares about."
+  (gdocs-sync-test-with-org-buffer "Anchor paragraph\n\nBase text\n"
+    (let* ((shadow-ir (gdocs-convert-org-buffer-to-ir))
+           ;; Remote deletes the second paragraph, keeps only the anchor
+           (remote-ir (list (car shadow-ir))))
+      (setq gdocs-sync--shadow-ir shadow-ir)
+      ;; Local modifies the second paragraph
+      (erase-buffer)
+      (insert "Anchor paragraph\n\nLocal modified text\n")
+      (let ((result (gdocs-sync--three-way-merge remote-ir)))
+        (should (plist-get result :has-conflicts))
+        (let ((merged (plist-get result :merged-org)))
+          (should (string-match-p "Anchor paragraph" merged))
+          (should (string-match-p "Local modified text" merged)))))))
+
+(ert-deftest gdocs-sync-test-three-way-merge-local-modify-remote-keeps ()
+  "Local modifies content, remote keeps it unchanged -> local preserved.
+When local changes an element's text (producing a different key)
+and remote keeps the original, the merge should preserve the
+local version since remote made no changes."
+  (gdocs-sync-test-with-org-buffer "Anchor paragraph\n\nOriginal text\n"
+    (let* ((shadow-ir (gdocs-convert-org-buffer-to-ir))
+           ;; Remote is unchanged from shadow
+           (remote-ir (gdocs-convert-org-buffer-to-ir)))
+      (setq gdocs-sync--shadow-ir shadow-ir)
+      ;; Local modifies the second paragraph
+      (erase-buffer)
+      (insert "Anchor paragraph\n\nLocal edit here\n")
+      (let ((result (gdocs-sync--three-way-merge remote-ir)))
+        (should-not (plist-get result :has-conflicts))
+        (let ((merged (plist-get result :merged-org)))
+          (should (string-match-p "Anchor paragraph" merged))
+          (should (string-match-p "Local edit here" merged))
+          (should-not (string-match-p "Original text" merged)))))))
 
 ;;;; Push-on-save: pushing status
 

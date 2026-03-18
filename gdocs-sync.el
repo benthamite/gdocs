@@ -428,9 +428,20 @@ grafted back.  Returns a plist with :merged-org and
                   shadow-ir remote-filtered rs-lcs))
          ;; LCS: local vs shadow (what changed locally)
          (ls-lcs (gdocs-diff--lcs shadow-keys local-keys))
-         ;; Map: shadow-index -> local-segment-index
-         ;; ls-lcs is already in (SHADOW-INDEX . LOCAL-INDEX) form.
+         (ls-ops (gdocs-diff--classify-operations
+                  shadow-ir local-ir ls-lcs))
+         ;; Map: shadow-index -> local-segment-index (unchanged elements)
+         ;; ls-lcs pairs only elements with equal keys.
          (shadow-to-local ls-lcs)
+         ;; Map: shadow-index -> local-segment-index (modified elements)
+         ;; Built from :modify operations where the content key changed
+         ;; but positional correspondence was detected by the LCS
+         ;; algorithm's adjacent delete+insert collapsing.
+         (shadow-to-local-modified
+          (cl-loop for op in ls-ops
+                   when (eq (plist-get op :op) 'modify)
+                   collect (cons (plist-get op :old-index)
+                                 (plist-get op :new-index))))
          ;; Merge
          (merged-parts nil)
          (has-conflicts nil))
@@ -441,17 +452,25 @@ grafted back.  Returns a plist with :merged-org and
           ('keep
            ;; Remote unchanged: use local text if available
            (let* ((si (plist-get op :old-index))
-                  (local-idx (cdr (assq si shadow-to-local))))
-             (if local-idx
-                 ;; Have corresponding local segment: use it verbatim
-                 (push (plist-get (nth local-idx local-segments) :org-text)
-                       merged-parts)
+                  (local-idx (cdr (assq si shadow-to-local)))
+                  (modified-idx (cdr (assq si shadow-to-local-modified))))
+             (cond
+              (local-idx
+               ;; LCS match: local kept this element, use it verbatim
+               (push (plist-get (nth local-idx local-segments) :org-text)
+                     merged-parts))
+              (modified-idx
+               ;; Local modified this element, remote kept it:
+               ;; preserve the local version
+               (push (plist-get (nth modified-idx local-segments) :org-text)
+                     merged-parts))
+              (t
                ;; No local match (local deleted this element):
                ;; remote kept it, so restore from remote
                (push (gdocs-sync--ir-element-to-org-segment
                       (nth (plist-get op :new-index) remote-filtered)
                       nil)
-                     merged-parts))))
+                     merged-parts)))))
           ('insert
            ;; Remote inserted new element
            (push (gdocs-sync--ir-element-to-org-segment
@@ -459,37 +478,35 @@ grafted back.  Returns a plist with :merged-org and
                   nil)
                  merged-parts))
           ('delete
-           ;; Remote deleted: check if local also left it unchanged
+           ;; Remote deleted: check if local also changed it
            (let* ((si (plist-get op :old-index))
                   (local-idx (cdr (assq si shadow-to-local)))
-                  (local-key (when local-idx
-                               (nth local-idx local-keys)))
-                  (shadow-key (nth si shadow-keys)))
-             (if (or (null local-idx)
-                     (equal local-key shadow-key))
-                 ;; Local unchanged or also deleted: honor remote deletion
-                 nil
-               ;; Local changed what remote deleted: conflict
+                  (modified-idx (cdr (assq si shadow-to-local-modified))))
+             (cond
+              (modified-idx
+               ;; Local modified what remote deleted: conflict
                (setq has-conflicts t)
-               (push (plist-get (nth local-idx local-segments) :org-text)
-                     merged-parts))))
+               (push (plist-get (nth modified-idx local-segments) :org-text)
+                     merged-parts))
+              (t
+               ;; Local unchanged or also deleted: honor remote deletion
+               nil))))
           ('modify
            ;; Remote changed this element
            (let* ((si (plist-get op :old-index))
                   (ni (plist-get op :new-index))
                   (remote-elem (nth ni remote-filtered))
                   (local-idx (cdr (assq si shadow-to-local)))
-                  (local-key (when local-idx (nth local-idx local-keys)))
-                  (shadow-key (nth si shadow-keys)))
-             (if (and local-idx
-                      (not (equal local-key shadow-key)))
+                  (modified-idx (cdr (assq si shadow-to-local-modified))))
+             (if modified-idx
                  ;; Both changed: conflict — include both versions
                  (progn
                    (setq has-conflicts t)
                    ;; Same shortened conflict markers as `gdocs-merge--insert-conflict'
                    (push (concat
                           "<<<< LOCAL\n"
-                          (plist-get (nth local-idx local-segments) :org-text)
+                          (plist-get (nth modified-idx local-segments)
+                                     :org-text)
                           "====\n"
                           (gdocs-sync--ir-element-to-org-segment
                            remote-elem nil)
