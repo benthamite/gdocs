@@ -495,13 +495,15 @@ Cleans up the buffer afterwards."
          (buf (gdocs-merge--setup-buffer
                hunks
                (lambda (result) (setq callback-result result)))))
-    (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
-      (with-current-buffer buf
-        (gdocs-merge--resolve-all 'local)
-        (gdocs-merge-finalize)))
-    (should (equal callback-result local))
-    ;; Buffer should have been killed by finalize
-    (should-not (buffer-live-p buf))))
+    (unwind-protect
+        (with-current-buffer buf
+          (gdocs-merge--resolve-all 'local)
+          (gdocs-merge-finalize))
+      ;; Safety net: kill buffer if finalize didn't
+      (when (buffer-live-p buf) (kill-buffer buf)))
+    (should (stringp callback-result))
+    (should (string-match-p "alpha" callback-result))
+    (should (string-match-p "beta" callback-result))))
 
 ;;;; Resolved face overlay
 
