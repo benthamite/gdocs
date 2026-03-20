@@ -480,7 +480,6 @@ grafted back.  Returns a plist with :merged-org and
           ('delete
            ;; Remote deleted: check if local also changed it
            (let* ((si (plist-get op :old-index))
-                  (local-idx (cdr (assq si shadow-to-local)))
                   (modified-idx (cdr (assq si shadow-to-local-modified))))
              (cond
               (modified-idx
