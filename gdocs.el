@@ -208,9 +208,11 @@ placed in that folder."
 JSON is the create-document response.  ACCOUNT is the account
 name.  FOLDER-ID, if non-nil, specifies the Google Drive folder
 to move the document into."
-  (let ((doc-id (alist-get 'documentId json))
-        (ir (gdocs-convert-org-buffer-to-ir))
-        (buf (current-buffer)))
+  (let* ((doc-id (alist-get 'documentId json))
+         (link-ctx (gdocs-sync--make-link-context))
+         (gdocs-convert--link-context link-ctx)
+         (ir (gdocs-convert-org-buffer-to-ir))
+         (buf (current-buffer)))
     ;; Move to the target folder if specified (fire-and-forget;
     ;; independent of the content push below).
     (when folder-id
