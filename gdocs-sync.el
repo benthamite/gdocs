@@ -20,8 +20,7 @@
 (require 'gdocs-api)
 (require 'gdocs-convert)
 (require 'gdocs-diff)
-
-(declare-function gdocs-merge-start "gdocs-merge")
+(require 'gdocs-merge)
 (declare-function gdocs--update-modeline "gdocs")
 (declare-function gdocs--ensure-org-tag "gdocs")
 (declare-function gdocs--remove-org-tag "gdocs")
@@ -129,6 +128,8 @@ to determine the body end index."
            (remote-title (alist-get 'title json))
            (filtered-ir (gdocs-sync--filter-title current-ir))
            (insert-reqs (gdocs-convert-ir-to-docs-requests filtered-ir))
+           ;; (1- body-end): preserve the mandatory trailing newline that
+           ;; Google Docs requires at the end of the document body.
            (delete-req (when (> body-end gdocs-sync--empty-body-end-index)
                          (list (gdocs-diff--make-delete-request
                                 1 (1- body-end)))))
@@ -148,6 +149,8 @@ Returns the endIndex of the last element in the body content."
   (let* ((body (alist-get 'body json))
          (content (alist-get 'content body)))
     (if (or (null content) (= (length content) 0))
+        ;; Empty body: return 1 (body start) so no deletion range is
+        ;; generated, since (> 1 empty-body-end-index) is false.
         1
       (alist-get 'endIndex (aref content (1- (length content)))))))
 
@@ -501,15 +504,14 @@ grafted back.  Returns a plist with :merged-org and
                  ;; Both changed: conflict — include both versions
                  (progn
                    (setq has-conflicts t)
-                   ;; Same shortened conflict markers as `gdocs-merge--insert-conflict'
                    (push (concat
-                          "<<<< LOCAL\n"
+                          gdocs-merge-conflict-marker-local
                           (plist-get (nth modified-idx local-segments)
                                      :org-text)
-                          "====\n"
+                          gdocs-merge-conflict-marker-separator
                           (gdocs-sync--ir-element-to-org-segment
                            remote-elem nil)
-                          ">>>> REMOTE\n")
+                          gdocs-merge-conflict-marker-remote)
                          merged-parts))
                ;; Only remote changed: use remote, graft local metadata
                (let* ((local-seg (when local-idx
@@ -590,6 +592,10 @@ that cannot be represented in Google Docs.  They survive round-trips
 via named ranges.  Returns a new element plist.  If LOCAL-ELEM is
 nil or has no marker, returns REMOTE-ELEM unchanged."
   (if (and local-elem (plist-get local-elem :gdocs-marker))
+      ;; Build a fresh plist with the canonical IR keys from the remote
+      ;; element and the local marker.  Only the keys that the diff and
+      ;; conversion engines inspect are copied; any future keys must be
+      ;; added here to survive the graft.
       (append (list :type (plist-get remote-elem :type)
                     :style (plist-get remote-elem :style)
                     :contents (plist-get remote-elem :contents)

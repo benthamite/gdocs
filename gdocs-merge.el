@@ -19,22 +19,41 @@
 (require 'dash)
 (require 's)
 (require 'diff)
+(require 'org)
 (require 'gdocs-diff)
 
 ;;;; Faces
 
-;; Light-background colors; dark themes may need :inherit overrides
 (defface gdocs-merge-local-face
-  '((t :background "#e6ffe6"))
+  '((((background light)) :background "#e6ffe6")
+    (((background dark))  :background "#1a3a1a"))
   "Face for local changes in merge view.")
 
 (defface gdocs-merge-remote-face
-  '((t :background "#ffe6e6"))
+  '((((background light)) :background "#ffe6e6")
+    (((background dark))  :background "#3a1a1a"))
   "Face for remote changes in merge view.")
 
 (defface gdocs-merge-resolved-face
-  '((t :background "#e6e6ff"))
+  '((((background light)) :background "#e6e6ff")
+    (((background dark))  :background "#1a1a3a"))
   "Face for resolved hunks in merge view.")
+
+;;;; Constants
+
+(defconst gdocs-merge-conflict-marker-local "<<<< LOCAL\n"
+  "Conflict marker preceding the local version of a hunk.
+Shortened from Git's 7-char markers to 4 chars since these are
+only displayed in the merge UI buffer, never parsed by tools.")
+
+(defconst gdocs-merge-conflict-marker-separator "====\n"
+  "Conflict marker separating local and remote versions.")
+
+(defconst gdocs-merge-conflict-marker-remote ">>>> REMOTE\n"
+  "Conflict marker following the remote version of a hunk.")
+
+(defconst gdocs-merge--buffer-name "*gdocs-merge*"
+  "Name of the merge resolution buffer.")
 
 ;;;; Buffer-local state
 
@@ -160,7 +179,7 @@ chunks and common lines."
 
 (defun gdocs-merge--setup-buffer (hunks callback)
   "Set up the merge buffer with HUNKS and CALLBACK.  Return the buffer."
-  (let ((buf (get-buffer-create "*gdocs-merge*")))
+  (let ((buf (get-buffer-create gdocs-merge--buffer-name)))
     (with-current-buffer buf
       (let ((inhibit-read-only t))
         (erase-buffer)
@@ -177,6 +196,7 @@ chunks and common lines."
   (let ((inhibit-read-only t))
     ;; Full re-render for simplicity; merge buffers are small enough
     ;; that incremental overlay updates aren't needed.
+    (remove-overlays)
     (erase-buffer)
     (dolist (hunk gdocs-merge--hunks)
       (gdocs-merge--render-one-hunk hunk))))
@@ -208,12 +228,11 @@ chunks and common lines."
 
 (defun gdocs-merge--insert-conflict (local-text remote-text hunk start)
   "Insert conflicting LOCAL-TEXT and REMOTE-TEXT for HUNK at START."
-  ;; Shortened conflict markers (4 chars vs Git's 7) to save space
-  (insert "<<<< LOCAL\n")
+  (insert gdocs-merge-conflict-marker-local)
   (insert local-text "\n")
-  (insert "====\n")
+  (insert gdocs-merge-conflict-marker-separator)
   (insert remote-text "\n")
-  (insert ">>>> REMOTE\n")
+  (insert gdocs-merge-conflict-marker-remote)
   (let ((ov (make-overlay start (point))))
     (overlay-put ov 'face 'gdocs-merge-remote-face)
     (plist-put hunk :overlay ov)))
@@ -302,7 +321,7 @@ starting point.  Press C-c C-c to accept the edited text."
       ;; Trim trailing whitespace added by the edit buffer's final newline
       (plist-put hunk :edited-text (s-trim-right text))
       (kill-buffer edit-buf)
-      (when-let* ((merge-buf (get-buffer "*gdocs-merge*")))
+      (when-let* ((merge-buf (get-buffer gdocs-merge--buffer-name)))
         (pop-to-buffer merge-buf)
         (gdocs-merge--render-hunks)))))
 

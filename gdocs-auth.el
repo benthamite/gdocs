@@ -119,9 +119,11 @@ If ACCOUNT is nil, prompt the user to select one."
   (interactive)
   (let* ((acct (gdocs-auth--resolve-account account))
          (token-file (gdocs-auth--token-file-path acct)))
-    (when (file-exists-p token-file)
-      (delete-file token-file)
-      (message "Logged out of account %s" acct))))
+    (if (file-exists-p token-file)
+        (progn
+          (delete-file token-file)
+          (message "Logged out of account %s" acct))
+      (message "No token file found for account %s (already logged out)" acct))))
 
 ;;;; Account resolution
 
@@ -165,15 +167,20 @@ Return the parsed JSON as an alist if the file exists, nil
 otherwise."
   (let ((path (gdocs-auth--token-file-path account)))
     (when (file-exists-p path)
-      (json-read-file path))))
+      (condition-case _err
+          (json-read-file path)
+        (json-error
+         (message "Token file for account %s is corrupted; run `gdocs-authenticate' to re-authorize"
+                  account)
+         nil)))))
 
 (defun gdocs-auth--write-token-file (account data)
   "Write token DATA to the token file for ACCOUNT.
 DATA is an alist that will be serialized as JSON.  The file is
 created with 600 permissions inside a 700 directory.  Parent
 directories are created as needed."
-  (let ((path (gdocs-auth--token-file-path account))
-        (dir (file-name-directory (gdocs-auth--token-file-path account))))
+  (let* ((path (gdocs-auth--token-file-path account))
+         (dir (file-name-directory path)))
     (make-directory dir t)
     (set-file-modes dir #o700)
     ;; Create the file with restrictive permissions from the start to
@@ -203,6 +210,8 @@ expires_at timestamp."
 TOKEN-DATA must contain a refresh_token.  On success, write the
 updated token file and call CALLBACK with the new access token.
 CALLBACK is a function receiving one string argument."
+  ;; Token files use underscored keys (JSON convention) vs. the
+  ;; hyphenated symbols in `gdocs-accounts'.
   (let ((refresh-token (alist-get 'refresh_token token-data))
         (client-id (alist-get 'client_id token-data))
         (client-secret (alist-get 'client_secret token-data)))
@@ -346,14 +355,13 @@ Return the code string, or nil if not found."
 (defun gdocs-auth--send-http-response (proc status-code body)
   "Send an HTTP response with STATUS-CODE and BODY to PROC.
 Closes the connection after sending."
-  ;; Content-Length uses character count; safe here since body is ASCII-only
   (process-send-string
    proc
    (format (concat "HTTP/1.1 %s\r\n"
                    "Content-Type: text/html\r\n"
                    "Content-Length: %d\r\n"
                    "Connection: close\r\n\r\n%s")
-           status-code (length body) body))
+           status-code (string-bytes body) body))
   (delete-process proc))
 
 (defun gdocs-auth--send-success-response (proc)

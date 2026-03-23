@@ -154,7 +154,7 @@ Return a MIME type string based on the file extension."
       ("gif" "image/gif")
       ("webp" "image/webp")
       ("svg" "image/svg+xml")
-      (_ (error "Unsupported image type: %s" ext)))))
+      (_ (error "Unsupported image type: %s (supported: png, jpg, jpeg, gif, webp, svg)" ext)))))
 
 (defun gdocs-api--send-multipart-upload (token file-path mime-type
                                                metadata callback account)
@@ -177,9 +177,11 @@ the account name for error reporting."
       :as #'json-read
       :then callback
       :else (lambda (err)
+              ;; Pass max-retries as attempt to prevent retry — multipart
+              ;; bodies cannot be transparently replayed.
               (gdocs-api--handle-error
                err 'post gdocs-api--drive-upload-url
-               callback account nil 0)))))
+               callback account nil gdocs-api--max-retries)))))
 
 (defun gdocs-api--build-multipart-body (boundary metadata file-path mime-type)
   "Build a multipart/related body for a Drive upload.
@@ -248,6 +250,9 @@ ACCOUNT is an optional account name."
 CALLBACK is called with the parsed JSON response.  ACCOUNT is an
 optional account name."
   (gdocs-api-list-files
+   ;; Escape for the Drive API query language: backslashes first (to avoid
+   ;; double-escaping), then single quotes.  The multiple backslash layers
+   ;; are: Elisp string escaping on top of regexp escaping.
    (format "fullText contains '%s'"
            (replace-regexp-in-string
             "'" "\\\\'"
@@ -327,11 +332,17 @@ for retries.  ON-ERROR is propagated through retries."
       (gdocs-api--schedule-retry
        err method url callback account body attempt on-error))
      ((and status (memq status '(401 403)))
-      (error "Authentication failed (HTTP %d) for account %s; run `gdocs-authenticate' to re-authorize"
-             status account))
+      (let ((msg (format "Authentication failed (HTTP %d) for account %s; run `gdocs-authenticate' to re-authorize"
+                         status account)))
+        (if on-error
+            (funcall on-error (cons 'error (list msg)))
+          (error "%s" msg))))
      (t
-      (error "Google API request failed: %s"
-             (gdocs-api--format-error err))))))
+      (let ((msg (format "Google API request failed: %s"
+                         (gdocs-api--format-error err))))
+        (if on-error
+            (funcall on-error (cons 'error (list msg)))
+          (error "%s" msg)))))))
 
 (defun gdocs-api--schedule-retry (err method url callback account body attempt
                                       &optional on-error)
@@ -391,6 +402,7 @@ absent or contains an HTTP-date instead of seconds."
 
 ;;;; Progress indication
 
+;; Safe because Emacs async callbacks are serialized on the main thread.
 (defvar gdocs-api--active-requests 0
   "Count of currently active API requests.")
 

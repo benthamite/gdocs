@@ -75,6 +75,8 @@ IR-to-org conversion to resolve heading anchors back to text.")
 Reads only the tail of the file (~3KB) and uses a regexp.
 Returns the document ID string or nil."
   (when (and file-path (file-readable-p file-path))
+    ;; Local Variables blocks are typically under 1KB; 3KB gives
+    ;; ample margin for large blocks with many file-local variables.
     (let ((tail-bytes 3072)
           (content nil))
       (with-temp-buffer
@@ -177,6 +179,10 @@ Creates a temporary buffer, inserts STRING, and calls
       (list :type 'paragraph
             :style 'title
             :contents (list (gdocs-convert--make-plain-run title-kw))
+            ;; :source distinguishes synthetic elements created from
+            ;; document metadata vs. body paragraphs.  Downstream code
+            ;; (e.g. `gdocs-sync--body-start-index') uses this to exclude
+            ;; metadata titles from UTF-16 index computation.
             :source 'metadata
             :id (gdocs-convert--next-id)))))
 
@@ -792,10 +798,8 @@ INHERITED-PROPS carries parent formatting."
 (defun gdocs-convert--inline-src-block-to-runs (object inherited-props)
   "Convert an INLINE-SRC-BLOCK OBJECT to a code text run.
 INHERITED-PROPS carries parent formatting."
-  (let* ((language (or (org-element-property :language object) ""))
-         (value (org-element-property :value object))
+  (let* ((value (org-element-property :value object))
          (new-props (plist-put (copy-sequence inherited-props) :code t)))
-    (ignore language)
     (list (gdocs-convert--make-run value new-props))))
 
 (defun gdocs-convert--footnote-reference-to-runs (object inherited-props)
@@ -1137,6 +1141,8 @@ grouped into a single =#+BEGIN_EXAMPLE= block."
                   (setq list-counter 1))
               (setq list-counter 0))
             (setq prev-list-level (when (eq list-type 'number) list-level))
+            ;; Mutates the :list plist in place — also done by
+            ;; `gdocs-convert--assign-list-counters' for the docs->IR path.
             (when (and list-info (> list-counter 0))
               (plist-put list-info :counter list-counter))
             (let ((needs-blank (gdocs-convert--needs-blank-line-p
@@ -1206,22 +1212,17 @@ PREV-TYPE is the :type of the previous element."
       (gdocs-convert--format-heading style text marker))
      ((eq style 'quote)
       (format "#+BEGIN_QUOTE\n%s\n#+END_QUOTE" text))
-     ((gdocs-convert--extract-marker-field marker 'src-block)
-      (gdocs-convert--format-src-block
-       (gdocs-convert--extract-marker-field marker 'src-block)))
-     ((gdocs-convert--extract-marker-field marker 'keyword)
-      (let ((data (gdocs-convert--extract-marker-field marker 'keyword)))
+     ((when-let* ((data (gdocs-convert--extract-marker-field marker 'src-block)))
+        (gdocs-convert--format-src-block data)))
+     ((when-let* ((data (gdocs-convert--extract-marker-field marker 'keyword)))
         (format "#+%s: %s" (plist-get data :key) (plist-get data :value))))
      ((gdocs-convert--extract-marker-field marker 'verse-block)
       (format "#+BEGIN_VERSE\n%s\n#+END_VERSE" text))
-     ((gdocs-convert--extract-marker-field marker 'special-block)
-      (let ((block-type (gdocs-convert--extract-marker-field
-                         marker 'special-block)))
+     ((when-let* ((block-type (gdocs-convert--extract-marker-field marker 'special-block)))
         (format "#+BEGIN_%s\n%s\n#+END_%s" block-type text block-type)))
-     ((gdocs-convert--extract-marker-field marker 'latex-environment)
-      (gdocs-convert--extract-marker-field marker 'latex-environment))
-     ((gdocs-convert--extract-marker-field marker 'drawer)
-      (let ((data (gdocs-convert--extract-marker-field marker 'drawer)))
+     ((when-let* ((data (gdocs-convert--extract-marker-field marker 'latex-environment)))
+        data))
+     ((when-let* ((data (gdocs-convert--extract-marker-field marker 'drawer)))
         (s-trim (plist-get data :raw))))
      ((eq (plist-get element :alignment) 'center)
       (format "#+BEGIN_CENTER\n%s\n#+END_CENTER" text))
@@ -1500,13 +1501,16 @@ like `body', `title', `lists', and `namedRanges'."
       (push (list :type 'paragraph
                   :style 'title
                   :contents (list (gdocs-convert--make-plain-run title))
-                  :source 'metadata
+                  :source 'metadata ;see `gdocs-convert--org-title-to-ir'
                   :id (gdocs-convert--next-id))
             result))
     (seq-doseq (structural-element content)
       (let ((ir (gdocs-convert--structural-element-to-ir
                  structural-element lists-map markers)))
         (when ir
+          ;; Some converters (e.g. tables with split rows) return a list
+          ;; of IR elements rather than a single one.  Detect the multi-
+          ;; element case by checking if (car ir) is itself a typed plist.
           (if (and (listp ir) (listp (car ir)) (plist-get (car ir) :type))
               (setq result (nconc (nreverse ir) result))
             (push ir result)))))
@@ -1706,6 +1710,9 @@ within paragraphs."
          (run (list :text content
                     :bold (eq (alist-get 'bold style) t)
                     :italic (eq (alist-get 'italic style) t)
+                    ;; Google Docs underlines links by default; suppress the
+                    ;; underline property on linked runs to avoid spurious
+                    ;; markup on round-trip.
                     :underline (and (eq (alist-get 'underline style) t)
                                     (not url))
                     :strikethrough (eq (alist-get 'strikethrough style) t)
@@ -1733,6 +1740,8 @@ Returns a string like \"#FF0000\" or nil."
         (let ((r (or (alist-get 'red rgb) 0))
               (g (or (alist-get 'green rgb) 0))
               (b (or (alist-get 'blue rgb) 0)))
+          ;; Google Docs returns explicit (0,0,0) for the default text
+          ;; color.  Suppress it to avoid encoding the default as a style.
           (unless (and (= r 0) (= g 0) (= b 0))
             (format "#%02X%02X%02X"
                     (round (* r 255))
@@ -1743,8 +1752,9 @@ Returns a string like \"#FF0000\" or nil."
   "Extract a font size in points from a Google Docs FONT-SIZE-OBJ.
 Returns a number or nil."
   (when font-size-obj
-    (let ((magnitude (alist-get 'magnitude font-size-obj)))
-      (when magnitude magnitude))))
+    ;; The `unit' field (typically "PT") is ignored; Google Docs always
+    ;; returns font sizes in points.
+    (alist-get 'magnitude font-size-obj)))
 
 (defun gdocs-convert--extract-link-url (link-obj)
   "Extract a URL from a Google Docs LINK-OBJ.
@@ -1830,6 +1840,11 @@ in level, type, or a non-list element resets the counter."
               (setq prev-level level))
           (setq counter 0 prev-level nil))))))
 
+(defconst gdocs-convert--list-indent-pt 36
+  "Points of indentation per list nesting level in Google Docs.
+The first-line indent is half this value (18pt) less, leaving
+room for the bullet glyph.")
+
 (defun gdocs-convert--docs-visual-nesting-level (list-props nesting-level)
   "Compute the visual nesting level from LIST-PROPS at NESTING-LEVEL.
 Google Docs encodes mixed-type nested lists (e.g. numbered sub-items
@@ -1848,8 +1863,12 @@ adds 36pt, starting at 18pt for level 0."
               (alist-get 'magnitude
                          (alist-get 'indentFirstLine level-info)))))
       (if indent-first
-          ;; 18pt base, 36pt per level (Google Docs standard list indent)
-          (max 0 (round (/ (- indent-first 18.0) 36.0)))
+          ;; indentFirstLine = bullet glyph position, half an indent less
+          ;; than the continuation-line margin.  Recover the nesting level
+          ;; by inverting: level = (indent - half-indent) / indent-per-level.
+          (let ((half-indent (/ (float gdocs-convert--list-indent-pt) 2)))
+            (max 0 (round (/ (- indent-first half-indent)
+                             (float gdocs-convert--list-indent-pt)))))
         nesting-level))))
 
 (defun gdocs-convert--docs-list-type (list-props nesting-level)
@@ -2132,11 +2151,6 @@ Returns nil if no formatting is applied."
             (list indent-req bullet-req)
           (list bullet-req))))))
 
-(defconst gdocs-convert--list-indent-pt 36
-  "Points of indentation per list nesting level in Google Docs.
-The first-line indent is half this value (18pt) less, leaving
-room for the bullet glyph.")
-
 (defun gdocs-convert--make-list-indent-request (level start end)
   "Create an updateParagraphStyle request for list nesting LEVEL.
 START and END define the paragraph range.  Returns nil for level 0,
@@ -2147,6 +2161,8 @@ IMPORTANT: This request must appear BEFORE the corresponding
 Google Docs reads pre-existing paragraph indentation when creating
 bullets and uses it to determine the nesting level."
   (when (> level 0)
+    ;; indentStart = left margin for continuation (wrapped) lines.
+    ;; indentFirstLine = bullet glyph position, one half-indent less.
     (let ((indent-start (* gdocs-convert--list-indent-pt (1+ level)))
           (indent-first (+ (/ gdocs-convert--list-indent-pt 2)
                            (* gdocs-convert--list-indent-pt level))))

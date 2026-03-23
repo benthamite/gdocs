@@ -228,7 +228,9 @@ OPS is a list of operation plists."
 
 (defun gdocs-diff--collapsible-pair-p (current next)
   "Return non-nil if CURRENT delete and NEXT insert can be collapsed.
-They must be adjacent delete+insert operations."
+They must be adjacent delete+insert operations.  The elements may
+differ in type (e.g. table -> paragraph); `gdocs-diff--content-modification'
+handles cross-type changes by falling back to full delete+re-insert."
   (and current next
        (eq (plist-get current :op) 'delete)
        (eq (plist-get next :op) 'insert)))
@@ -255,13 +257,20 @@ is the UTF-16 index where the first element begins (default 1)."
   (pcase (plist-get element :type)
     ('paragraph (gdocs-diff--paragraph-utf16-length element))
     ('table (gdocs-diff--table-utf16-length element))
-    ;; A horizontal rule is a bare newline in the document (1 UTF-16 unit)
-    ('horizontal-rule 1)))
+    ;; Horizontal rules, page breaks, and images each occupy a single
+    ;; structural element in the document body (1 UTF-16 unit).
+    ('horizontal-rule 1)
+    ('page-break 1)
+    ('image 1)
+    ;; Footnotes are inline references; their content lives in a
+    ;; separate segment and does not consume body UTF-16 units.
+    ('footnote 0)
+    (_ (error "gdocs-diff: unknown element type: %s" (plist-get element :type)))))
 
 (defun gdocs-diff--paragraph-utf16-length (element)
   "Compute UTF-16 length of a paragraph ELEMENT including trailing newline."
   (let ((text (gdocs-convert--runs-to-plain-text (plist-get element :contents))))
-    (+ (gdocs-convert--string-to-utf16-length text) 1)))
+    (+ (gdocs-convert--string-to-utf16-length text) 1))) ;trailing \n
 
 (defun gdocs-diff--table-utf16-length (element)
   "Compute UTF-16 length of a table ELEMENT in the document.
@@ -437,8 +446,9 @@ START-INDEX is the UTF-16 index where the first element begins."
                               gdocs-diff--sort-phase-insert)
                            (= (plist-get b :sort-phase)
                               gdocs-diff--sort-phase-insert))
-                      (> (or (plist-get a :new-index) 0)
-                         (or (plist-get b :new-index) 0)))
+                      ;; :new-index is always present on insert groups
+                      (> (plist-get a :new-index)
+                         (plist-get b :new-index)))
                      (t nil))))))
     (apply #'append (mapcar (lambda (g) (plist-get g :reqs)) groups))))
 
@@ -458,6 +468,7 @@ START-INDEX is the UTF-16 index where the first element begins."
   "Create a deleteParagraphBullets request covering START to END."
   `((deleteParagraphBullets
      . ((range . ((startIndex . ,start)
+                  ;; Exclude trailing newline from bullet range
                   (endIndex . ,(1- end))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -556,6 +567,7 @@ NEW-ELEM provides the new style.  RANGE is (START . END)."
                    . ((paragraphStyle
                        . ((namedStyleType . ,named-style)))
                       (range . ((startIndex . ,start)
+                                ;; Exclude trailing newline
                                 (endIndex . ,(1- end))))
                       (fields . "namedStyleType"))))))))
 
