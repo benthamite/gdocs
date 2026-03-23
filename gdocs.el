@@ -51,21 +51,10 @@ that have a Google Doc counterpart.  Set to nil to disable."
   :type '(choice (const :tag "None" nil) string)
   :group 'gdocs)
 
-;;;; File-local variable safety
+;;;; Dir-local variable safety
 
-;; File-local variables set in the Local Variables block of linked
-;; org files.  Declared here so `bound-and-true-p' checks have a
-;; known symbol and grep can find the definitions.
-(defvar gdocs-document-id nil "Google Docs document ID (file-local).")
-(defvar gdocs-account nil "Google account name (file-local).")
-(defvar gdocs-revision-id nil "Last known Drive revision ID (file-local).")
-(defvar gdocs-last-sync nil "ISO 8601 timestamp of last sync (file-local).")
 (defvar gdocs-folder-id nil "Google Drive folder ID (dir-local).")
 
-(put 'gdocs-document-id 'safe-local-variable #'stringp)
-(put 'gdocs-account 'safe-local-variable #'stringp)
-(put 'gdocs-revision-id 'safe-local-variable #'stringp)
-(put 'gdocs-last-sync 'safe-local-variable #'stringp)
 (put 'gdocs-folder-id 'safe-local-variable #'stringp)
 
 ;;;; Modeline
@@ -105,7 +94,7 @@ keybindings."
 (defun gdocs-mode--enable ()
   "Set up gdocs-mode in the current buffer."
   (add-hook 'after-save-hook #'gdocs-sync--push-on-save nil t)
-  (gdocs-sync--init-from-file-locals)
+  (gdocs-sync--init-from-properties)
   (gdocs--update-modeline)
   (when gdocs-auto-pull-on-open
     (gdocs-sync-pull)))
@@ -146,18 +135,18 @@ DOC-ID is the document ID.  ACCOUNT is the account name."
          (file-path (gdocs--doc-file-path title))
          (buf (find-file-noselect file-path)))
     (with-current-buffer buf
-      ;; Write content and set up file-local variables
+      ;; Write content and set up properties
       (erase-buffer)
       (insert org-string)
       (gdocs--ensure-org-tag)
-      (gdocs-sync--write-file-local-vars doc-id account)
-      (setq gdocs-sync--shadow-ir ir)
-      (let ((gdocs-auto-push-on-save nil))
-        (save-buffer))
-      ;; Initialize sync state
+      ;; Initialize sync state before writing properties
       (setq gdocs-sync--document-id doc-id)
       (setq gdocs-sync--account account)
+      (setq gdocs-sync--shadow-ir ir)
       (gdocs-sync--update-last-sync-time)
+      (gdocs-sync--persist-properties)
+      (let ((gdocs-auto-push-on-save nil))
+        (save-buffer))
       (gdocs-mode 1))
     ;; Display to user
     (pop-to-buffer buf)
@@ -194,7 +183,7 @@ placed in that folder."
          (doc-title (or title (gdocs--buffer-title)))
          (acct (or account
                    (cdr dir-locals)
-                   (bound-and-true-p gdocs-account)
+                   gdocs-sync--account
                    (gdocs-auth-select-account "Account: ")))
          (folder-id (car dir-locals))
          (buf (current-buffer)))
@@ -244,12 +233,12 @@ to move the document into."
              (gdocs-convert--cache-heading-ids doc-id doc-json)
              (let* ((gdocs-convert--document-id doc-id)
                     (true-ir (gdocs-convert-docs-json-to-ir doc-json)))
-               (gdocs-sync--write-file-local-vars doc-id account)
-               (gdocs--ensure-org-tag)
                (setq gdocs-sync--shadow-ir true-ir)
                (setq gdocs-sync--document-id doc-id)
                (setq gdocs-sync--account account)
                (gdocs-sync--update-last-sync-time)
+               (gdocs-sync--persist-properties)
+               (gdocs--ensure-org-tag)
                (let ((gdocs-auto-push-on-save nil))
                  (save-buffer))
                (gdocs-mode 1)
@@ -490,10 +479,10 @@ In a `dired' buffer, operate on the file or directory at point."
         (browse-url (gdocs--document-url doc-id))))))
 
 (defun gdocs--file-document-id (file)
-  "Return the `gdocs-document-id' file-local variable from FILE, or nil.
-Only reads the last 3KB of the file (where Local Variables live)
-to avoid loading large org files into memory."
-  (gdocs-convert--read-file-local-gdocs-id file))
+  "Return the GDOCS_DOCUMENT_ID property from FILE, or nil.
+Only reads the first 1KB of the file (where the property drawer
+lives) to avoid loading large org files into memory."
+  (gdocs-convert--read-file-property-gdocs-id file))
 
 (defun gdocs--read-dir-local-variable (dir variable)
   "Return the org-mode DIR-local VARIABLE from DIR's `.dir-locals.el', or nil."
@@ -539,9 +528,11 @@ values that were set before a `.dir-locals.el' was created."
 ;;;; Auto-activation
 
 (defun gdocs--maybe-enable ()
-  "Enable `gdocs-mode' if the buffer has gdocs file-local variables."
+  "Enable `gdocs-mode' if the buffer has a GDOCS_DOCUMENT_ID property."
   (when (and (derived-mode-p 'org-mode)
-             (bound-and-true-p gdocs-document-id))
+             (save-excursion
+               (goto-char (point-min))
+               (org-entry-get nil "GDOCS_DOCUMENT_ID")))
     (gdocs-mode 1)))
 
 (add-hook 'org-mode-hook #'gdocs--maybe-enable)

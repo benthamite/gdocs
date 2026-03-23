@@ -214,6 +214,10 @@ response alist."
   (setq gdocs-sync--shadow-ir current-ir)
   (gdocs-sync--update-revision-from-response response)
   (gdocs-sync--update-last-sync-time)
+  (gdocs-sync--persist-properties)
+  (when buffer-file-name
+    (let ((gdocs-auto-push-on-save nil))
+      (save-buffer)))
   (gdocs-sync--set-status 'synced)
   (setq gdocs-sync--push-in-progress nil)
   (gdocs-sync--drain-push-queue)
@@ -338,21 +342,24 @@ markers do not cause false mismatches."
 (defun gdocs-sync--install-content (org-string &optional revision-id)
   "Replace buffer content with ORG-STRING and update sync state.
 REVISION-ID, if non-nil, is stored as the current revision.
-Handles suppressing modification hooks, writing file-local
-variables, resetting org-element cache, and setting the shadow
-IR from the buffer."
+Handles suppressing modification hooks, writing properties,
+resetting org-element cache, and setting the shadow IR from the
+buffer."
   ;; Suppress modification hooks to prevent recursive push-on-save
   (let ((inhibit-modification-hooks t)
         (doc-id gdocs-sync--document-id)
-        (acct gdocs-sync--account)
         (saved-point (point)))
     (erase-buffer)
     (insert org-string)
-    ;; Ensure file-local variables are present (idempotent if
-    ;; org-string already contains them via the postamble).
-    (when doc-id
-      (gdocs-sync--write-file-local-vars doc-id acct))
     (gdocs--ensure-org-tag)
+    ;; Update buffer-local state before writing properties so
+    ;; persist-properties sees the current values.
+    (when revision-id
+      (setq gdocs-sync--revision-id revision-id))
+    (gdocs-sync--update-last-sync-time)
+    ;; Write all metadata to the file-level property drawer.
+    (when doc-id
+      (gdocs-sync--persist-properties))
     (goto-char (min saved-point (point-max))))
   ;; Persist content to disk so it survives buffer kill.
   (when buffer-file-name
@@ -369,9 +376,6 @@ IR from the buffer."
   ;; (empty paragraphs, run structure differences) that produce
   ;; phantom diff operations.
   (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
-  (when revision-id
-    (setq gdocs-sync--revision-id revision-id))
-  (gdocs-sync--update-last-sync-time)
   (gdocs-sync--set-status 'synced))
 
 (defun gdocs-sync--replace-buffer-content (org-string &optional revision-id)
@@ -634,33 +638,50 @@ is unused but accepted for API compatibility."
   (ignore file-path)
   (let ((doc-id (gdocs-sync--parse-document-id document-id-or-url))
         (acct (or account (gdocs-auth-select-account "Account: "))))
-    (gdocs-sync--write-file-local-vars doc-id acct)
-    (gdocs--ensure-org-tag)
     (setq gdocs-sync--document-id doc-id)
     (setq gdocs-sync--account acct)
+    (gdocs-sync--write-properties doc-id acct)
+    (gdocs--ensure-org-tag)
     (save-buffer)
     (gdocs-sync-pull)))
 
 (defun gdocs-sync-unlink ()
   "Remove Google Docs link from the current buffer."
   (interactive)
-  (gdocs-sync--remove-file-local-vars)
+  (gdocs-sync--remove-properties)
   (gdocs--remove-org-tag)
   (gdocs-sync--clear-buffer-state)
   (save-buffer)
   (message "Unlinked from Google Docs."))
 
-(defun gdocs-sync--write-file-local-vars (doc-id account)
-  "Write file-local variables for DOC-ID and ACCOUNT."
-  (add-file-local-variable 'gdocs-document-id doc-id)
-  (add-file-local-variable 'gdocs-account account))
+(defun gdocs-sync--write-properties (doc-id account)
+  "Write gdocs metadata to the file-level property drawer.
+DOC-ID and ACCOUNT are required.  The current buffer-local
+`gdocs-sync--revision-id' and `gdocs-sync--last-sync-time' are
+also persisted when non-nil."
+  (save-excursion
+    (goto-char (point-min))
+    (org-entry-put nil "GDOCS_DOCUMENT_ID" doc-id)
+    (org-entry-put nil "GDOCS_ACCOUNT" account)
+    (when gdocs-sync--revision-id
+      (org-entry-put nil "GDOCS_REVISION_ID" gdocs-sync--revision-id))
+    (when gdocs-sync--last-sync-time
+      (org-entry-put nil "GDOCS_LAST_SYNC" gdocs-sync--last-sync-time))))
 
-(defun gdocs-sync--remove-file-local-vars ()
-  "Remove all gdocs file-local variables."
-  (delete-file-local-variable 'gdocs-document-id)
-  (delete-file-local-variable 'gdocs-account)
-  (delete-file-local-variable 'gdocs-revision-id)
-  (delete-file-local-variable 'gdocs-last-sync))
+(defun gdocs-sync--persist-properties ()
+  "Write all current buffer-local sync state to the property drawer."
+  (when gdocs-sync--document-id
+    (gdocs-sync--write-properties gdocs-sync--document-id
+                                  (or gdocs-sync--account ""))))
+
+(defun gdocs-sync--remove-properties ()
+  "Remove all gdocs properties from the file-level property drawer."
+  (save-excursion
+    (goto-char (point-min))
+    (org-entry-delete nil "GDOCS_DOCUMENT_ID")
+    (org-entry-delete nil "GDOCS_ACCOUNT")
+    (org-entry-delete nil "GDOCS_REVISION_ID")
+    (org-entry-delete nil "GDOCS_LAST_SYNC")))
 
 (defun gdocs-sync--clear-buffer-state ()
   "Clear all buffer-local sync state."
@@ -707,18 +728,20 @@ Otherwise return ID-OR-URL as-is."
   (when (fboundp 'gdocs--update-modeline)
     (gdocs--update-modeline)))
 
-;;;; State initialization from file-local variables
+;;;; State initialization from property drawer
 
-(defun gdocs-sync--init-from-file-locals ()
-  "Initialize buffer-local sync state from file-local variables."
-  (when (bound-and-true-p gdocs-document-id)
-    (setq gdocs-sync--document-id gdocs-document-id))
-  (when (bound-and-true-p gdocs-account)
-    (setq gdocs-sync--account gdocs-account))
-  (when (bound-and-true-p gdocs-revision-id)
-    (setq gdocs-sync--revision-id gdocs-revision-id))
-  (when (bound-and-true-p gdocs-last-sync)
-    (setq gdocs-sync--last-sync-time gdocs-last-sync)))
+(defun gdocs-sync--init-from-properties ()
+  "Initialize buffer-local sync state from the file-level property drawer."
+  (save-excursion
+    (goto-char (point-min))
+    (when-let* ((doc-id (org-entry-get nil "GDOCS_DOCUMENT_ID")))
+      (setq gdocs-sync--document-id doc-id))
+    (when-let* ((acct (org-entry-get nil "GDOCS_ACCOUNT")))
+      (setq gdocs-sync--account acct))
+    (when-let* ((rev (org-entry-get nil "GDOCS_REVISION_ID")))
+      (setq gdocs-sync--revision-id rev))
+    (when-let* ((ts (org-entry-get nil "GDOCS_LAST_SYNC")))
+      (setq gdocs-sync--last-sync-time ts))))
 
 ;;;; Title filtering
 

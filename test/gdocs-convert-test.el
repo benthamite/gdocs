@@ -637,35 +637,35 @@
     (should (string-match-p "Paragraph\\." result))))
 
 ;; ---------------------------------------------------------------------------
-;;; File-local variable reader
+;;; Property drawer reader
 
-(ert-deftest gdocs-convert-test-read-file-local-gdocs-id ()
-  "Reads gdocs-document-id from a file's Local Variables block."
+(ert-deftest gdocs-convert-test-read-file-property-gdocs-id ()
+  "Reads GDOCS_DOCUMENT_ID from a file's property drawer."
   (let ((temp-file (make-temp-file "gdocs-test" nil ".org")))
     (unwind-protect
         (progn
           (with-temp-file temp-file
-            (insert "* Heading\n\nSome text.\n\n"
-                    ";; Local Variables:\n"
-                    ";; gdocs-document-id: \"abc123def\"\n"
-                    ";; End:\n"))
-          (should (string= (gdocs-convert--read-file-local-gdocs-id temp-file)
+            (insert ":PROPERTIES:\n"
+                    ":GDOCS_DOCUMENT_ID: abc123def\n"
+                    ":END:\n"
+                    "* Heading\n\nSome text.\n"))
+          (should (string= (gdocs-convert--read-file-property-gdocs-id temp-file)
                             "abc123def")))
       (delete-file temp-file))))
 
-(ert-deftest gdocs-convert-test-read-file-local-gdocs-id-missing ()
-  "Returns nil when file has no gdocs-document-id."
+(ert-deftest gdocs-convert-test-read-file-property-gdocs-id-missing ()
+  "Returns nil when file has no GDOCS_DOCUMENT_ID property."
   (let ((temp-file (make-temp-file "gdocs-test" nil ".org")))
     (unwind-protect
         (progn
           (with-temp-file temp-file
             (insert "* Just a heading\n"))
-          (should-not (gdocs-convert--read-file-local-gdocs-id temp-file)))
+          (should-not (gdocs-convert--read-file-property-gdocs-id temp-file)))
       (delete-file temp-file))))
 
-(ert-deftest gdocs-convert-test-read-file-local-gdocs-id-nonexistent ()
+(ert-deftest gdocs-convert-test-read-file-property-gdocs-id-nonexistent ()
   "Returns nil for nonexistent files."
-  (should-not (gdocs-convert--read-file-local-gdocs-id
+  (should-not (gdocs-convert--read-file-property-gdocs-id
                "/nonexistent/path/to/file.org")))
 
 ;; ---------------------------------------------------------------------------
@@ -692,10 +692,10 @@
           (setq source-file (expand-file-name "source.org" temp-dir))
           (setq target-file (expand-file-name "target.org" temp-dir))
           (with-temp-file target-file
-            (insert "* Target heading\n\n"
-                    ";; Local Variables:\n"
-                    ";; gdocs-document-id: \"TARGET_DOC_ID\"\n"
-                    ";; End:\n"))
+            (insert ":PROPERTIES:\n"
+                    ":GDOCS_DOCUMENT_ID: TARGET_DOC_ID\n"
+                    ":END:\n"
+                    "* Target heading\n"))
           (with-temp-file source-file
             (insert (format "Link to [[file:%s][Target]]" target-file)))
           (let ((gdocs-convert--link-context
@@ -828,10 +828,10 @@
           (setq source-file (expand-file-name "source.org" temp-dir))
           (setq target-file (expand-file-name "target.org" temp-dir))
           (with-temp-file target-file
-            (insert "* Introduction\n\n"
-                    ";; Local Variables:\n"
-                    ";; gdocs-document-id: \"TARGET_DOC\"\n"
-                    ";; End:\n"))
+            (insert ":PROPERTIES:\n"
+                    ":GDOCS_DOCUMENT_ID: TARGET_DOC\n"
+                    ":END:\n"
+                    "* Introduction\n"))
           ;; Populate heading cache
           (puthash "TARGET_DOC"
                    '(("Introduction" . "h_abc123"))
@@ -865,10 +865,10 @@
           (setq source-file (expand-file-name "source.org" temp-dir))
           (setq target-file (expand-file-name "target.org" temp-dir))
           (with-temp-file target-file
-            (insert "* Introduction\n\n"
-                    ";; Local Variables:\n"
-                    ";; gdocs-document-id: \"TARGET_DOC\"\n"
-                    ";; End:\n"))
+            (insert ":PROPERTIES:\n"
+                    ":GDOCS_DOCUMENT_ID: TARGET_DOC\n"
+                    ":END:\n"
+                    "* Introduction\n"))
           ;; No heading cache populated
           (with-temp-file source-file
             (insert "See [[file:target.org::*Introduction][intro]]"))
@@ -965,15 +965,15 @@
           (setq file-a (expand-file-name "a.org" temp-dir))
           (setq file-b (expand-file-name "b.org" temp-dir))
           (with-temp-file file-a
-            (insert "* A\n\n"
-                    ";; Local Variables:\n"
-                    ";; gdocs-document-id: \"DOC_A\"\n"
-                    ";; End:\n"))
+            (insert ":PROPERTIES:\n"
+                    ":GDOCS_DOCUMENT_ID: DOC_A\n"
+                    ":END:\n"
+                    "* A\n"))
           (with-temp-file file-b
-            (insert "* B\n\n"
-                    ";; Local Variables:\n"
-                    ";; gdocs-document-id: \"DOC_B\"\n"
-                    ";; End:\n"))
+            (insert ":PROPERTIES:\n"
+                    ":GDOCS_DOCUMENT_ID: DOC_B\n"
+                    ":END:\n"
+                    "* B\n"))
           (let ((map (gdocs-convert--build-docid-to-file-map
                       (list temp-dir))))
             (should (string= (gethash "DOC_A" map) file-a))
@@ -995,10 +995,10 @@
     (unwind-protect
         (progn
           (with-temp-file target-file
-            (insert "* Target\n\n"
-                    ";; Local Variables:\n"
-                    ";; gdocs-document-id: \"DOC_TARGET\"\n"
-                    ";; End:\n"))
+            (insert ":PROPERTIES:\n"
+                    ":GDOCS_DOCUMENT_ID: DOC_TARGET\n"
+                    ":END:\n"
+                    "* Target\n"))
           (with-temp-file source-file
             (insert "See [[file:target.org][Target doc]]"))
           ;; Build docid-map for reverse resolution
@@ -1266,16 +1266,15 @@
       (should (stringp preamble))
       (should (string-match-p "STARTUP" preamble)))))
 
-(ert-deftest gdocs-convert-test-segments-postamble-captured ()
-  "Postamble (file-local variables) is captured."
+(ert-deftest gdocs-convert-test-segments-no-postamble ()
+  "No postamble with property-drawer storage."
   (with-temp-buffer
-    (insert "* Heading\n\nBody text\n\n# Local Variables:\n# gdocs-document-id: \"abc\"\n# End:\n")
+    (insert ":PROPERTIES:\n:GDOCS_DOCUMENT_ID: abc\n:END:\n* Heading\n\nBody text\n")
     (org-mode)
     (let* ((result (gdocs-convert-org-buffer-to-segments))
            (postamble (plist-get result :postamble)))
       (should (stringp postamble))
-      (should (string-match-p "Local Variables" postamble))
-      (should (string-match-p "gdocs-document-id" postamble)))))
+      (should (string= postamble "")))))
 
 (ert-deftest gdocs-convert-test-segments-count-matches-ir ()
   "Number of segments matches number of body IR elements."

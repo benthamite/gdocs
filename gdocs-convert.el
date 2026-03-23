@@ -70,25 +70,22 @@ Used during org-to-IR link resolution to append heading anchors.")
 Reverse mapping of `gdocs-convert--heading-cache', used during
 IR-to-org conversion to resolve heading anchors back to text.")
 
-(defun gdocs-convert--read-file-local-gdocs-id (file-path)
-  "Read `gdocs-document-id' from FILE-PATH's Local Variables block.
-Reads only the tail of the file (~3KB) and uses a regexp.
+(defun gdocs-convert--read-file-property-gdocs-id (file-path)
+  "Read GDOCS_DOCUMENT_ID from FILE-PATH's file-level property drawer.
+Reads only the head of the file (~1KB) and uses a regexp.
 Returns the document ID string or nil."
   (when (and file-path (file-readable-p file-path))
-    ;; Local Variables blocks are typically under 1KB; 3KB gives
-    ;; ample margin for large blocks with many file-local variables.
-    (let ((tail-bytes 3072)
-          (content nil))
+    (let ((head-bytes 1024))
       (with-temp-buffer
-        (insert-file-contents file-path nil
-                              (max 0 (- (file-attribute-size
-                                         (file-attributes file-path))
-                                        tail-bytes)))
-        (setq content (buffer-string)))
-      (when (string-match
-             "gdocs-document-id:[[:space:]]+\"\\([^\"]+\\)\""
-             content)
-        (match-string 1 content)))))
+        (insert-file-contents file-path nil 0
+                              (min head-bytes
+                                   (file-attribute-size
+                                    (file-attributes file-path))))
+        (goto-char (point-min))
+        (when (and (looking-at-p ":PROPERTIES:")
+                   (re-search-forward
+                    "^:GDOCS_DOCUMENT_ID:\\s-+\\(.+\\)$" nil t))
+          (string-trim (match-string 1)))))))
 
 (defun gdocs-convert--build-docid-to-file-map (directories)
   "Scan org files in DIRECTORIES and return a doc-id-to-file hash table.
@@ -97,7 +94,7 @@ Each key is a Google Docs document ID, each value is an absolute file path."
     (dolist (dir directories)
       (when (file-directory-p dir)
         (dolist (file (directory-files dir t "\\.org\\'"))
-          (when-let* ((doc-id (gdocs-convert--read-file-local-gdocs-id file)))
+          (when-let* ((doc-id (gdocs-convert--read-file-property-gdocs-id file)))
             (puthash doc-id file map)))))
     map))
 
@@ -231,20 +228,9 @@ element.  Returns a plist with:
 
 (defun gdocs-convert--find-postamble-start ()
   "Find the buffer position where the postamble begins.
-The postamble is the file-local variables block at the end of
-the buffer.  Returns `point-max' if no postamble is found."
-  (save-excursion
-    (goto-char (point-max))
-    (if (re-search-backward "^# Local Variables:" nil t)
-        ;; Include any blank lines before the block
-        (progn
-          (forward-line -1)
-          (while (and (> (point) (point-min))
-                      (looking-at-p "^[[:space:]]*$"))
-            (forward-line -1))
-          (forward-line 1)
-          (point))
-      (point-max))))
+With property-drawer storage there is no postamble; returns
+`point-max'."
+  (point-max))
 
 (defun gdocs-convert--walk-org-data-positioned (ast)
   "Walk AST and return IR elements with buffer positions.
@@ -711,7 +697,7 @@ links are preserved with a file: prefix."
                        path
                      (expand-file-name path
                                        (file-name-directory buffer-file))))
-         (target-doc-id (gdocs-convert--read-file-local-gdocs-id abs-path))
+         (target-doc-id (gdocs-convert--read-file-property-gdocs-id abs-path))
          ;; Strip * prefix from heading search options
          (heading-text (when (and search (string-prefix-p "*" search))
                          (substring search 1))))
@@ -731,7 +717,7 @@ Uses `org-id-find' to locate the target file, then reads its
 Doc, so the link is rendered as plain text."
   (when-let* ((location (org-id-find id)))
     (let* ((file (if (consp location) (car location) location))
-           (target-doc-id (gdocs-convert--read-file-local-gdocs-id file)))
+           (target-doc-id (gdocs-convert--read-file-property-gdocs-id file)))
       (when target-doc-id
         (let* ((pos (when (consp location) (cdr location)))
                (heading-text (when pos
@@ -744,7 +730,7 @@ When the current document's heading cache is populated, returns a
 Google Docs URL with heading anchor.  Otherwise returns the path."
   (let* ((buffer-file (plist-get gdocs-convert--link-context :buffer-file))
          (current-doc-id (when buffer-file
-                           (gdocs-convert--read-file-local-gdocs-id
+                           (gdocs-convert--read-file-property-gdocs-id
                             buffer-file))))
     (if current-doc-id
         (gdocs-convert--make-docs-url current-doc-id heading-text)

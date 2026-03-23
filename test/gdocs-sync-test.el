@@ -195,7 +195,7 @@
 (ert-deftest gdocs-sync-test-pull-updates-buffer ()
   "Buffer content is replaced with remote content on first pull.
 Tests the no-shadow (full replacement) path and verifies that
-file-local variables are preserved and revision ID is stored."
+properties are preserved and revision ID is stored."
   (gdocs-sync-test-with-org-buffer "Old local content\n"
     (setq gdocs-sync--revision-id "rev-5")
     (set-buffer-modified-p nil)
@@ -219,7 +219,7 @@ file-local variables are preserved and revision ID is stored."
               ((symbol-function 'gdocs-convert-ir-to-org)
                (lambda (_ir) "Remote content\n")))
       (gdocs-sync-pull)
-      (should (string-prefix-p "Remote content\n"
+      (should (string-match-p "Remote content"
                                (buffer-substring-no-properties
                                 (point-min) (point-max))))
       (should (equal gdocs-sync--revision-id "rev-6")))))
@@ -249,7 +249,7 @@ local changes) but remote has new content."
                                                    :code nil :link nil))
                              :id "elem-001")))))
       (gdocs-sync-pull)
-      (should (string-prefix-p "Remote update\n"
+      (should (string-match-p "Remote update"
                                (buffer-substring-no-properties
                                 (point-min) (point-max))))
       (should (eq gdocs-sync--status 'synced))
@@ -268,8 +268,8 @@ local changes) but remote has new content."
   (should (equal "abc123"
                  (gdocs-sync--parse-document-id "abc123"))))
 
-(ert-deftest gdocs-sync-test-link-sets-file-local-vars ()
-  "Linking writes file-local variables to the buffer."
+(ert-deftest gdocs-sync-test-link-sets-properties ()
+  "Linking writes properties to the buffer."
   (let ((temp-file (make-temp-file "gdocs-test-" nil ".org")))
     (unwind-protect
         (progn

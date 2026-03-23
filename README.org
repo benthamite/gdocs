@@ -382,14 +382,14 @@ triggers the conflict resolution interface ([[#h:conflict-resolution][Conflict r
 #+findex: gdocs-unlink
 The command ~gdocs-link~ links the current org buffer to an existing
 Google Doc.  It prompts for a document ID or URL and, if needed, an
-account.  Linking writes file-local variables (=gdocs-document-id= and
-=gdocs-account=) to the end of the org file and triggers an initial
-pull to establish the sync baseline.
+account.  Linking writes the document ID and account to the file-level
+property drawer ([[#h:metadata-storage][Metadata storage]]) and triggers an initial pull to
+establish the sync baseline.
 
-The command ~gdocs-unlink~ removes the file-local variables and clears
-all buffer-local sync state, turning the org file back into a
-standalone document.  The file content is preserved; only the sync
-metadata is removed.
+The command ~gdocs-unlink~ removes the gdocs properties from the
+property drawer and clears all buffer-local sync state, turning the
+org file back into a standalone document.  The file content is
+preserved; only the sync metadata is removed.
 
 ** Directory linking
 :PROPERTIES:
@@ -678,9 +678,9 @@ The function ~gdocs-convert-org-buffer-to-segments~ is a variant of
 Instead of returning a flat IR list, it returns a plist with four keys:
 ~:ir~ (the full IR element list), ~:segments~ (a list of segment plists,
 each pairing an ~:ir-element~ with its ~:org-text~ region), ~:preamble~
-(buffer text before the first body element, such as the =#+TITLE:=
-line), and ~:postamble~ (text after the last element, typically the
-file-local variables block).  By preserving the mapping between IR
+(buffer text before the first body element, including the property
+drawer and =#+TITLE:= line), and ~:postamble~ (text after the last
+element).  By preserving the mapping between IR
 elements and their original org text, the three-way merge can retain
 org-only metadata (property drawers, TODO keywords, tags) that would
 otherwise be lost during conversion ([[#h:sync-engine][Sync engine]]).
@@ -792,9 +792,9 @@ If no token file exists for an account (e.g., after running
 
 Each entry in ~gdocs-accounts~ is an independent account with its own
 OAuth credentials and token file.  Linked org files remember which
-account they are associated with via the =gdocs-account= file-local
-variable.  When you open a linked file, the stored account is used
-automatically.
+account they are associated with via the =GDOCS_ACCOUNT= property in
+the file-level property drawer ([[#h:metadata-storage][Metadata storage]]).  When you open a
+linked file, the stored account is used automatically.
 
 You would configure custom OAuth credentials per account if you want to
 avoid shared rate limits or if your organization requires its own OAuth
@@ -938,21 +938,24 @@ preserved as opaque org markers:
 :CUSTOM_ID: h:metadata-storage
 :END:
 
-Each linked org file stores sync metadata in file-local variables at
-the end of the file:
+Each linked org file stores sync metadata in a file-level property
+drawer at the top of the file:
 
 #+begin_example
-# Local Variables:
-# gdocs-document-id: "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
-# gdocs-account: "personal"
-# gdocs-revision-id: "ALm37BVT..."
-# gdocs-last-sync: "2024-01-15T10:30:00Z"
-# End:
+:PROPERTIES:
+:GDOCS_DOCUMENT_ID: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
+:GDOCS_ACCOUNT: personal
+:GDOCS_REVISION_ID: ALm37BVT...
+:GDOCS_LAST_SYNC: 2024-01-15T10:30:00+0000
+:END:
 #+end_example
 
-These variables are declared safe for file-local use (via
-~safe-local-variable~) so Emacs does not prompt for confirmation when
-opening a linked file.
+The property drawer is the standard org-mode mechanism for
+document-level metadata.  All four properties are persisted to the
+file, so revision tracking and last-sync timestamps survive across
+Emacs sessions.  The drawer is read via ~org-entry-get~ and written
+via ~org-entry-put~, using standard org APIs rather than the Emacs
+file-local variable machinery.
 
 Directories linked to Google Drive folders ([[#h:directory-linking][Directory linking]]) store
 their association in =.dir-locals.el= rather than per-file:
@@ -1075,9 +1078,9 @@ Google Doc.  It provides:
   - =GDocs:error= when the last sync failed.
 - Keybindings under the =C-c g= prefix ([[#h:keybindings][Keybindings]]).
 
-The mode activates automatically when you open an org file that has the
-=gdocs-document-id= file-local variable set (via a hook on
-~org-mode-hook~).  You can also toggle it manually.
+The mode activates automatically when you open an org file that has a
+=GDOCS_DOCUMENT_ID= property in its file-level property drawer (via a
+hook on ~org-mode-hook~).  You can also toggle it manually.
 
 ** Keybindings
 :PROPERTIES:

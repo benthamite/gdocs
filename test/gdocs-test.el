@@ -10,7 +10,7 @@
 
 ;; ERT tests for the main gdocs module covering filename sanitization,
 ;; URL construction, buffer title extraction, auto-activation,
-;; keymap bindings, file-local variable safety, mode enable/disable,
+;; keymap bindings, property drawer storage, mode enable/disable,
 ;; and user commands.
 
 ;;; Code:
@@ -109,12 +109,12 @@
 ;;;; Auto-activation
 
 (ert-deftest gdocs-test-maybe-enable-activates-in-org-mode ()
-  "Enables gdocs-mode when gdocs-document-id is set in org-mode."
+  "Enables gdocs-mode when GDOCS_DOCUMENT_ID property is set in org-mode."
   (with-temp-buffer
     (org-mode)
-    (setq-local gdocs-document-id "test-doc-id")
+    (insert ":PROPERTIES:\n:GDOCS_DOCUMENT_ID: test-doc-id\n:END:\n")
     ;; Stub functions called by gdocs-mode--enable to avoid side effects
-    (cl-letf (((symbol-function 'gdocs-sync--init-from-file-locals) #'ignore)
+    (cl-letf (((symbol-function 'gdocs-sync--init-from-properties) #'ignore)
               ((symbol-function 'gdocs--update-modeline) #'ignore)
               ((symbol-function 'gdocs-sync-pull) #'ignore))
       (gdocs--maybe-enable)
@@ -124,7 +124,7 @@
   "Does NOT enable gdocs-mode in non-org buffers."
   (with-temp-buffer
     (fundamental-mode)
-    (setq-local gdocs-document-id "test-doc-id")
+    (insert ":PROPERTIES:\n:GDOCS_DOCUMENT_ID: test-doc-id\n:END:\n")
     (gdocs--maybe-enable)
     (should-not gdocs-mode)))
 
@@ -162,49 +162,14 @@
   (should (eq 'gdocs-unlink
               (lookup-key gdocs-mode-map (kbd "C-c g u")))))
 
-;;;; File-local variable safety
-
-(ert-deftest gdocs-test-document-id-safe-when-string ()
-  "gdocs-document-id is safe as a file-local when its value is a string."
-  (should (safe-local-variable-p 'gdocs-document-id "abc123")))
-
-(ert-deftest gdocs-test-document-id-unsafe-when-non-string ()
-  "gdocs-document-id is NOT safe as a file-local when its value is not a string."
-  (should-not (safe-local-variable-p 'gdocs-document-id 42))
-  (should-not (safe-local-variable-p 'gdocs-document-id nil)))
-
-(ert-deftest gdocs-test-account-safe-when-string ()
-  "gdocs-account is safe as a file-local when its value is a string."
-  (should (safe-local-variable-p 'gdocs-account "personal")))
-
-(ert-deftest gdocs-test-account-unsafe-when-non-string ()
-  "gdocs-account is NOT safe as a file-local when its value is not a string."
-  (should-not (safe-local-variable-p 'gdocs-account 42)))
-
-(ert-deftest gdocs-test-revision-id-safe-when-string ()
-  "gdocs-revision-id is safe as a file-local when its value is a string."
-  (should (safe-local-variable-p 'gdocs-revision-id "ALm37BVTxyz123")))
-
-(ert-deftest gdocs-test-revision-id-unsafe-when-non-string ()
-  "gdocs-revision-id is NOT safe as a file-local when its value is not a string."
-  (should-not (safe-local-variable-p 'gdocs-revision-id '(hack))))
-
-(ert-deftest gdocs-test-last-sync-safe-when-string ()
-  "gdocs-last-sync is safe as a file-local when its value is a string."
-  (should (safe-local-variable-p 'gdocs-last-sync "2026-01-15T10:30:00+0000")))
-
-(ert-deftest gdocs-test-last-sync-unsafe-when-non-string ()
-  "gdocs-last-sync is NOT safe as a file-local when its value is not a string."
-  (should-not (safe-local-variable-p 'gdocs-last-sync 1700000000)))
-
 ;;;; Mode enable/disable
 
 (ert-deftest gdocs-test-enable-adds-after-save-hook ()
   "Enabling gdocs-mode adds `gdocs-sync--push-on-save' to `after-save-hook'."
   (with-temp-buffer
     (org-mode)
-    (setq-local gdocs-document-id "test-doc-id")
-    (cl-letf (((symbol-function 'gdocs-sync--init-from-file-locals) #'ignore)
+    (insert ":PROPERTIES:\n:GDOCS_DOCUMENT_ID: test-doc-id\n:END:\n")
+    (cl-letf (((symbol-function 'gdocs-sync--init-from-properties) #'ignore)
               ((symbol-function 'gdocs--update-modeline) #'ignore)
               ((symbol-function 'gdocs-sync-pull) #'ignore))
       (gdocs-mode 1)
@@ -217,8 +182,8 @@
   "Disabling gdocs-mode removes `gdocs-sync--push-on-save' from `after-save-hook'."
   (with-temp-buffer
     (org-mode)
-    (setq-local gdocs-document-id "test-doc-id")
-    (cl-letf (((symbol-function 'gdocs-sync--init-from-file-locals) #'ignore)
+    (insert ":PROPERTIES:\n:GDOCS_DOCUMENT_ID: test-doc-id\n:END:\n")
+    (cl-letf (((symbol-function 'gdocs-sync--init-from-properties) #'ignore)
               ((symbol-function 'gdocs--update-modeline) #'ignore)
               ((symbol-function 'gdocs-sync-pull) #'ignore)
               ((symbol-function 'gdocs-sync--clear-buffer-state) #'ignore))
@@ -257,10 +222,10 @@
     (unwind-protect
         (progn
           (write-region
-           (concat "* Test\n\n"
-                   ";; Local Variables:\n"
-                   ";; gdocs-document-id: \"dired-doc-id\"\n"
-                   ";; End:\n")
+           (concat ":PROPERTIES:\n"
+                   ":GDOCS_DOCUMENT_ID: dired-doc-id\n"
+                   ":END:\n"
+                   "* Test\n")
            nil file)
           (with-current-buffer (dired dir)
             (dired-goto-file file)
@@ -494,16 +459,16 @@
 
 ;;;; File document-id reading (gdocs--file-document-id)
 
-(ert-deftest gdocs-test-file-document-id-reads-from-local-vars ()
-  "Reads `gdocs-document-id' from file-local variables."
+(ert-deftest gdocs-test-file-document-id-reads-from-properties ()
+  "Reads GDOCS_DOCUMENT_ID from the file-level property drawer."
   (let ((file (make-temp-file "gdocs-test-" nil ".org")))
     (unwind-protect
         (progn
           (write-region
-           (concat "* Test heading\n\n"
-                   ";; Local Variables:\n"
-                   ";; gdocs-document-id: \"doc-xyz-789\"\n"
-                   ";; End:\n")
+           (concat ":PROPERTIES:\n"
+                   ":GDOCS_DOCUMENT_ID: doc-xyz-789\n"
+                   ":END:\n"
+                   "* Test heading\n")
            nil file)
           (should (equal "doc-xyz-789" (gdocs--file-document-id file))))
       (delete-file file))))
@@ -517,8 +482,8 @@
           (should-not (gdocs--file-document-id file)))
       (delete-file file))))
 
-(ert-deftest gdocs-test-file-document-id-nil-when-no-local-vars ()
-  "Returns nil when there is no Local Variables block at all."
+(ert-deftest gdocs-test-file-document-id-nil-when-no-properties ()
+  "Returns nil when there is no property drawer at all."
   (let ((file (make-temp-file "gdocs-test-" nil ".org")))
     (unwind-protect
         (progn

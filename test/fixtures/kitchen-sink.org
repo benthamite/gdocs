@@ -1,3 +1,6 @@
+:PROPERTIES:
+:GDOCS_DOCUMENT_ID: kitchen-sink-test
+:END:
 #+TITLE: Kitchen sink
 #+AUTHOR: Test Author
 #+DATE: <2026-03-22 Sun>
@@ -508,6 +511,3 @@ Paragraph after the drawer.
 
 This requires org-inlinetask to be loaded.
 
-;; Local Variables:
-;; gdocs-document-id: "kitchen-sink-test"
-;; End:
