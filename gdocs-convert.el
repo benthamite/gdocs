@@ -351,7 +351,8 @@ Returns a list of (:ir ELEMENT :begin POS) plists."
 
 (defun gdocs-convert--item-positioned (item list-type depth)
   "Convert list ITEM to positioned IR entries.
-LIST-TYPE and DEPTH are as in `gdocs-convert--item-to-ir'.
+LIST-TYPE is `bullet', `number', or `check'.  DEPTH is the
+0-based nesting level.
 Returns a list of (:ir ELEMENT :begin POS) plists."
   (let* ((checkbox (org-element-property :checkbox item))
          (effective-type (if checkbox 'check list-type))
@@ -605,8 +606,8 @@ objects."
     ('code (gdocs-convert--code-object-to-run object inherited-props))
     ('verbatim (gdocs-convert--code-object-to-run object inherited-props))
     ('link (gdocs-convert--link-to-runs object inherited-props))
-    ('subscript (gdocs-convert--subscript-to-runs object inherited-props))
-    ('superscript (gdocs-convert--superscript-to-runs object inherited-props))
+    ('subscript (gdocs-convert--markup-to-runs object inherited-props :subscript))
+    ('superscript (gdocs-convert--markup-to-runs object inherited-props :superscript))
     ('latex-fragment (gdocs-convert--latex-fragment-to-runs object inherited-props))
     ('inline-src-block (gdocs-convert--inline-src-block-to-runs object inherited-props))
     ('footnote-reference (gdocs-convert--footnote-reference-to-runs object inherited-props))
@@ -781,24 +782,6 @@ INHERITED-PROPS carries parent formatting."
   (let ((utf8 (org-element-property :utf-8 entity)))
     (list (gdocs-convert--make-run (or utf8 "") inherited-props))))
 
-(defun gdocs-convert--subscript-to-runs (object inherited-props)
-  "Convert a SUBSCRIPT OBJECT to text runs with :subscript t.
-INHERITED-PROPS carries parent formatting."
-  (let ((new-props (plist-put (copy-sequence inherited-props) :subscript t)))
-    (let ((runs nil))
-      (dolist (child (org-element-contents object))
-        (setq runs (nconc runs (gdocs-convert--object-to-runs child new-props))))
-      runs)))
-
-(defun gdocs-convert--superscript-to-runs (object inherited-props)
-  "Convert a SUPERSCRIPT OBJECT to text runs with :superscript t.
-INHERITED-PROPS carries parent formatting."
-  (let ((new-props (plist-put (copy-sequence inherited-props) :superscript t)))
-    (let ((runs nil))
-      (dolist (child (org-element-contents object))
-        (setq runs (nconc runs (gdocs-convert--object-to-runs child new-props))))
-      runs)))
-
 (defun gdocs-convert--latex-fragment-to-runs (object inherited-props)
   "Convert a LATEX-FRAGMENT OBJECT to a code text run.
 INHERITED-PROPS carries parent formatting."
@@ -831,26 +814,18 @@ INHERITED-PROPS carries parent formatting."
 
 (defun gdocs-convert--make-run (text props)
   "Create a text run plist for TEXT with formatting from PROPS."
-  (let ((run (list :text text
-                   :bold (plist-get props :bold)
-                   :italic (plist-get props :italic)
-                   :underline (plist-get props :underline)
-                   :strikethrough (plist-get props :strikethrough)
-                   :code (plist-get props :code)
-                   :link (plist-get props :link))))
-    (when (plist-get props :subscript)
-      (setq run (plist-put run :subscript t)))
-    (when (plist-get props :superscript)
-      (setq run (plist-put run :superscript t)))
-    (when (plist-get props :foreground-color)
-      (setq run (plist-put run :foreground-color
-                           (plist-get props :foreground-color))))
-    (when (plist-get props :background-color)
-      (setq run (plist-put run :background-color
-                           (plist-get props :background-color))))
-    (when (plist-get props :font-size)
-      (setq run (plist-put run :font-size (plist-get props :font-size))))
-    run))
+  (list :text text
+        :bold (plist-get props :bold)
+        :italic (plist-get props :italic)
+        :underline (plist-get props :underline)
+        :strikethrough (plist-get props :strikethrough)
+        :code (plist-get props :code)
+        :link (plist-get props :link)
+        :subscript (plist-get props :subscript)
+        :superscript (plist-get props :superscript)
+        :foreground-color (plist-get props :foreground-color)
+        :background-color (plist-get props :background-color)
+        :font-size (plist-get props :font-size)))
 
 (defun gdocs-convert--make-plain-run (text)
   "Create a plain (unformatted) text run plist for TEXT."
@@ -858,11 +833,6 @@ INHERITED-PROPS carries parent formatting."
 
 ;; ---------------------------------------------------------------------------
 ;;; Lists -> IR
-
-(defun gdocs-convert--plain-list-to-ir (plain-list depth)
-  "Convert a PLAIN-LIST element to a list of IR elements at nesting DEPTH."
-  (mapcar (lambda (entry) (plist-get entry :ir))
-          (gdocs-convert--plain-list-positioned plain-list depth)))
 
 (defun gdocs-convert--org-list-type (plain-list)
   "Determine the IR list type symbol for PLAIN-LIST.
@@ -895,13 +865,6 @@ it so the IR text is clean for round-tripping."
                               "\n[ \t]+" "\n" text))
                 run)))
           runs))
-
-(defun gdocs-convert--item-to-ir (item list-type depth)
-  "Convert a list ITEM to IR elements.
-LIST-TYPE is `bullet', `number', or `check'.  DEPTH is the
-0-based nesting level."
-  (mapcar (lambda (entry) (plist-get entry :ir))
-          (gdocs-convert--item-positioned item list-type depth)))
 
 ;; ---------------------------------------------------------------------------
 ;;; Tables -> IR
@@ -970,19 +933,23 @@ Skips horizontal rule rows."
                                                 :value value)))
           :id (gdocs-convert--next-id))))
 
-(defun gdocs-convert--example-block-to-ir (example-block)
-  "Convert an EXAMPLE-BLOCK to a list of monospace paragraph IR elements.
+(defun gdocs-convert--lines-to-monospace-ir (lines)
+  "Convert LINES to a list of monospace paragraph IR elements.
 Each line becomes a separate paragraph with a code run, matching
 the Google Docs representation."
+  (mapcar (lambda (line)
+            (list :type 'paragraph
+                  :style 'normal
+                  :contents (list (gdocs-convert--make-run
+                                  line (list :code t)))
+                  :id (gdocs-convert--next-id)))
+          lines))
+
+(defun gdocs-convert--example-block-to-ir (example-block)
+  "Convert an EXAMPLE-BLOCK to a list of monospace paragraph IR elements."
   (let* ((value (or (org-element-property :value example-block) ""))
          (lines (split-string (s-trim-right value) "\n")))
-    (mapcar (lambda (line)
-              (list :type 'paragraph
-                    :style 'normal
-                    :contents (list (gdocs-convert--make-run
-                                    line (list :code t)))
-                    :id (gdocs-convert--next-id)))
-            lines)))
+    (gdocs-convert--lines-to-monospace-ir lines)))
 
 (defun gdocs-convert--keyword-to-ir (keyword)
   "Convert a preservable org KEYWORD to an IR element with a marker."
@@ -1059,13 +1026,7 @@ the Google Docs representation."
   "Convert a FIXED-WIDTH element to monospace paragraph IR elements."
   (let* ((value (or (org-element-property :value fixed-width) ""))
          (lines (split-string (s-trim-right value) "\n")))
-    (mapcar (lambda (line)
-              (list :type 'paragraph
-                    :style 'normal
-                    :contents (list (gdocs-convert--make-run
-                                    line (list :code t)))
-                    :id (gdocs-convert--next-id)))
-            lines)))
+    (gdocs-convert--lines-to-monospace-ir lines)))
 
 ;; ---------------------------------------------------------------------------
 ;;; LaTeX environments -> IR

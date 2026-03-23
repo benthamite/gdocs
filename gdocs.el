@@ -495,25 +495,23 @@ Only reads the last 3KB of the file (where Local Variables live)
 to avoid loading large org files into memory."
   (gdocs-convert--read-file-local-gdocs-id file))
 
-(defun gdocs--dir-folder-id (dir)
-  "Return the `gdocs-folder-id' dir-local variable for DIR, or nil."
+(defun gdocs--read-dir-local-variable (dir variable)
+  "Return the org-mode DIR-local VARIABLE from DIR's `.dir-locals.el', or nil."
   (let ((dl-file (expand-file-name ".dir-locals.el" dir)))
     (when (file-exists-p dl-file)
       (with-temp-buffer
         (insert-file-contents dl-file)
         (let ((alist (ignore-errors (read (current-buffer)))))
           (when-let* ((org-entry (alist-get 'org-mode alist)))
-            (alist-get 'gdocs-folder-id org-entry)))))))
+            (alist-get variable org-entry)))))))
+
+(defun gdocs--dir-folder-id (dir)
+  "Return the `gdocs-folder-id' dir-local variable for DIR, or nil."
+  (gdocs--read-dir-local-variable dir 'gdocs-folder-id))
 
 (defun gdocs--dir-account (dir)
   "Return the `gdocs-account' dir-local variable for DIR, or nil."
-  (let ((dl-file (expand-file-name ".dir-locals.el" dir)))
-    (when (file-exists-p dl-file)
-      (with-temp-buffer
-        (insert-file-contents dl-file)
-        (let ((alist (ignore-errors (read (current-buffer)))))
-          (when-let* ((org-entry (alist-get 'org-mode alist)))
-            (alist-get 'gdocs-account org-entry)))))))
+  (gdocs--read-dir-local-variable dir 'gdocs-account))
 
 (defun gdocs--effective-dir-locals ()
   "Return the effective (FOLDER-ID . ACCOUNT) for `default-directory'.
