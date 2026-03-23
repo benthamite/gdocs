@@ -525,6 +525,93 @@ values that were set before a `.dir-locals.el' was created."
   "Return the Google Drive folder URL for FOLDER-ID."
   (format "https://drive.google.com/drive/folders/%s" folder-id))
 
+;;;; Migration from file-local variables
+
+;;;###autoload
+(defun gdocs-migrate-file-locals-to-properties (&optional file)
+  "Migrate gdocs metadata from file-local variables to a property drawer.
+When called interactively, operate on the current buffer.  When
+called from Lisp with FILE, operate on that file non-interactively.
+Returns non-nil if migration was performed."
+  (interactive)
+  (let ((buf (if file (find-file-noselect file) (current-buffer))))
+    (with-current-buffer buf
+      (save-excursion
+        (goto-char (point-max))
+        (when (re-search-backward "^# Local Variables:" nil t)
+          (let ((doc-id nil) (account nil) (rev-id nil) (last-sync nil))
+            ;; Extract values from Local Variables block
+            (save-excursion
+              (let ((end (save-excursion
+                           (re-search-forward "^# End:" nil t)
+                           (point))))
+                (when (re-search-forward
+                       "# gdocs-document-id:[[:space:]]+\"\\([^\"]+\\)\"" end t)
+                  (setq doc-id (match-string 1)))
+                (goto-char (point))
+                (when (re-search-backward "^# Local Variables:" nil t)
+                  (when (re-search-forward
+                         "# gdocs-account:[[:space:]]+\"\\([^\"]+\\)\"" end t)
+                    (setq account (match-string 1)))
+                  (goto-char (point))
+                  (when (re-search-backward "^# Local Variables:" nil t)
+                    (when (re-search-forward
+                           "# gdocs-revision-id:[[:space:]]+\"\\([^\"]+\\)\"" end t)
+                      (setq rev-id (match-string 1)))
+                    (goto-char (point))
+                    (when (re-search-backward "^# Local Variables:" nil t)
+                      (when (re-search-forward
+                             "# gdocs-last-sync:[[:space:]]+\"\\([^\"]+\\)\"" end t)
+                        (setq last-sync (match-string 1))))))))
+            (when doc-id
+              ;; Remove the Local Variables block
+              (goto-char (point-max))
+              (when (re-search-backward "^# Local Variables:" nil t)
+                ;; Include preceding blank lines
+                (let ((block-start (point)))
+                  (forward-line -1)
+                  (while (and (> (point) (point-min))
+                              (looking-at-p "^[[:space:]]*$"))
+                    (forward-line -1))
+                  (unless (looking-at-p "^[[:space:]]*$")
+                    (forward-line 1))
+                  (setq block-start (point))
+                  (goto-char (point-max))
+                  (delete-region block-start (point-max))))
+              ;; Write property drawer at top
+              (goto-char (point-min))
+              (org-entry-put nil "GDOCS_DOCUMENT_ID" doc-id)
+              (when account
+                (org-entry-put nil "GDOCS_ACCOUNT" account))
+              (when rev-id
+                (org-entry-put nil "GDOCS_REVISION_ID" rev-id))
+              (when last-sync
+                (org-entry-put nil "GDOCS_LAST_SYNC" last-sync))
+              (save-buffer)
+              (message "Migrated %s" (or file (buffer-name)))
+              t)))))))
+
+;;;###autoload
+(defun gdocs-migrate-directory (directory)
+  "Migrate all org files with old-format gdocs metadata in DIRECTORY.
+Scans for files containing a `Local Variables' block with
+`gdocs-document-id' and migrates each to a property drawer."
+  (interactive "DMigrate directory: ")
+  (let ((files (directory-files directory t "\\.org\\'"))
+        (count 0))
+    (dolist (file files)
+      (when (with-temp-buffer
+              (insert-file-contents file nil
+                                    (max 0 (- (file-attribute-size
+                                               (file-attributes file))
+                                              3072)))
+              (goto-char (point-min))
+              (re-search-forward "gdocs-document-id:" nil t))
+        (when (gdocs-migrate-file-locals-to-properties file)
+          (cl-incf count))))
+    (message "Migrated %d file%s in %s" count
+             (if (= count 1) "" "s") directory)))
+
 ;;;; Auto-activation
 
 (defun gdocs--maybe-enable ()
