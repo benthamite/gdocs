@@ -1,0 +1,513 @@
+#+TITLE: Kitchen sink
+#+AUTHOR: Test Author
+#+DATE: <2026-03-22 Sun>
+#+EMAIL: test@example.com
+#+LANGUAGE: en
+#+STARTUP: overview
+#+TODO: TODO NEXT | DONE CANCELLED
+#+FILETAGS: :test:kitchen-sink:
+#+MACRO: version 1.0.0
+#+LINK: wp https://en.wikipedia.org/wiki/%s
+
+* Paragraph styles
+
+** Normal paragraphs
+
+A simple paragraph with no formatting.
+
+A second paragraph separated by a blank line.  This one has two sentences.
+
+** Block quotes
+
+#+BEGIN_QUOTE
+To be, or not to be, that is the question.
+#+END_QUOTE
+
+** Center blocks
+
+#+BEGIN_CENTER
+This text is centered.
+#+END_CENTER
+
+** Verse blocks
+
+#+BEGIN_VERSE
+Great clouds overhead
+Tiny black birds rise and fall \\
+Snow covers Emacs
+#+END_VERSE
+
+** Example blocks
+
+#+BEGIN_EXAMPLE
+This is an example block.
+  It preserves indentation.
+    And whitespace.
+#+END_EXAMPLE
+
+** Source code blocks
+
+#+BEGIN_SRC emacs-lisp
+(defun hello ()
+  (message "Hello, world!"))
+#+END_SRC
+
+#+BEGIN_SRC python :results output
+def fibonacci(n):
+    a, b = 0, 1
+    for _ in range(n):
+        a, b = b, a + b
+    return a
+
+print(fibonacci(10))
+#+END_SRC
+
+#+BEGIN_SRC shell
+echo "Hello from shell"
+#+END_SRC
+
+** Export blocks
+
+#+BEGIN_EXPORT html
+<div class="custom">Raw HTML content</div>
+#+END_EXPORT
+
+** Special blocks
+
+#+BEGIN_WARNING
+This is a warning block.
+#+END_WARNING
+
+#+BEGIN_NOTE
+This is a note block.
+#+END_NOTE
+
+** Comment blocks
+
+#+BEGIN_COMMENT
+This comment block should not appear in output.
+#+END_COMMENT
+
+** Fixed-width areas
+
+: This is fixed-width text.
+: It uses a colon prefix.
+
+* Text styles
+
+This paragraph has *bold text*, /italic text/, _underlined text_,
++struck-through text+, ~inline code~, and =verbatim text=.
+
+** Nested formatting
+
+This has */bold italic/*, *_bold underline_*, /_italic underline_/,
+*/+bold italic strikethrough+/*, and *~bold code~*.
+
+** Consecutive formatting
+
+*Bold* followed by /italic/ followed by _underline_ followed by +strikethrough+.
+
+** Formatting at boundaries
+
+*Bold at start* of paragraph.
+
+Paragraph ending in *bold*.
+
+A *single-word* formatted.
+
+* Links
+
+** Web links
+
+Visit [[https://orgmode.org][Org mode website]] for more information.
+
+A plain link: https://www.example.com
+
+An angle link: <https://www.example.com/path>
+
+** Internal links
+
+See section [[*Paragraph styles]] for more.
+
+A dedicated target: <<my-target>>
+
+Jump to [[my-target]].
+
+** Link with formatting
+
+A link with *bold*: [[https://example.com][*Bold link text*]].
+
+** Various link types
+
+- File link: [[file:other-file.org][Another file]]
+- File link with heading: [[file:other-file.org::*Introduction][Intro section]]
+- ID link: [[id:12345678-abcd-1234-abcd-123456789abc][An ID link]]
+- Custom ID link: [[#my-custom-id][Custom ID]]
+- Mailto link: [[mailto:user@example.com][Email us]]
+- Shell link: [[shell:echo "hello"]]
+- Elisp link: [[elisp:(message "hi")]]
+- Code ref link: [[(my-label)]]
+
+** Radio targets
+
+This paragraph defines <<<important concept>>> as a radio target.
+
+Later, the text important concept automatically becomes a link.
+
+* Lists
+
+** Unordered lists
+
+- First item
+- Second item
+- Third item
+
+** Nested unordered lists
+
+- Level 0 item A
+  - Level 1 item A.1
+    - Level 2 item A.1.1
+    - Level 2 item A.1.2
+  - Level 1 item A.2
+- Level 0 item B
+
+** Ordered lists
+
+1. First item
+2. Second item
+3. Third item
+
+** Nested ordered lists
+
+1. Level 0 item
+   1. Level 1 item
+      1. Level 2 item
+      2. Level 2 item
+   2. Level 1 item
+2. Level 0 item
+
+** Checkbox lists
+
+- [ ] Unchecked item
+- [X] Checked item
+- [-] Partially checked item
+
+** Descriptive lists
+
+- Emacs :: An extensible text editor.
+- Org mode :: A major mode for note-taking and project planning.
+- gdocs :: An Emacs package for syncing with Google Docs.
+
+** Mixed nested lists
+
+- Bullet parent
+  1. Numbered child 1
+  2. Numbered child 2
+     - Bullet grandchild
+       1. Numbered great-grandchild
+
+** List with formatted content
+
+- *Bold item*
+- /Italic item/ with [[https://example.com][a link]]
+- Item with ~code~ and =verbatim=
+
+** Consecutive numbered list groups
+
+First group:
+
+1. Alpha
+2. Beta
+3. Gamma
+
+Second group:
+
+1. One
+2. Two
+3. Three
+
+* Tables
+
+** Basic table
+
+| Name  | Age | City       |
+|-------+-----+------------|
+| Alice |  30 | New York   |
+| Bob   |  25 | London     |
+| Carol |  35 | Tokyo      |
+
+** Table with formatting
+
+| *Header 1* | *Header 2* | *Header 3* |
+|-------------+------------+------------|
+| /italic/    | ~code~     | _under_    |
+| *bold*      | +struck+   | normal     |
+
+** Table with alignment
+
+|   <l>   |  <c>  |  <r>  |
+| Left    | Center | Right |
+|---------+--------+-------|
+| aligned | text   | here  |
+
+** Table with formulas
+
+| Item   | Price | Quantity | Total |
+|--------+-------+----------+-------|
+| Widget |  9.99 |        3 | 29.97 |
+| Gadget | 24.99 |        1 | 24.99 |
+|--------+-------+----------+-------|
+| Total  |       |          | 54.96 |
+#+TBLFM: $4=$2*$3;%.2f::@>$4=vsum(@2..@-1);%.2f
+
+* Headings
+
+** Level 2 heading
+
+*** Level 3 heading
+
+**** Level 4 heading
+
+***** Level 5 heading
+
+****** Level 6 heading
+
+******* Level 7 heading (clamped to 6)
+
+* Org-specific features
+
+** TODO keywords
+
+*** TODO A task that needs doing
+
+*** NEXT A task in progress
+
+*** DONE A completed task
+CLOSED: [2026-03-22 Sun 10:00]
+
+*** CANCELLED A cancelled task
+
+** Priority
+
+*** [#A] High priority task
+
+*** [#B] Medium priority task
+
+*** [#C] Low priority task
+
+** Tags
+*** Heading with tags                                              :work:urgent:
+
+*** Heading with multiple tags                              :project:review:code:
+
+** Planning
+
+*** TODO Scheduled task
+SCHEDULED: <2026-04-01 Wed>
+
+*** TODO Deadline task
+DEADLINE: <2026-04-15 Wed>
+
+*** TODO Both scheduled and deadline
+SCHEDULED: <2026-04-01 Wed> DEADLINE: <2026-04-15 Wed>
+
+** Properties
+*** Heading with properties
+:PROPERTIES:
+:CUSTOM_ID: my-custom-id
+:CREATED: [2026-03-22 Sun]
+:CATEGORY: testing
+:END:
+
+This heading has a property drawer.
+
+** Statistics cookies
+
+*** Project [2/5]
+- [X] Task 1
+- [X] Task 2
+- [ ] Task 3
+- [ ] Task 4
+- [ ] Task 5
+
+*** Progress [40%]
+- [X] Step 1
+- [X] Step 2
+- [ ] Step 3
+- [ ] Step 4
+- [ ] Step 5
+
+** Clocking
+
+*** Clocked task
+:LOGBOOK:
+CLOCK: [2026-03-22 Sun 09:00]--[2026-03-22 Sun 10:30] =>  1:30
+CLOCK: [2026-03-21 Sat 14:00]--[2026-03-21 Sat 15:15] =>  1:15
+:END:
+
+* Inline elements
+
+** Timestamps
+
+Active timestamp: <2026-03-22 Sun>
+
+Active with time: <2026-03-22 Sun 14:30>
+
+Inactive timestamp: [2026-03-22 Sun]
+
+Inactive with time: [2026-03-22 Sun 14:30]
+
+Date range: <2026-03-22 Sun>--<2026-03-29 Sun>
+
+Time range: <2026-03-22 Sun 09:00-17:00>
+
+Repeating: <2026-03-22 Sun +1w>
+
+Repeating catch-up: <2026-03-22 Sun ++1d>
+
+Repeating restart: <2026-03-22 Sun .+1m>
+
+With warning: <2026-04-15 Wed -3d>
+
+** Entities
+
+Greek letters: \alpha, \beta, \gamma, \delta, \pi, \Omega
+
+Arrows: \to, \rightarrow, \Rightarrow, \leftarrow
+
+Symbols: \infty, \pm, \times, \div, \le, \ge, \ne
+
+Typography: \mdash, \ndash, \hellip, \trade, \copy, \reg
+
+Special: \nbsp, \dag, \ddag, \amp
+
+** Subscript and superscript
+
+Water is H_2O.
+
+Energy equals mc^2.
+
+Subscript with braces: a_{i,j}.
+
+Superscript with braces: e^{i\pi}.
+
+** LaTeX fragments
+
+Inline math: $E = mc^2$
+
+Inline with parens: \(x^2 + y^2 = z^2\)
+
+Display math: \[\sum_{i=1}^{n} i = \frac{n(n+1)}{2}\]
+
+** LaTeX environments
+
+\begin{equation}
+\int_0^\infty e^{-x}\,dx = 1
+\end{equation}
+
+\begin{align}
+a &= b + c \\
+d &= e + f
+\end{align}
+
+** Footnotes
+
+This text has a footnote reference[fn:1].
+
+An inline footnote[fn:2:This is defined inline.].
+
+An anonymous footnote[fn::This has no label.].
+
+[fn:1] This is the first footnote definition.
+
+** Inline source code and babel
+
+The result of src_emacs-lisp{(+ 1 2)} is 3.
+
+Call a named block: call_my-function(x=1)
+
+** Macros
+
+The version is {{{version}}}.
+
+The author is {{{author}}}.
+
+** Export snippets
+
+This is an HTML export snippet: @@html:<mark>highlighted</mark>@@.
+
+This is a LaTeX snippet: @@latex:\textsc{Small Caps}@@.
+
+** Line breaks
+
+First line \\
+Second line \\
+Third line
+
+** Citations
+
+A citation: [cite:@knuth84].
+
+With style: [cite/t:@knuth84].
+
+Multiple references: [cite:@knuth84;@lamport94].
+
+* Horizontal rules
+
+Content above the rule.
+
+-----
+
+Content below the rule.
+
+-----
+
+Content between two rules.
+
+-----
+
+* Comments
+
+# This is a comment line.
+# It should not appear in output.
+
+* Affiliated keywords
+
+#+CAPTION: A captioned table
+#+NAME: my-named-table
+| A | B |
+|---+---|
+| 1 | 2 |
+
+#+CAPTION[Short]: A long caption for the next element
+#+ATTR_HTML: :width 80%
+#+BEGIN_EXAMPLE
+Attributed example block
+#+END_EXAMPLE
+
+* Drawers
+
+** Heading with drawer
+:MYDATA:
+Some custom drawer content.
+Multiple lines are allowed.
+:END:
+
+Paragraph after the drawer.
+
+* Dynamic blocks
+
+#+BEGIN: clocktable :maxlevel 2 :scope file
+#+END:
+
+* Diary sexps
+
+%%(org-anniversary 2000 1 15) Birthday: John Doe (%d years old)
+
+* Inline tasks
+
+This requires org-inlinetask to be loaded.
+
+;; Local Variables:
+;; gdocs-document-id: "kitchen-sink-test"
+;; End:
