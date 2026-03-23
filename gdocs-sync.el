@@ -216,7 +216,9 @@ response alist."
   (gdocs-sync--update-last-sync-time)
   (gdocs-sync--persist-properties)
   (when buffer-file-name
-    (let ((gdocs-auto-push-on-save nil))
+    (let ((gdocs-auto-push-on-save nil)
+          (before-save-hook nil)
+          (after-save-hook nil))
       (save-buffer)))
   (gdocs-sync--set-status 'synced)
   (setq gdocs-sync--push-in-progress nil)
@@ -362,8 +364,13 @@ buffer."
       (gdocs-sync--persist-properties))
     (goto-char (min saved-point (point-max))))
   ;; Persist content to disk so it survives buffer kill.
+  ;; Suppress hooks: org-entry-put invalidated the org-element cache,
+  ;; and expensive before-save-hook entries (e.g. org-encrypt-entries)
+  ;; would have to rebuild it from scratch.
   (when buffer-file-name
-    (let ((gdocs-auto-push-on-save nil))
+    (let ((gdocs-auto-push-on-save nil)
+          (before-save-hook nil)
+          (after-save-hook nil))
       (save-buffer)))
   ;; The cache is stale after a full buffer replacement with
   ;; `inhibit-modification-hooks' bound — reset it to avoid
@@ -642,7 +649,9 @@ is unused but accepted for API compatibility."
     (setq gdocs-sync--account acct)
     (gdocs-sync--write-properties doc-id acct)
     (gdocs--ensure-org-tag)
-    (save-buffer)
+    (let ((before-save-hook nil)
+          (after-save-hook nil))
+      (save-buffer))
     (gdocs-sync-pull)))
 
 (defun gdocs-sync-unlink ()
@@ -651,7 +660,9 @@ is unused but accepted for API compatibility."
   (gdocs-sync--remove-properties)
   (gdocs--remove-org-tag)
   (gdocs-sync--clear-buffer-state)
-  (save-buffer)
+  (let ((before-save-hook nil)
+        (after-save-hook nil))
+    (save-buffer))
   (message "Unlinked from Google Docs."))
 
 (defun gdocs-sync--write-properties (doc-id account)
