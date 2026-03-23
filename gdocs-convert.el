@@ -248,7 +248,10 @@ The result is sorted by buffer position."
   (let ((result nil))
     (org-element-map ast '(headline paragraph plain-list table
                            horizontal-rule keyword src-block
-                           example-block quote-block)
+                           example-block quote-block center-block
+                           verse-block special-block fixed-width
+                           latex-environment footnote-definition
+                           drawer)
       (lambda (el)
         (let ((parent-type (org-element-type (org-element-parent el))))
           (pcase (org-element-type el)
@@ -293,6 +296,37 @@ The result is sorted by buffer position."
                (push (list :ir (gdocs-convert--keyword-to-ir el)
                            :begin (org-element-property :begin el))
                      result)))
+            ('center-block
+             (when (not (eq parent-type 'item))
+               (let ((begin (org-element-property :begin el)))
+                 (dolist (ir-elem (gdocs-convert--center-block-to-ir el))
+                   (push (list :ir ir-elem :begin begin) result)))))
+            ('verse-block
+             (when (not (eq parent-type 'item))
+               (push (list :ir (gdocs-convert--verse-block-to-ir el)
+                           :begin (org-element-property :begin el))
+                     result)))
+            ('special-block
+             (when (not (eq parent-type 'item))
+               (let ((begin (org-element-property :begin el)))
+                 (dolist (ir-elem (gdocs-convert--special-block-to-ir el))
+                   (push (list :ir ir-elem :begin begin) result)))))
+            ('fixed-width
+             (let ((begin (org-element-property :begin el)))
+               (dolist (ir-elem (gdocs-convert--fixed-width-to-ir el))
+                 (push (list :ir ir-elem :begin begin) result))))
+            ('latex-environment
+             (let ((begin (org-element-property :begin el)))
+               (dolist (ir-elem (gdocs-convert--latex-environment-to-ir el))
+                 (push (list :ir ir-elem :begin begin) result))))
+            ('footnote-definition
+             (push (list :ir (gdocs-convert--footnote-definition-to-ir el)
+                         :begin (org-element-property :begin el))
+                   result))
+            ('drawer
+             (push (list :ir (gdocs-convert--drawer-to-ir el)
+                         :begin (org-element-property :begin el))
+                   result))
             (_ nil)))))
     (sort (nreverse result)
           (lambda (a b) (< (plist-get a :begin) (plist-get b :begin))))))
@@ -571,6 +605,11 @@ objects."
     ('code (gdocs-convert--code-object-to-run object inherited-props))
     ('verbatim (gdocs-convert--code-object-to-run object inherited-props))
     ('link (gdocs-convert--link-to-runs object inherited-props))
+    ('subscript (gdocs-convert--subscript-to-runs object inherited-props))
+    ('superscript (gdocs-convert--superscript-to-runs object inherited-props))
+    ('latex-fragment (gdocs-convert--latex-fragment-to-runs object inherited-props))
+    ('inline-src-block (gdocs-convert--inline-src-block-to-runs object inherited-props))
+    ('footnote-reference (gdocs-convert--footnote-reference-to-runs object inherited-props))
     ('timestamp (gdocs-convert--timestamp-to-runs object inherited-props))
     ('entity (gdocs-convert--entity-to-run object inherited-props))
     ('line-break (list (gdocs-convert--make-run "\n" inherited-props)))
@@ -742,6 +781,47 @@ INHERITED-PROPS carries parent formatting."
   (let ((utf8 (org-element-property :utf-8 entity)))
     (list (gdocs-convert--make-run (or utf8 "") inherited-props))))
 
+(defun gdocs-convert--subscript-to-runs (object inherited-props)
+  "Convert a SUBSCRIPT OBJECT to text runs with :subscript t.
+INHERITED-PROPS carries parent formatting."
+  (let ((new-props (plist-put (copy-sequence inherited-props) :subscript t)))
+    (let ((runs nil))
+      (dolist (child (org-element-contents object))
+        (setq runs (nconc runs (gdocs-convert--object-to-runs child new-props))))
+      runs)))
+
+(defun gdocs-convert--superscript-to-runs (object inherited-props)
+  "Convert a SUPERSCRIPT OBJECT to text runs with :superscript t.
+INHERITED-PROPS carries parent formatting."
+  (let ((new-props (plist-put (copy-sequence inherited-props) :superscript t)))
+    (let ((runs nil))
+      (dolist (child (org-element-contents object))
+        (setq runs (nconc runs (gdocs-convert--object-to-runs child new-props))))
+      runs)))
+
+(defun gdocs-convert--latex-fragment-to-runs (object inherited-props)
+  "Convert a LATEX-FRAGMENT OBJECT to a code text run.
+INHERITED-PROPS carries parent formatting."
+  (let* ((value (org-element-property :value object))
+         (new-props (plist-put (copy-sequence inherited-props) :code t)))
+    (list (gdocs-convert--make-run value new-props))))
+
+(defun gdocs-convert--inline-src-block-to-runs (object inherited-props)
+  "Convert an INLINE-SRC-BLOCK OBJECT to a code text run.
+INHERITED-PROPS carries parent formatting."
+  (let* ((language (or (org-element-property :language object) ""))
+         (value (org-element-property :value object))
+         (new-props (plist-put (copy-sequence inherited-props) :code t)))
+    (ignore language)
+    (list (gdocs-convert--make-run value new-props))))
+
+(defun gdocs-convert--footnote-reference-to-runs (object inherited-props)
+  "Convert a FOOTNOTE-REFERENCE OBJECT to text runs.
+INHERITED-PROPS carries parent formatting."
+  (let ((interpreted (org-element-interpret-data object)))
+    (when (and interpreted (not (string-empty-p interpreted)))
+      (list (gdocs-convert--make-run interpreted inherited-props)))))
+
 (defun gdocs-convert--fallback-object-to-runs (object inherited-props)
   "Handle an unknown OBJECT type by interpreting it as text.
 INHERITED-PROPS carries parent formatting."
@@ -751,13 +831,26 @@ INHERITED-PROPS carries parent formatting."
 
 (defun gdocs-convert--make-run (text props)
   "Create a text run plist for TEXT with formatting from PROPS."
-  (list :text text
-        :bold (plist-get props :bold)
-        :italic (plist-get props :italic)
-        :underline (plist-get props :underline)
-        :strikethrough (plist-get props :strikethrough)
-        :code (plist-get props :code)
-        :link (plist-get props :link)))
+  (let ((run (list :text text
+                   :bold (plist-get props :bold)
+                   :italic (plist-get props :italic)
+                   :underline (plist-get props :underline)
+                   :strikethrough (plist-get props :strikethrough)
+                   :code (plist-get props :code)
+                   :link (plist-get props :link))))
+    (when (plist-get props :subscript)
+      (setq run (plist-put run :subscript t)))
+    (when (plist-get props :superscript)
+      (setq run (plist-put run :superscript t)))
+    (when (plist-get props :foreground-color)
+      (setq run (plist-put run :foreground-color
+                           (plist-get props :foreground-color))))
+    (when (plist-get props :background-color)
+      (setq run (plist-put run :background-color
+                           (plist-get props :background-color))))
+    (when (plist-get props :font-size)
+      (setq run (plist-put run :font-size (plist-get props :font-size))))
+    run))
 
 (defun gdocs-convert--make-plain-run (text)
   "Create a plain (unformatted) text run plist for TEXT."
@@ -904,6 +997,134 @@ the Google Docs representation."
           :id (gdocs-convert--next-id))))
 
 ;; ---------------------------------------------------------------------------
+;;; Center blocks -> IR
+
+(defun gdocs-convert--center-block-to-ir (center-block)
+  "Convert a CENTER-BLOCK element to IR elements with center alignment."
+  (let ((result nil))
+    (org-element-map center-block 'paragraph
+      (lambda (para)
+        (let* ((runs (gdocs-convert--objects-to-runs
+                      (org-element-contents para)))
+               (trimmed (gdocs-convert--trim-runs runs)))
+          (when trimmed
+            (push (list :type 'paragraph
+                        :style 'normal
+                        :alignment 'center
+                        :contents trimmed
+                        :id (gdocs-convert--next-id))
+                  result)))))
+    (nreverse result)))
+
+;; ---------------------------------------------------------------------------
+;;; Verse blocks -> IR
+
+(defun gdocs-convert--verse-block-to-ir (verse-block)
+  "Convert a VERSE-BLOCK element to an IR element with a marker."
+  (let* ((runs (gdocs-convert--objects-to-runs
+                (org-element-contents verse-block)))
+         (trimmed (gdocs-convert--trim-runs runs)))
+    (list :type 'paragraph
+          :style 'normal
+          :contents (or trimmed (list (gdocs-convert--make-plain-run "")))
+          :gdocs-marker (list (list :type 'verse-block))
+          :id (gdocs-convert--next-id))))
+
+;; ---------------------------------------------------------------------------
+;;; Special blocks -> IR
+
+(defun gdocs-convert--special-block-to-ir (special-block)
+  "Convert a SPECIAL-BLOCK element to IR elements with a marker."
+  (let ((block-type (org-element-property :type special-block))
+        (result nil))
+    (org-element-map special-block 'paragraph
+      (lambda (para)
+        (let* ((runs (gdocs-convert--objects-to-runs
+                      (org-element-contents para)))
+               (trimmed (gdocs-convert--trim-runs runs)))
+          (when trimmed
+            (push (list :type 'paragraph
+                        :style 'normal
+                        :contents trimmed
+                        :gdocs-marker (list (list :type 'special-block
+                                                  :data block-type))
+                        :id (gdocs-convert--next-id))
+                  result)))))
+    (nreverse result)))
+
+;; ---------------------------------------------------------------------------
+;;; Fixed-width -> IR
+
+(defun gdocs-convert--fixed-width-to-ir (fixed-width)
+  "Convert a FIXED-WIDTH element to monospace paragraph IR elements."
+  (let* ((value (or (org-element-property :value fixed-width) ""))
+         (lines (split-string (s-trim-right value) "\n")))
+    (mapcar (lambda (line)
+              (list :type 'paragraph
+                    :style 'normal
+                    :contents (list (gdocs-convert--make-run
+                                    line (list :code t)))
+                    :id (gdocs-convert--next-id)))
+            lines)))
+
+;; ---------------------------------------------------------------------------
+;;; LaTeX environments -> IR
+
+(defun gdocs-convert--latex-environment-to-ir (latex-env)
+  "Convert a LATEX-ENV element to IR elements with a marker."
+  (let* ((value (or (org-element-property :value latex-env) ""))
+         (lines (split-string (s-trim-right value) "\n")))
+    (mapcar (lambda (line)
+              (list :type 'paragraph
+                    :style 'normal
+                    :contents (list (gdocs-convert--make-run
+                                    line (list :code t)))
+                    :gdocs-marker (list (list :type 'latex-environment
+                                              :data value))
+                    :id (gdocs-convert--next-id)))
+            lines)))
+
+;; ---------------------------------------------------------------------------
+;;; Footnote definitions -> IR
+
+(defun gdocs-convert--footnote-definition-to-ir (footnote-def)
+  "Convert a FOOTNOTE-DEF element to an IR element."
+  (let* ((label (org-element-property :label footnote-def))
+         (runs (gdocs-convert--footnote-body-runs footnote-def)))
+    (list :type 'footnote
+          :label label
+          :contents (or runs (list (gdocs-convert--make-plain-run "")))
+          :id (gdocs-convert--next-id))))
+
+(defun gdocs-convert--footnote-body-runs (footnote-def)
+  "Extract text runs from the body of FOOTNOTE-DEF."
+  (let ((all-runs nil))
+    (org-element-map footnote-def 'paragraph
+      (lambda (para)
+        (let ((runs (gdocs-convert--objects-to-runs
+                     (org-element-contents para))))
+          (setq all-runs (nconc all-runs runs)))))
+    (gdocs-convert--trim-runs all-runs)))
+
+;; ---------------------------------------------------------------------------
+;;; Drawers -> IR
+
+(defun gdocs-convert--drawer-to-ir (drawer)
+  "Convert a DRAWER element to an IR element preserving raw content."
+  (let* ((name (org-element-property :drawer-name drawer))
+         (raw (buffer-substring-no-properties
+               (org-element-property :begin drawer)
+               (org-element-property :end drawer))))
+    (list :type 'paragraph
+          :style 'normal
+          :contents (list (gdocs-convert--make-plain-run
+                           (s-trim raw)))
+          :gdocs-marker (list (list :type 'drawer
+                                    :data (list :name name
+                                                :raw raw)))
+          :id (gdocs-convert--next-id))))
+
+;; ---------------------------------------------------------------------------
 ;;; Public API: IR -> org
 
 (defun gdocs-convert-ir-to-org (ir)
@@ -969,12 +1190,13 @@ grouped into a single =#+BEGIN_EXAMPLE= block."
 
 (defun gdocs-convert--all-code-paragraph-p (element)
   "Return non-nil if ELEMENT is a normal paragraph with all-code runs.
-Paragraphs that carry a src-block marker are excluded, since they
+Paragraphs that carry any marker are excluded, since they
 already round-trip via named ranges."
   (and (eq (plist-get element :type) 'paragraph)
        (eq (plist-get element :style) 'normal)
        (not (plist-get element :list))
        (not (plist-get element :gdocs-marker))
+       (not (plist-get element :alignment))
        (let ((runs (plist-get element :contents)))
          (and runs (seq-every-p (lambda (r) (plist-get r :code)) runs)))))
 
@@ -991,6 +1213,7 @@ PREV-TYPE is the :type of the previous element."
           (list-info (plist-get element :list)))
       (or (eq type 'table)
           (eq type 'horizontal-rule)
+          (eq type 'footnote)
           (and (eq type 'paragraph)
                (not list-info)
                (not (eq prev-type 'horizontal-rule)))))))
@@ -1000,7 +1223,10 @@ PREV-TYPE is the :type of the previous element."
   (pcase (plist-get element :type)
     ('paragraph (gdocs-convert--ir-paragraph-to-org element))
     ('table (gdocs-convert--ir-table-to-org element))
-    ('horizontal-rule "-----")))
+    ('horizontal-rule "-----")
+    ('footnote (gdocs-convert--ir-footnote-to-org element))
+    ('page-break "")
+    ('image "")))
 
 (defun gdocs-convert--ir-paragraph-to-org (element)
   "Convert an IR paragraph ELEMENT to an org string."
@@ -1013,6 +1239,8 @@ PREV-TYPE is the :type of the previous element."
       (gdocs-convert--format-list-item list-info text))
      ((eq style 'title)
       (format "#+TITLE: %s" text))
+     ((eq style 'subtitle)
+      (format "#+SUBTITLE: %s" text))
      ((gdocs-convert--heading-style-p style)
       (gdocs-convert--format-heading style text marker))
      ((eq style 'quote)
@@ -1023,6 +1251,19 @@ PREV-TYPE is the :type of the previous element."
      ((gdocs-convert--extract-marker-field marker 'keyword)
       (let ((data (gdocs-convert--extract-marker-field marker 'keyword)))
         (format "#+%s: %s" (plist-get data :key) (plist-get data :value))))
+     ((gdocs-convert--extract-marker-field marker 'verse-block)
+      (format "#+BEGIN_VERSE\n%s\n#+END_VERSE" text))
+     ((gdocs-convert--extract-marker-field marker 'special-block)
+      (let ((block-type (gdocs-convert--extract-marker-field
+                         marker 'special-block)))
+        (format "#+BEGIN_%s\n%s\n#+END_%s" block-type text block-type)))
+     ((gdocs-convert--extract-marker-field marker 'latex-environment)
+      (gdocs-convert--extract-marker-field marker 'latex-environment))
+     ((gdocs-convert--extract-marker-field marker 'drawer)
+      (let ((data (gdocs-convert--extract-marker-field marker 'drawer)))
+        (s-trim (plist-get data :raw))))
+     ((eq (plist-get element :alignment) 'center)
+      (format "#+BEGIN_CENTER\n%s\n#+END_CENTER" text))
      (t text))))
 
 (defun gdocs-convert--heading-style-p (style)
@@ -1135,6 +1376,10 @@ Google Docs URLs back to org file: links."
       (setq text (gdocs-convert--wrap-emphasis "_" text)))
     (when strikethrough
       (setq text (gdocs-convert--wrap-emphasis "+" text)))
+    (when (plist-get run :subscript)
+      (setq text (format "_{%s}" text)))
+    (when (plist-get run :superscript)
+      (setq text (format "^{%s}" text)))
     text))
 
 (defun gdocs-convert--reverse-resolve-link (url)
@@ -1239,6 +1484,15 @@ markers to produce valid emphasis markup."
         (concat leading marker inner marker trailing)))))
 
 ;; ---------------------------------------------------------------------------
+;;; IR footnote -> org
+
+(defun gdocs-convert--ir-footnote-to-org (element)
+  "Convert an IR footnote ELEMENT to an org footnote definition string."
+  (let ((label (plist-get element :label))
+        (text (gdocs-convert--runs-to-org (plist-get element :contents))))
+    (format "[fn:%s] %s" (or label "") text)))
+
+;; ---------------------------------------------------------------------------
 ;;; IR table -> org
 
 (defun gdocs-convert--ir-table-to-org (element)
@@ -1305,13 +1559,33 @@ LISTS-MAP is the document's lists property for bullet type
 lookup.  MARKERS is an alist of element markers from named ranges."
   (cond
    ((alist-get 'paragraph element)
-    (gdocs-convert--docs-paragraph-to-ir
-     (alist-get 'paragraph element) lists-map markers))
+    (let ((paragraph (alist-get 'paragraph element)))
+      (or (gdocs-convert--docs-special-paragraph-elements paragraph)
+          (gdocs-convert--docs-paragraph-to-ir
+           paragraph lists-map markers))))
    ((alist-get 'table element)
     (gdocs-convert--docs-table-to-ir (alist-get 'table element)))
    ((alist-get 'sectionBreak element)
     nil)
    (t nil)))
+
+(defun gdocs-convert--docs-special-paragraph-elements (paragraph)
+  "Check PARAGRAPH for special elements like page breaks or images.
+Returns an IR element if found, nil otherwise."
+  (let ((elements (alist-get 'elements paragraph)))
+    (catch 'found
+      (seq-doseq (el elements)
+        (when (alist-get 'pageBreak el)
+          (throw 'found (list :type 'page-break
+                              :id (gdocs-convert--next-id))))
+        (when (alist-get 'inlineObjectElement el)
+          (let ((obj-id (alist-get 'inlineObjectId
+                                   (alist-get 'inlineObjectElement el))))
+            (throw 'found (list :type 'image
+                                :object-id obj-id
+                                :id (gdocs-convert--next-id))))))
+      nil)))
+
 
 ;; ---------------------------------------------------------------------------
 ;;; Google Docs paragraph -> IR
@@ -1323,23 +1597,35 @@ named-range marker data."
   (let* ((elements (alist-get 'elements paragraph))
          (style-obj (alist-get 'paragraphStyle paragraph))
          (named-style (alist-get 'namedStyleType style-obj))
+         (alignment (alist-get 'alignment style-obj))
          (bullet (alist-get 'bullet paragraph))
          (ir-style (gdocs-convert--docs-style-to-ir named-style))
          (runs (gdocs-convert--docs-elements-to-runs elements))
          (trimmed (gdocs-convert--trim-trailing-newline-runs runs))
          (list-info (when bullet
                       (gdocs-convert--docs-bullet-to-list
-                       bullet lists-map))))
+                       bullet lists-map)))
+         (ir-alignment (gdocs-convert--docs-alignment-to-ir alignment)))
     (append (list :type 'paragraph
                   :style (if list-info 'normal ir-style)
                   :contents (or trimmed nil)
                   :id (gdocs-convert--next-id))
-            (when list-info (list :list list-info)))))
+            (when list-info (list :list list-info))
+            (when ir-alignment (list :alignment ir-alignment)))))
+
+(defun gdocs-convert--docs-alignment-to-ir (alignment)
+  "Convert a Google Docs ALIGNMENT string to an IR alignment symbol."
+  (pcase alignment
+    ("CENTER" 'center)
+    ("END" 'end)
+    ("JUSTIFIED" 'justified)
+    (_ nil)))
 
 (defun gdocs-convert--docs-style-to-ir (named-style)
   "Convert a Google Docs NAMED-STYLE string to an IR style symbol."
   (pcase named-style
     ("TITLE" 'title)
+    ("SUBTITLE" 'subtitle)
     ("HEADING_1" 'heading-1)
     ("HEADING_2" 'heading-2)
     ("HEADING_3" 'heading-3)
@@ -1385,7 +1671,14 @@ coarser run boundaries that org-element produces."
        (eq (plist-get a :underline) (plist-get b :underline))
        (eq (plist-get a :strikethrough) (plist-get b :strikethrough))
        (eq (plist-get a :code) (plist-get b :code))
-       (equal (plist-get a :link) (plist-get b :link))))
+       (equal (plist-get a :link) (plist-get b :link))
+       (eq (plist-get a :subscript) (plist-get b :subscript))
+       (eq (plist-get a :superscript) (plist-get b :superscript))
+       (equal (plist-get a :foreground-color)
+              (plist-get b :foreground-color))
+       (equal (plist-get a :background-color)
+              (plist-get b :background-color))
+       (eql (plist-get a :font-size) (plist-get b :font-size))))
 
 (defun gdocs-convert--normalize-run-whitespace (runs)
   "Normalize whitespace at boundaries of formatted RUNS.
@@ -1421,7 +1714,12 @@ emphasis model.  This prevents spurious diffs on round-trip."
       (plist-get run :underline)
       (plist-get run :strikethrough)
       (plist-get run :code)
-      (plist-get run :link)))
+      (plist-get run :link)
+      (plist-get run :subscript)
+      (plist-get run :superscript)
+      (plist-get run :foreground-color)
+      (plist-get run :background-color)
+      (plist-get run :font-size)))
 
 (defun gdocs-convert--strip-vertical-tabs (text)
   "Replace vertical tab characters in TEXT with newlines.
@@ -1436,18 +1734,56 @@ within paragraphs."
          (style (alist-get 'textStyle text-run))
          (link-obj (alist-get 'link style))
          (url (when link-obj
-                (gdocs-convert--extract-link-url link-obj))))
-    (list :text content
-          :bold (eq (alist-get 'bold style) t)
-          :italic (eq (alist-get 'italic style) t)
-          ;; Suppress underline when a URL is present: Google Docs
-          ;; automatically underlines hyperlinks, so the underline is
-          ;; presentational rather than semantic org emphasis.
-          :underline (and (eq (alist-get 'underline style) t)
-                          (not url))
-          :strikethrough (eq (alist-get 'strikethrough style) t)
-          :code (gdocs-convert--docs-is-monospace-p style)
-          :link url)))
+                (gdocs-convert--extract-link-url link-obj)))
+         (baseline (alist-get 'baselineOffset style))
+         (fg-color (gdocs-convert--extract-color
+                    (alist-get 'foregroundColor style)))
+         (bg-color (gdocs-convert--extract-color
+                    (alist-get 'backgroundColor style)))
+         (font-size (gdocs-convert--extract-font-size
+                     (alist-get 'fontSize style)))
+         (run (list :text content
+                    :bold (eq (alist-get 'bold style) t)
+                    :italic (eq (alist-get 'italic style) t)
+                    :underline (and (eq (alist-get 'underline style) t)
+                                    (not url))
+                    :strikethrough (eq (alist-get 'strikethrough style) t)
+                    :code (gdocs-convert--docs-is-monospace-p style)
+                    :link url)))
+    (when (equal baseline "SUPERSCRIPT")
+      (setq run (plist-put run :superscript t)))
+    (when (equal baseline "SUBSCRIPT")
+      (setq run (plist-put run :subscript t)))
+    (when fg-color
+      (setq run (plist-put run :foreground-color fg-color)))
+    (when bg-color
+      (setq run (plist-put run :background-color bg-color)))
+    (when font-size
+      (setq run (plist-put run :font-size font-size)))
+    run))
+
+(defun gdocs-convert--extract-color (color-obj)
+  "Extract a hex color string from a Google Docs COLOR-OBJ.
+Returns a string like \"#FF0000\" or nil."
+  (when color-obj
+    (let* ((color (alist-get 'color color-obj))
+           (rgb (alist-get 'rgbColor color)))
+      (when rgb
+        (let ((r (or (alist-get 'red rgb) 0))
+              (g (or (alist-get 'green rgb) 0))
+              (b (or (alist-get 'blue rgb) 0)))
+          (unless (and (= r 0) (= g 0) (= b 0))
+            (format "#%02X%02X%02X"
+                    (round (* r 255))
+                    (round (* g 255))
+                    (round (* b 255)))))))))
+
+(defun gdocs-convert--extract-font-size (font-size-obj)
+  "Extract a font size in points from a Google Docs FONT-SIZE-OBJ.
+Returns a number or nil."
+  (when font-size-obj
+    (let ((magnitude (alist-get 'magnitude font-size-obj)))
+      (when magnitude magnitude))))
 
 (defun gdocs-convert--extract-link-url (link-obj)
   "Extract a URL from a Google Docs LINK-OBJ.
@@ -1564,12 +1900,23 @@ adds 36pt, starting at 18pt for level 0."
            (level-info (when (and levels (> (length levels) nesting-level))
                          (aref levels nesting-level)))
            (glyph-type (when level-info
-                         (alist-get 'glyphType level-info))))
-      (if (and glyph-type
-               (member glyph-type '("DECIMAL" "ALPHA" "ROMAN"
-                                    "ZERO_DECIMAL")))
-          'number
-        'bullet))))
+                         (alist-get 'glyphType level-info)))
+           (glyph-symbol (when level-info
+                           (alist-get 'glyphSymbol level-info))))
+      (cond
+       ((gdocs-convert--checkbox-glyph-p glyph-type glyph-symbol)
+        'check)
+       ((and glyph-type
+             (member glyph-type '("DECIMAL" "ALPHA" "ROMAN"
+                                  "ZERO_DECIMAL")))
+        'number)
+       (t 'bullet)))))
+
+(defun gdocs-convert--checkbox-glyph-p (glyph-type glyph-symbol)
+  "Return non-nil if GLYPH-TYPE or GLYPH-SYMBOL indicates a checkbox."
+  (or (equal glyph-type "CHECKBOX")
+      (and glyph-symbol
+           (member glyph-symbol '("☐" "☑" "✓" "✔" "☒")))))
 
 ;; ---------------------------------------------------------------------------
 ;;; Named range markers
@@ -1656,7 +2003,10 @@ Returns a plist (:requests LIST :index NEW-INDEX)."
   (pcase (plist-get element :type)
     ('paragraph (gdocs-convert--paragraph-to-requests element index))
     ('table (gdocs-convert--table-to-requests element index))
-    ('horizontal-rule (gdocs-convert--horizontal-rule-to-requests index))))
+    ('horizontal-rule (gdocs-convert--horizontal-rule-to-requests index))
+    ('page-break (gdocs-convert--page-break-to-requests index))
+    ('image (list :requests nil :index index))
+    ('footnote (gdocs-convert--footnote-to-requests element index))))
 
 ;; ---------------------------------------------------------------------------
 ;;; Paragraph -> requests
@@ -1698,18 +2048,40 @@ Returns a plist (:requests LIST :index NEW-INDEX)."
 (defun gdocs-convert--make-paragraph-style-requests (element start end)
   "Create updateParagraphStyle requests for ELEMENT from START to END."
   (let* ((style (plist-get element :style))
-         (named-style (gdocs-convert--ir-style-to-docs style)))
+         (alignment (plist-get element :alignment))
+         (named-style (gdocs-convert--ir-style-to-docs style))
+         (requests nil))
     (when named-style
-      (list `((updateParagraphStyle
+      (push `((updateParagraphStyle
                . ((paragraphStyle . ((namedStyleType . ,named-style)))
                   (range . ((startIndex . ,start)
                             (endIndex . ,(1- end))))
-                  (fields . "namedStyleType"))))))))
+                  (fields . "namedStyleType"))))
+            requests))
+    (when alignment
+      (let ((docs-alignment (gdocs-convert--ir-alignment-to-docs alignment)))
+        (when docs-alignment
+          (push `((updateParagraphStyle
+                   . ((paragraphStyle . ((alignment . ,docs-alignment)))
+                      (range . ((startIndex . ,start)
+                                (endIndex . ,(1- end))))
+                      (fields . "alignment"))))
+                requests))))
+    (nreverse requests)))
+
+(defun gdocs-convert--ir-alignment-to-docs (alignment)
+  "Convert an IR ALIGNMENT symbol to a Google Docs alignment string."
+  (pcase alignment
+    ('center "CENTER")
+    ('end "END")
+    ('justified "JUSTIFIED")
+    (_ nil)))
 
 (defun gdocs-convert--ir-style-to-docs (style)
   "Convert an IR STYLE symbol to a Google Docs namedStyleType string."
   (pcase style
     ('title "TITLE")
+    ('subtitle "SUBTITLE")
     ('heading-1 "HEADING_1")
     ('heading-2 "HEADING_2")
     ('heading-3 "HEADING_3")
@@ -1756,7 +2128,24 @@ Returns nil if no formatting is applied."
       (push `(italic . t) style))
     (when (plist-get run :bold)
       (push `(bold . t) style))
+    (when (plist-get run :superscript)
+      (push '(baselineOffset . "SUPERSCRIPT") style))
+    (when (plist-get run :subscript)
+      (push '(baselineOffset . "SUBSCRIPT") style))
+    (when-let ((fg (plist-get run :foreground-color)))
+      (push `(foregroundColor . ,(gdocs-convert--hex-to-color fg)) style))
+    (when-let ((bg (plist-get run :background-color)))
+      (push `(backgroundColor . ,(gdocs-convert--hex-to-color bg)) style))
+    (when-let ((size (plist-get run :font-size)))
+      (push `(fontSize . ((magnitude . ,size) (unit . "PT"))) style))
     style))
+
+(defun gdocs-convert--hex-to-color (hex)
+  "Convert HEX color string (#RRGGBB) to a Google Docs color alist."
+  (let ((r (/ (string-to-number (substring hex 1 3) 16) 255.0))
+        (g (/ (string-to-number (substring hex 3 5) 16) 255.0))
+        (b (/ (string-to-number (substring hex 5 7) 16) 255.0)))
+    `((color . ((rgbColor . ((red . ,r) (green . ,g) (blue . ,b))))))))
 
 (defun gdocs-convert--style-fields-mask (style-fields)
   "Compute the fields mask string for STYLE-FIELDS alist."
@@ -2057,6 +2446,26 @@ Returns a plist (:requests LIST :index NEW-INDEX)."
   (let* ((text "\n")
          (len (gdocs-convert--string-to-utf16-length text))
          (insert-req (gdocs-convert--make-insert-text-request text index)))
+    (list :requests (list insert-req)
+          :index (+ index len))))
+
+(defun gdocs-convert--page-break-to-requests (index)
+  "Create requests for a page break at INDEX.
+Returns a plist (:requests LIST :index NEW-INDEX)."
+  (list :requests (list `((insertPageBreak
+                            . ((location . ((index . ,index)))))))
+        :index (+ index 1)))
+
+(defun gdocs-convert--footnote-to-requests (element index)
+  "Create requests for a footnote ELEMENT at INDEX.
+Returns a plist (:requests LIST :index NEW-INDEX)."
+  (let* ((text (gdocs-convert--runs-to-plain-text
+                (plist-get element :contents)))
+         (full-text (concat "[fn:" (or (plist-get element :label) "") "] "
+                            text "\n"))
+         (len (gdocs-convert--string-to-utf16-length full-text))
+         (insert-req (gdocs-convert--make-insert-text-request
+                      full-text index)))
     (list :requests (list insert-req)
           :index (+ index len))))
 

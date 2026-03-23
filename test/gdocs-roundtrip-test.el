@@ -150,7 +150,7 @@
 
 (ert-deftest gdocs-roundtrip/org-center-block ()
   "A center block is parsed into IR."
-  :expected-result :failed
+
   (let* ((ir (gdocs-roundtrip-test--org-to-ir
               "#+BEGIN_CENTER\nCentered.\n#+END_CENTER")))
     (should ir)
@@ -158,7 +158,7 @@
 
 (ert-deftest gdocs-roundtrip/org-verse-block ()
   "A verse block is parsed into IR."
-  :expected-result :failed
+
   (let* ((ir (gdocs-roundtrip-test--org-to-ir
               "#+BEGIN_VERSE\nLine one\nLine two\n#+END_VERSE")))
     (should ir)))
@@ -181,14 +181,14 @@
 
 (ert-deftest gdocs-roundtrip/org-special-block ()
   "A special block (e.g., #+BEGIN_WARNING) is parsed into IR."
-  :expected-result :failed
+
   (let* ((ir (gdocs-roundtrip-test--org-to-ir
               "#+BEGIN_WARNING\nWatch out!\n#+END_WARNING")))
     (should ir)))
 
 (ert-deftest gdocs-roundtrip/org-fixed-width ()
   "Fixed-width lines (: prefix) produce code-formatted runs."
-  :expected-result :failed
+
   (let* ((ir (gdocs-roundtrip-test--org-to-ir ": Fixed width text.")))
     (should ir)
     (let ((code-run (gdocs-roundtrip-test--find-run-with-prop ir :code)))
@@ -425,7 +425,7 @@
 
 (ert-deftest gdocs-roundtrip/org-footnote-definition ()
   "Footnote definitions produce a dedicated IR element (not just inline text)."
-  :expected-result :failed
+
   (let* ((ir (gdocs-roundtrip-test--org-to-ir
               "Text[fn:1].\n\n[fn:1] The footnote.")))
     ;; Should have a dedicated footnote element, not just inline text
@@ -440,7 +440,7 @@
 
 (ert-deftest gdocs-roundtrip/org-latex-fragment ()
   "LaTeX fragments produce a code-formatted run preserving the LaTeX source."
-  :expected-result :failed
+
   (let* ((ir (gdocs-roundtrip-test--org-to-ir "Math: $E = mc^2$"))
          (run (gdocs-roundtrip-test--find-run-with-text ir "E = mc^2")))
     (should run)
@@ -449,7 +449,7 @@
 
 (ert-deftest gdocs-roundtrip/org-latex-environment ()
   "LaTeX environments produce a dedicated IR element or code block."
-  :expected-result :failed
+
   (let* ((ir (gdocs-roundtrip-test--org-to-ir
               "\\begin{equation}\nx = 1\n\\end{equation}")))
     (should (>= (length ir) 1))
@@ -458,7 +458,7 @@
 
 (ert-deftest gdocs-roundtrip/org-subscript ()
   "Subscripts (H_2O) produce a run with :subscript t."
-  :expected-result :failed
+
   (let* ((ir (gdocs-roundtrip-test--org-to-ir "H_2O")))
     (should ir)
     ;; Should have a run with subscript indication
@@ -470,7 +470,7 @@
 
 (ert-deftest gdocs-roundtrip/org-superscript ()
   "Superscripts (x^2) produce a run with :superscript t."
-  :expected-result :failed
+
   (let* ((ir (gdocs-roundtrip-test--org-to-ir "x^2")))
     (should ir)
     ;; Should have a run with superscript indication
@@ -550,7 +550,7 @@
 
 (ert-deftest gdocs-roundtrip/org-drawer ()
   "Custom drawers survive roundtrip preserving :DRAWER: ... :END: syntax."
-  :expected-result :failed
+
   (let* ((original "* Heading\n:MYDATA:\nContent\n:END:\n\nParagraph.\n")
          (ir (gdocs-roundtrip-test--org-to-ir original))
          (result (gdocs-convert-ir-to-org ir)))
@@ -560,7 +560,7 @@
 
 (ert-deftest gdocs-roundtrip/org-clock ()
   "CLOCK entries survive roundtrip preserving CLOCK: syntax."
-  :expected-result :failed
+
   (let* ((original "* Task\n:LOGBOOK:\nCLOCK: [2026-03-22 Sun 09:00]--[2026-03-22 Sun 10:00] =>  1:00\n:END:\n")
          (ir (gdocs-roundtrip-test--org-to-ir original))
          (result (gdocs-convert-ir-to-org ir)))
@@ -619,7 +619,7 @@
 
 (ert-deftest gdocs-roundtrip/json-has-title ()
   "The JSON fixture contains a title element."
-  :expected-result :failed ;; SUBTITLE is not a currently supported style
+
   (let* ((json (gdocs-roundtrip-test--read-json-fixture))
          (ir (gdocs-convert-docs-json-to-ir json))
          (subtitle (gdocs-roundtrip-test--find-ir-element
@@ -742,7 +742,7 @@ so this requires manual fixture update or a doc created via the GDocs UI."
 
 (ert-deftest gdocs-roundtrip/json-has-inline-image ()
   "The JSON fixture's inline image is handled in IR."
-  :expected-result :failed
+
   (let* ((json (gdocs-roundtrip-test--read-json-fixture))
          (ir (gdocs-convert-docs-json-to-ir json)))
     ;; Look for any element that represents an image
@@ -750,7 +750,7 @@ so this requires manual fixture update or a doc created via the GDocs UI."
 
 (ert-deftest gdocs-roundtrip/json-has-page-break ()
   "The JSON fixture's page break is handled in IR."
-  :expected-result :failed
+
   (let* ((json (gdocs-roundtrip-test--read-json-fixture))
          (ir (gdocs-convert-docs-json-to-ir json)))
     ;; Look for any element that represents a page break
@@ -758,7 +758,7 @@ so this requires manual fixture update or a doc created via the GDocs UI."
 
 (ert-deftest gdocs-roundtrip/json-foreground-color ()
   "Foreground color information is preserved in IR."
-  :expected-result :failed
+
   (let* ((json (gdocs-roundtrip-test--read-json-fixture))
          (ir (gdocs-convert-docs-json-to-ir json)))
     ;; Look for a run with color info
@@ -770,7 +770,7 @@ so this requires manual fixture update or a doc created via the GDocs UI."
 
 (ert-deftest gdocs-roundtrip/json-background-color ()
   "Background color / highlight is preserved in IR."
-  :expected-result :failed
+
   (let* ((json (gdocs-roundtrip-test--read-json-fixture))
          (ir (gdocs-convert-docs-json-to-ir json)))
     (should (catch 'found
@@ -781,7 +781,7 @@ so this requires manual fixture update or a doc created via the GDocs UI."
 
 (ert-deftest gdocs-roundtrip/json-font-size ()
   "Font size changes are preserved in IR."
-  :expected-result :failed
+
   (let* ((json (gdocs-roundtrip-test--read-json-fixture))
          (ir (gdocs-convert-docs-json-to-ir json)))
     (should (catch 'found
@@ -792,7 +792,7 @@ so this requires manual fixture update or a doc created via the GDocs UI."
 
 (ert-deftest gdocs-roundtrip/json-paragraph-alignment ()
   "Paragraph alignment (center, right, justified) is preserved in IR."
-  :expected-result :failed
+
   (let* ((json (gdocs-roundtrip-test--read-json-fixture))
          (ir (gdocs-convert-docs-json-to-ir json)))
     (should (catch 'found
