@@ -85,14 +85,16 @@ See also `gdocs-auth--resolve-account' which additionally accepts
 an already-known ACCOUNT argument."
   (gdocs-auth--resolve-account nil prompt))
 
-(defun gdocs-auth-get-access-token (account callback)
+(defun gdocs-auth-get-access-token (account callback &optional errback)
   "Ensure a valid access token for ACCOUNT, then call CALLBACK with it.
 ACCOUNT is a string naming an entry in `gdocs-accounts'.
 CALLBACK is a function called with a single argument: the access
 token string.  If the token is expired or expiring within
 `gdocs-auth--token-expiry-margin' seconds, it is refreshed
 asynchronously before calling CALLBACK.  If no token file exists,
-initiate the OAuth flow and call CALLBACK upon completion."
+initiate the OAuth flow and call CALLBACK upon completion.
+ERRBACK, if non-nil, is called with an error message string when
+authentication fails, instead of signaling an error."
   (let ((token-data (gdocs-auth--read-token-file-if-exists account)))
     (cond
      ((null token-data)
@@ -100,7 +102,7 @@ initiate the OAuth flow and call CALLBACK upon completion."
      ((gdocs-auth--token-valid-p token-data)
       (funcall callback (alist-get 'access_token token-data)))
      (t
-      (gdocs-auth--refresh-token account token-data callback)))))
+      (gdocs-auth--refresh-token account token-data callback errback)))))
 
 ;;;###autoload
 (defun gdocs-authenticate (&optional account)
@@ -205,35 +207,40 @@ expires_at timestamp."
          (< (+ (float-time) gdocs-auth--token-expiry-margin)
             expires-at))))
 
-(defun gdocs-auth--refresh-token (account token-data callback)
+(defun gdocs-auth--refresh-token (account token-data callback &optional errback)
   "Refresh the access token for ACCOUNT using TOKEN-DATA.
 TOKEN-DATA must contain a refresh_token.  On success, write the
 updated token file and call CALLBACK with the new access token.
-CALLBACK is a function receiving one string argument."
+CALLBACK is a function receiving one string argument.  ERRBACK,
+if non-nil, is called with an error message string on failure
+instead of signaling an error."
   ;; Token files use underscored keys (JSON convention) vs. the
   ;; hyphenated symbols in `gdocs-accounts'.
   (let ((refresh-token (alist-get 'refresh_token token-data))
         (client-id (alist-get 'client_id token-data))
         (client-secret (alist-get 'client_secret token-data)))
-    (unless refresh-token
-      (error "No refresh token for account %s; run `gdocs-authenticate'"
-             account))
-    (plz 'post gdocs-auth--token-url
-      :headers '(("Content-Type" . "application/x-www-form-urlencoded"))
-      :body (gdocs-auth--url-encode-params
-             `(("grant_type" . "refresh_token")
-               ("refresh_token" . ,refresh-token)
-               ("client_id" . ,client-id)
-               ("client_secret" . ,client-secret)))
-      :as #'json-read
-      :then (lambda (response)
-              (let ((new-data (gdocs-auth--merge-refreshed-token
-                               token-data response)))
-                (gdocs-auth--write-token-file account new-data)
-                (funcall callback (alist-get 'access_token new-data))))
-      :else (lambda (err)
-              (error "Failed to refresh token for account %s: %s"
-                     account (plz-error-message err))))))
+    (if (not refresh-token)
+        (let ((msg (format "No refresh token for account %s; run `gdocs-authenticate'"
+                           account)))
+          (if errback (funcall errback msg) (error "%s" msg)))
+      (plz 'post gdocs-auth--token-url
+        :headers '(("Content-Type" . "application/x-www-form-urlencoded"))
+        :body (gdocs-auth--url-encode-params
+               `(("grant_type" . "refresh_token")
+                 ("refresh_token" . ,refresh-token)
+                 ("client_id" . ,client-id)
+                 ("client_secret" . ,client-secret)))
+        :as #'json-read
+        :then (lambda (response)
+                (let ((new-data (gdocs-auth--merge-refreshed-token
+                                 token-data response)))
+                  (gdocs-auth--write-token-file account new-data)
+                  (funcall callback (alist-get 'access_token new-data))))
+        :else (lambda (err)
+                (let ((msg (format "Failed to refresh token for account %s: %s"
+                                   account
+                                   (gdocs-auth--format-refresh-error err))))
+                  (if errback (funcall errback msg) (error "%s" msg))))))))
 
 (defun gdocs-auth--merge-refreshed-token (old-data response)
   "Merge RESPONSE from a token refresh into OLD-DATA.
@@ -426,6 +433,18 @@ which may have changed or may not be loaded yet."
       (token_type . "Bearer")
       (client_id . ,client-id)
       (client_secret . ,client-secret))))
+
+;;;; Error formatting
+
+(defun gdocs-auth--format-refresh-error (err)
+  "Format a `plz-error' ERR from a token refresh into a readable string.
+Falls back to the HTTP response body when the plz message slot is nil."
+  (or (plz-error-message err)
+      (when-let* ((response (plz-error-response err)))
+        (format "HTTP %d: %s"
+                (plz-response-status response)
+                (plz-response-body response)))
+      "unknown error"))
 
 ;;;; Utility functions
 

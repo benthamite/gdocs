@@ -45,7 +45,7 @@
   (gdocs-sync-test-with-org-buffer "Hello world\n"
     (let ((requests-received nil))
       (cl-letf (((symbol-function 'gdocs-api-get-document)
-                 (lambda (_doc-id callback &optional _account)
+                 (lambda (_doc-id callback &optional _account _on-error)
                    (funcall callback
                             '((body . ((content . [((endIndex . 2))])))))))
                 ((symbol-function 'gdocs-api-batch-update)
@@ -68,7 +68,7 @@
                         :contents (list (list :text "Original" :bold nil))
                         :id "elem-001")))
       (cl-letf (((symbol-function 'gdocs-api-get-document)
-                 (lambda (_doc-id callback &optional _account)
+                 (lambda (_doc-id callback &optional _account _on-error)
                    (funcall callback
                             '((title . "Test")
                               (body . ((content
@@ -102,7 +102,7 @@
     (let ((api-called nil))
       (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
       (cl-letf (((symbol-function 'gdocs-api-get-document)
-                 (lambda (_doc-id callback &optional _account)
+                 (lambda (_doc-id callback &optional _account _on-error)
                    (funcall callback
                             '((title . "Test")
                               (body . ((content
@@ -137,7 +137,7 @@
   (gdocs-sync-test-with-org-buffer "New content\n"
     (setq gdocs-sync--shadow-ir nil)
     (cl-letf (((symbol-function 'gdocs-api-get-document)
-               (lambda (_doc-id callback &optional _account)
+               (lambda (_doc-id callback &optional _account _on-error)
                  (funcall callback
                           '((body . ((content . [((endIndex . 2))])))))))
               ((symbol-function 'gdocs-api-batch-update)
@@ -155,7 +155,7 @@
     (let ((original-shadow '((:type paragraph))))
       (setq gdocs-sync--shadow-ir original-shadow)
       (cl-letf (((symbol-function 'gdocs-api-get-document)
-                 (lambda (_doc-id callback &optional _account)
+                 (lambda (_doc-id callback &optional _account _on-error)
                    (funcall callback
                             '((title . "Test")
                               (body . ((content
@@ -205,7 +205,7 @@ file-local variables are preserved and revision ID is stored."
                  (funcall callback
                           '((headRevisionId . "rev-6")))))
               ((symbol-function 'gdocs-api-get-document)
-               (lambda (_doc-id callback &optional _account)
+               (lambda (_doc-id callback &optional _account _on-error)
                  (funcall callback (gdocs-test-sample-document-json))))
               ((symbol-function 'gdocs-convert-docs-json-to-ir)
                (lambda (_json)
@@ -237,7 +237,7 @@ local changes) but remote has new content."
                  (funcall callback
                           '((headRevisionId . "rev-7")))))
               ((symbol-function 'gdocs-api-get-document)
-               (lambda (_doc-id callback &optional _account)
+               (lambda (_doc-id callback &optional _account _on-error)
                  (funcall callback (gdocs-test-sample-document-json))))
               ((symbol-function 'gdocs-convert-docs-json-to-ir)
                (lambda (_json)
@@ -312,7 +312,7 @@ local changes) but remote has new content."
     (should (eq gdocs-sync--status 'synced))
     (let ((captured-status nil))
       (cl-letf (((symbol-function 'gdocs-api-get-document)
-                 (lambda (_doc-id callback &optional _account)
+                 (lambda (_doc-id callback &optional _account _on-error)
                    (funcall callback
                             '((body . ((content . [((endIndex . 2))])))))))
                 ((symbol-function 'gdocs-api-batch-update)

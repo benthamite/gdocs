@@ -107,7 +107,8 @@ ensuring same-document heading links resolve to anchored URLs."
                   current-ir buf link-ctx json)
                (gdocs-sync--push-incremental
                 current-ir buf link-ctx json)))))
-       acct))))
+       acct
+       (gdocs-sync--make-push-error-callback buf)))))
 
 (defun gdocs-sync--serialize-push ()
   "If a push is already in progress, queue this one.

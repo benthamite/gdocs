@@ -48,15 +48,17 @@
 
 ;;;; Public API — Google Docs
 
-(defun gdocs-api-get-document (document-id callback &optional account)
+(defun gdocs-api-get-document (document-id callback &optional account on-error)
   "Fetch a Google Docs document by DOCUMENT-ID.
 CALLBACK is called with the parsed JSON document structure.
 ACCOUNT is an optional account name; if nil, the default account
-is selected."
+is selected.  ON-ERROR, if non-nil, is called with the error
+condition instead of signaling."
   (gdocs-api--request 'get
                       (concat gdocs-api--docs-base-url "/" document-id)
                       callback
-                      :account account))
+                      :account account
+                      :on-error on-error))
 
 (defun gdocs-api-batch-update (document-id requests callback
                                            &optional account on-error)
@@ -278,7 +280,12 @@ condition instead of signaling."
      acct
      (lambda (token)
        (gdocs-api--send-request method url token callback
-                                acct body attempt on-error)))))
+                                acct body attempt on-error))
+     (lambda (err-msg)
+       (gdocs-api--hide-progress)
+       (if on-error
+           (funcall on-error (cons 'error (list err-msg)))
+         (error "%s" err-msg))))))
 
 (defun gdocs-api--send-request (method url token callback account body attempt
                                        &optional on-error)
