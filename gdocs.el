@@ -490,20 +490,10 @@ In a `dired' buffer, operate on the file or directory at point."
         (browse-url (gdocs--document-url doc-id))))))
 
 (defun gdocs--file-document-id (file)
-  "Return the `gdocs-document-id' file-local variable from FILE, or nil."
-  (with-temp-buffer
-    (insert-file-contents file)
-    (goto-char (point-max))
-    (when (search-backward "Local Variables:" nil t)
-      (let ((case-fold-search t)
-            (block-end (save-excursion
-                         (when (re-search-forward "^;+.*End:" nil t)
-                           (point)))))
-        (when (and block-end
-                   (re-search-forward
-                    "gdocs-document-id:[[:space:]]+\"\\([^\"]+\\)\""
-                    block-end t))
-          (match-string 1))))))
+  "Return the `gdocs-document-id' file-local variable from FILE, or nil.
+Only reads the last 3KB of the file (where Local Variables live)
+to avoid loading large org files into memory."
+  (gdocs-convert--read-file-local-gdocs-id file))
 
 (defun gdocs--dir-folder-id (dir)
   "Return the `gdocs-folder-id' dir-local variable for DIR, or nil."
@@ -571,12 +561,17 @@ headings."
         (let* ((eol (line-end-position))
                (line (buffer-substring-no-properties
                       (line-beginning-position) eol))
-               (tag-re (concat ":" (regexp-quote gdocs-org-tag) ":")))
+               (tag-re (concat ":" (regexp-quote gdocs-org-tag) ":"))
+               ;; Detect existing org tags: require whitespace before
+               ;; the tag string to avoid false positives on headings
+               ;; whose title ends with a literal colon.
+               (has-tags (string-match-p
+                          "[ \t]:[[:alnum:]_@#%:]+:[ \t]*$" line)))
           (unless (string-match-p tag-re line)
             (goto-char eol)
             (skip-chars-backward " \t")
             (delete-region (point) eol)
-            (if (eq (char-before) ?:)
+            (if has-tags
                 ;; Existing tags: append ours before the final colon
                 (insert (concat gdocs-org-tag ":"))
               ;; No tags: add tag decoration

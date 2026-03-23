@@ -62,7 +62,11 @@ identical keys."
   (pcase (plist-get element :type)
     ('paragraph (gdocs-diff--paragraph-key element))
     ('table (gdocs-diff--table-key element))
-    ('horizontal-rule "horizontal-rule")))
+    ('horizontal-rule "horizontal-rule")
+    ('page-break "page-break")
+    ('image (format "image:%s" (or (plist-get element :object-id) "")))
+    ('footnote (gdocs-diff--footnote-key element))
+    (_ (format "unknown:%s" (plist-get element :type)))))
 
 (defun gdocs-diff--paragraph-key (element)
   "Compute a content key for a paragraph ELEMENT.
@@ -82,6 +86,12 @@ Concatenates all cell text across all rows."
       (dolist (cell row)
         (push (gdocs-convert--runs-to-plain-text cell) cell-texts)))
     (format "table:%s" (s-join "|" (nreverse cell-texts)))))
+
+(defun gdocs-diff--footnote-key (element)
+  "Compute a content key for a footnote ELEMENT."
+  (let ((label (or (plist-get element :label) ""))
+        (text (gdocs-convert--runs-to-plain-text (plist-get element :contents))))
+    (format "footnote:%s:%s" label text)))
 
 (defun gdocs-diff--runs-formatting-key (runs)
   "Produce a string capturing the formatting of each run in RUNS."

@@ -70,6 +70,10 @@ ACCOUNT-NAME.json with 600 permissions."
 Provides a safety margin for network latency and clock skew
 so API calls don't fail mid-flight with an expired token.")
 
+(defconst gdocs-auth--callback-server-timeout 300
+  "Seconds before the OAuth callback server is automatically killed.
+Prevents resource leaks if the user abandons the OAuth flow.")
+
 ;;;; Public API
 
 (defun gdocs-auth-select-account (&optional prompt)
@@ -284,7 +288,10 @@ callback URL."
 ACCOUNT is the account name to store tokens for.  CLIENT-ID and
 CLIENT-SECRET are the OAuth credentials used for the token
 exchange.  CALLBACK, if non-nil, is called with the access token
-on success.  Return the server process."
+on success.  Return the server process.  The server is
+automatically killed after
+`gdocs-auth--callback-server-timeout' seconds to prevent
+resource leaks if the user abandons the flow."
   (let ((server nil))
     (setq server
           (make-network-process
@@ -299,6 +306,13 @@ on success.  Return the server process."
                       proc data server
                       account client-id client-secret callback))
            :sentinel #'ignore))
+    ;; Auto-cleanup if the OAuth flow is never completed
+    (run-at-time gdocs-auth--callback-server-timeout nil
+                 (lambda ()
+                   (when (process-live-p server)
+                     (delete-process server)
+                     (message "gdocs: OAuth callback server timed out for account %s"
+                              account))))
     server))
 
 (defun gdocs-auth--handle-callback (proc data server account

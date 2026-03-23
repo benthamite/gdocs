@@ -2346,15 +2346,22 @@ groups, ensuring headings are never accidentally bulleted."
 (defun gdocs-convert--make-marker-requests (element start end)
   "Create named range requests for org-only markers in ELEMENT.
 START and END define the text range in the document.
-ELEMENT's :gdocs-marker is a list of marker plists."
+ELEMENT's :gdocs-marker is a list of marker plists.
+String-valued :data is included in the named range name so it
+survives a round-trip through Google Docs."
   (let ((marker (plist-get element :gdocs-marker))
         (id (plist-get element :id)))
     (when (and marker id)
       (mapcar (lambda (m)
-                (let ((marker-type (plist-get m :type)))
+                (let* ((marker-type (plist-get m :type))
+                       (data (plist-get m :data))
+                       (name (if (and data (stringp data))
+                                 (format "gdocs-org-marker:%s:%s:%s"
+                                         marker-type id data)
+                               (format "gdocs-org-marker:%s:%s"
+                                       marker-type id))))
                   `((createNamedRange
-                     . ((name . ,(format "gdocs-org-marker:%s:%s"
-                                         marker-type id))
+                     . ((name . ,name)
                         (range . ((startIndex . ,start)
                                   (endIndex . ,(1- end)))))))))
               marker))))
