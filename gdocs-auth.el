@@ -119,12 +119,9 @@ directly."
   "Delete the stored token file for ACCOUNT.
 If ACCOUNT is nil, prompt the user to select one."
   (interactive)
-  (let* ((acct (gdocs-auth--resolve-account account))
-         (token-file (gdocs-auth--token-file-path acct)))
-    (if (file-exists-p token-file)
-        (progn
-          (delete-file token-file)
-          (message "Logged out of account %s" acct))
+  (let ((acct (gdocs-auth--resolve-account account)))
+    (if (gdocs-auth--delete-token-file acct)
+        (message "Logged out of account %s" acct)
       (message "No token file found for account %s (already logged out)" acct))))
 
 ;;;; Account resolution
@@ -237,10 +234,16 @@ instead of signaling an error."
                   (gdocs-auth--write-token-file account new-data)
                   (funcall callback (alist-get 'access_token new-data))))
         :else (lambda (err)
-                (let ((msg (format "Failed to refresh token for account %s: %s"
-                                   account
-                                   (gdocs-auth--format-refresh-error err))))
-                  (if errback (funcall errback msg) (error "%s" msg))))))))
+                (if (gdocs-auth--invalid-grant-p err)
+                    ;; Refresh token revoked or expired — re-authenticate.
+                    (progn
+                      (gdocs-auth--delete-token-file account)
+                      (message "Token for %s expired; re-authenticating..." account)
+                      (gdocs-auth--start-oauth-flow account callback))
+                  (let ((msg (format "Failed to refresh token for account %s: %s"
+                                     account
+                                     (gdocs-auth--format-refresh-error err))))
+                    (if errback (funcall errback msg) (error "%s" msg)))))))))
 
 (defun gdocs-auth--merge-refreshed-token (old-data response)
   "Merge RESPONSE from a token refresh into OLD-DATA.
@@ -445,6 +448,24 @@ Falls back to the HTTP response body when the plz message slot is nil."
                 (plz-response-status response)
                 (plz-response-body response)))
       "unknown error"))
+
+(defun gdocs-auth--invalid-grant-p (err)
+  "Return non-nil if ERR is an `invalid_grant' token error.
+This indicates the refresh token has been revoked or expired and
+the user must re-authenticate."
+  (when-let* ((response (plz-error-response err))
+              (body (plz-response-body response)))
+    (string-match-p "invalid_grant" body)))
+
+;;;; Token file management
+
+(defun gdocs-auth--delete-token-file (account)
+  "Delete the stored token file for ACCOUNT, if it exists.
+Return non-nil if a file was deleted."
+  (let ((token-file (gdocs-auth--token-file-path account)))
+    (when (file-exists-p token-file)
+      (delete-file token-file)
+      t)))
 
 ;;;; Utility functions
 
