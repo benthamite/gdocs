@@ -679,17 +679,28 @@ also persisted when non-nil."
     (when gdocs-sync--last-sync-time
       (org-entry-put nil "GDOCS_LAST_SYNC" gdocs-sync--last-sync-time))))
 
+(defun gdocs-sync--reset-element-cache ()
+  "Fully reset the org-element cache for the current buffer.
+Unregisters the persistent cache first so that stale position
+data is not reloaded on the next cache reset or file open."
+  (when (derived-mode-p 'org-mode)
+    (when (fboundp 'org-persist-unregister)
+      (ignore-errors
+        (org-persist-unregister 'org-element--cache (current-buffer)))
+      (ignore-errors
+        (org-persist-unregister 'org-element--headline-cache (current-buffer))))
+    (org-element-cache-reset)))
+
 (defun gdocs-sync--persist-properties ()
   "Write all current buffer-local sync state to the property drawer.
 Resets the org-element cache afterward because `org-entry-put'
-invalidates it incrementally, which can leave it in an
-inconsistent state that causes expensive rebuilds on the next
-cache-consuming operation (e.g. `org-encrypt-entries')."
+changes buffer positions, which invalidates cached element
+boundaries and causes freezes in subsequent cache consumers
+\(e.g. `org-encrypt-entries' on `before-save-hook')."
   (when gdocs-sync--document-id
     (gdocs-sync--write-properties gdocs-sync--document-id
                                   (or gdocs-sync--account ""))
-    (when (derived-mode-p 'org-mode)
-      (org-element-cache-reset))))
+    (gdocs-sync--reset-element-cache)))
 
 (defun gdocs-sync--remove-properties ()
   "Remove all gdocs properties from the file-level property drawer."
@@ -699,8 +710,7 @@ cache-consuming operation (e.g. `org-encrypt-entries')."
     (org-entry-delete nil "GDOCS_ACCOUNT")
     (org-entry-delete nil "GDOCS_REVISION_ID")
     (org-entry-delete nil "GDOCS_LAST_SYNC"))
-  (when (derived-mode-p 'org-mode)
-    (org-element-cache-reset)))
+  (gdocs-sync--reset-element-cache))
 
 (defun gdocs-sync--clear-buffer-state ()
   "Clear all buffer-local sync state."

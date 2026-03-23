@@ -609,7 +609,13 @@ Returns non-nil if migration was performed."
                 (org-entry-put nil "GDOCS_REVISION_ID" rev-id))
               (when last-sync
                 (org-entry-put nil "GDOCS_LAST_SYNC" last-sync))
-              (save-buffer)
+              ;; Invalidate persistent org-element cache so stale
+              ;; position data from the old file layout is not
+              ;; reloaded.
+              (gdocs-sync--reset-element-cache)
+              (let ((before-save-hook nil)
+                    (after-save-hook nil))
+                (save-buffer))
               (message "Migrated %s" (or file (buffer-name)))
               t)))))))
 
