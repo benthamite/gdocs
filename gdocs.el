@@ -313,13 +313,29 @@ interactive prompts or buffer-local side effects."
 Removes `gdocs-folder-id' and `gdocs-account' from
 `.dir-locals.el'."
   (interactive)
-  ;; Flush the dir-locals cache so we modify the current directory's
-  ;; `.dir-locals.el', not a parent's.
+  (let ((dl-file (expand-file-name ".dir-locals.el" default-directory)))
+    (unless (file-exists-p dl-file)
+      (user-error "No .dir-locals.el in %s" default-directory))
+    ;; Edit the .dir-locals.el directly to avoid cache misdirection.
+    (with-current-buffer (find-file-noselect dl-file)
+      (let ((alist (save-excursion
+                     (goto-char (point-min))
+                     (ignore-errors (read (current-buffer))))))
+        (when-let* ((org-entry (assq 'org-mode alist)))
+          (setf (cdr org-entry)
+                (assq-delete-all 'gdocs-folder-id
+                                 (assq-delete-all 'gdocs-account
+                                                  (cdr org-entry)))))
+        (erase-buffer)
+        (insert ";;; Directory Local Variables            -*- no-byte-compile: t -*-\n")
+        (insert ";;; For more information see (info \"(emacs) Directory Variables\")\n\n")
+        (pp alist (current-buffer))
+        (save-buffer)
+        (kill-buffer))))
+  ;; Flush the dir-locals cache so buffers pick up the change.
   (setq dir-locals-directory-cache
-        (assoc-delete-all default-directory dir-locals-directory-cache))
-  (modify-dir-local-variable 'org-mode 'gdocs-folder-id nil 'delete)
-  (modify-dir-local-variable 'org-mode 'gdocs-account nil 'delete)
-  (gdocs--save-dir-locals-buffer)
+        (assoc-delete-all (file-name-as-directory default-directory)
+                          dir-locals-directory-cache))
   (kill-local-variable 'gdocs-folder-id)
   (kill-local-variable 'gdocs-account)
   (message "Unlinked %s from Google Drive folder" default-directory))
