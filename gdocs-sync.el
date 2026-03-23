@@ -166,7 +166,8 @@ for accurate UTF-16 indices."
     (let* ((remote-ir (gdocs-convert-docs-json-to-ir json))
            (remote-title (alist-get 'title json))
            (start-index (gdocs-sync--body-start-index remote-ir))
-           (remote-filtered (gdocs-sync--filter-title remote-ir))
+           (remote-filtered (gdocs-sync--filter-empty-paragraphs
+                             (gdocs-sync--filter-title remote-ir)))
            (local-filtered (gdocs-sync--filter-title local-ir))
            (requests (gdocs-diff-generate
                       remote-filtered local-filtered start-index)))
@@ -787,6 +788,24 @@ occupy body space and are excluded from the offset."
         (setq offset (+ offset (gdocs-diff--element-utf16-length element)))))
     ;; 1 = Google Docs body start index (index 0 is the document root)
     (+ 1 offset)))
+
+(defun gdocs-sync--filter-empty-paragraphs (ir)
+  "Remove empty paragraphs from IR.
+Google Docs inserts structural empty paragraphs (e.g. between
+content elements) that cannot be deleted via the API.  Filtering
+them from the remote IR prevents the diff engine from generating
+doomed delete requests."
+  (cl-remove-if (lambda (element)
+                  (and (eq (plist-get element :type) 'paragraph)
+                       (not (plist-get element :list))
+                       (let ((contents (plist-get element :contents)))
+                         (or (null contents)
+                             (and (= (length contents) 1)
+                                  (string-empty-p
+                                   (string-trim
+                                    (or (plist-get (car contents) :text)
+                                        ""))))))))
+                ir))
 
 (defun gdocs-sync--filter-title (ir)
   "Return IR with title elements removed.
