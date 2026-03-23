@@ -199,6 +199,46 @@
       (should (= (length (car rows)) 2))
       (should (string= (plist-get (car (car (car rows))) :text) "A")))))
 
+(ert-deftest gdocs-convert-test-table-column-max-lengths ()
+  "Column max lengths are computed from cell text."
+  (let* ((ir (gdocs-convert-org-string-to-ir
+              "| A | Long text |\n|---+---|\n| CD | E |"))
+         (table-elem (gdocs-convert-test--find-element ir 'table))
+         (rows (plist-get table-elem :rows))
+         (lengths (gdocs-convert--table-column-max-lengths rows)))
+    (should (= (length lengths) 2))
+    ;; Col 0: max("A","CD") = 2, Col 1: max("Long text","E") = 9
+    (should (= (nth 0 lengths) 2))
+    (should (= (nth 1 lengths) 9))))
+
+(ert-deftest gdocs-convert-test-table-column-widths-proportional ()
+  "Column widths are proportional to max content lengths."
+  (let ((widths (gdocs-convert--table-column-widths '(10 30))))
+    (should (= (length widths) 2))
+    ;; Second column should be roughly 3x the first (both above minimum).
+    (should (> (nth 1 widths) (* 2.0 (nth 0 widths))))))
+
+(ert-deftest gdocs-convert-test-table-column-widths-minimum ()
+  "No column width is below the minimum."
+  (let ((widths (gdocs-convert--table-column-widths '(1 1000))))
+    (should (>= (nth 0 widths) gdocs-convert--table-min-column-width-pt))))
+
+(ert-deftest gdocs-convert-test-table-column-width-requests ()
+  "Table requests include updateTableColumnProperties."
+  (let* ((ir (gdocs-convert-org-string-to-ir
+              "| Tier | Notes with longer text |\n|---+---|\n| 1 | Some description |"))
+         (requests (gdocs-convert-ir-to-docs-requests ir))
+         (col-reqs (cl-remove-if-not
+                    (lambda (r) (alist-get 'updateTableColumnProperties r))
+                    requests)))
+    ;; Should have 2 column width requests (one per column).
+    (should (= (length col-reqs) 2))
+    ;; Each should have tableStartLocation, columnIndices, and tableColumnProperties.
+    (let ((req (alist-get 'updateTableColumnProperties (car col-reqs))))
+      (should (alist-get 'tableStartLocation req))
+      (should (alist-get 'columnIndices req))
+      (should (alist-get 'tableColumnProperties req)))))
+
 ;; ---------------------------------------------------------------------------
 ;;; Horizontal rules
 

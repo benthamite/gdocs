@@ -2332,6 +2332,17 @@ survives a round-trip through Google Docs."
 ;; ---------------------------------------------------------------------------
 ;;; Table -> requests
 
+(defconst gdocs-convert--table-page-width-pt 468
+  "Usable page width in points for table column width calculation.
+Based on standard Google Docs Letter page (612pt) with 1-inch
+margins (72pt each side): 612 - 72 - 72 = 468.")
+
+(defconst gdocs-convert--table-min-column-width-pt 36
+  "Minimum column width in points.
+Prevents columns from becoming unreadably narrow.  The Google
+Docs API requires at least 5pt, but 36pt (0.5 inch) is a
+practical minimum for readability.")
+
 (defconst gdocs-convert--table-insert-overhead 3
   "Structural overhead of `insertTable' beyond the table itself.
 Accounts for: preserved paragraph (+1, insertTable keeps the
@@ -2343,8 +2354,10 @@ part of the table itself.")
 (defun gdocs-convert--table-to-requests (element index)
   "Convert an IR table ELEMENT to requests starting at INDEX.
 Returns a plist (:requests LIST :index NEW-INDEX).
-After the insertTable request, generates insertText requests for
-each non-empty cell, processed last-to-first so indices stay stable."
+After the insertTable request, generates updateTableColumnProperties
+requests to set proportional column widths based on content, then
+insertText requests for each non-empty cell (processed last-to-first
+so indices stay stable)."
   (let* ((rows (plist-get element :rows))
          (nrows (length rows))
          (ncols (length (car rows)))
@@ -2358,8 +2371,15 @@ each non-empty cell, processed last-to-first so indices stay stable."
                             (* nrows (+ 1 (* ncols 2)))
                             cell-text-len))
          (new-index (+ index table-overhead))
+         ;; Column widths: compute proportional widths from content.
+         ;; Table start is at index + 1 (insertTable preserves the
+         ;; paragraph at the insertion point).
+         (col-widths (gdocs-convert--table-column-widths
+                      (gdocs-convert--table-column-max-lengths rows)))
+         (col-width-reqs (gdocs-convert--table-column-width-requests
+                          (1+ index) ncols col-widths))
          (cell-reqs (gdocs-convert--table-cell-requests rows index ncols))
-         (requests (cons insert-req cell-reqs)))
+         (requests (append (list insert-req) col-width-reqs cell-reqs)))
     (list :requests requests
           :index new-index)))
 
@@ -2404,6 +2424,72 @@ Iterates forward and pushes, so the result is in reverse order
         (setq total (+ total (gdocs-convert--string-to-utf16-length
                               (gdocs-convert--runs-to-plain-text cell))))))
     total))
+
+(defun gdocs-convert--table-column-max-lengths (rows)
+  "Return a list of maximum text lengths per column in ROWS.
+Each entry is the character count of the longest cell text in
+that column, used as a proxy for visual width."
+  (let* ((ncols (length (car rows)))
+         (maxes (make-list ncols 0)))
+    (dolist (row rows)
+      (let ((c 0))
+        (dolist (cell row)
+          (when (< c ncols)
+            (let ((len (length (gdocs-convert--runs-to-plain-text cell))))
+              (when (> len (nth c maxes))
+                (setf (nth c maxes) len))))
+          (setq c (1+ c)))))
+    maxes))
+
+(defun gdocs-convert--table-column-widths (max-lengths)
+  "Convert MAX-LENGTHS to proportional column widths in points.
+Distributes `gdocs-convert--table-page-width-pt' proportionally
+based on max content lengths.  Columns whose proportional share
+falls below `gdocs-convert--table-min-column-width-pt' receive
+the minimum; the remaining page width is distributed among the
+larger columns so that the total sums exactly to page width."
+  (let* ((ncols (length max-lengths))
+         (page-width (float gdocs-convert--table-page-width-pt))
+         (min-width (min (float gdocs-convert--table-min-column-width-pt)
+                         (/ page-width ncols)))
+         (total-len (apply #'+ max-lengths)))
+    (if (zerop total-len)
+        (make-list ncols (/ page-width ncols))
+      (let* ((proportional (mapcar (lambda (len)
+                                     (* (/ (float len) total-len) page-width))
+                                   max-lengths))
+             (min-count 0)
+             (remaining-prop-total 0.0))
+        (dolist (w proportional)
+          (if (< w min-width)
+              (setq min-count (1+ min-count))
+            (setq remaining-prop-total (+ remaining-prop-total w))))
+        (let ((remaining-width (- page-width (* min-count min-width))))
+          (if (<= remaining-prop-total 0)
+              (make-list ncols (/ page-width ncols))
+            (mapcar (lambda (w)
+                      (if (< w min-width)
+                          min-width
+                        (* (/ w remaining-prop-total) remaining-width)))
+                    proportional)))))))
+
+(defun gdocs-convert--table-column-width-requests (table-start-index ncols widths)
+  "Generate updateTableColumnProperties requests.
+TABLE-START-INDEX is the document index of the table start element.
+NCOLS is the number of columns.  WIDTHS is a list of widths in points."
+  (let ((reqs nil))
+    (dotimes (c ncols)
+      (push `((updateTableColumnProperties
+               . ((tableStartLocation
+                   . ((index . ,table-start-index)))
+                  (columnIndices . ,(vector c))
+                  (tableColumnProperties
+                   . ((widthType . "FIXED_WIDTH")
+                      (width . ((magnitude . ,(nth c widths))
+                                (unit . "PT")))))
+                  (fields . "*"))))
+            reqs))
+    (nreverse reqs)))
 
 ;; ---------------------------------------------------------------------------
 ;;; Horizontal rule -> requests
