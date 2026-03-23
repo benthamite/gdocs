@@ -680,10 +680,16 @@ also persisted when non-nil."
       (org-entry-put nil "GDOCS_LAST_SYNC" gdocs-sync--last-sync-time))))
 
 (defun gdocs-sync--persist-properties ()
-  "Write all current buffer-local sync state to the property drawer."
+  "Write all current buffer-local sync state to the property drawer.
+Resets the org-element cache afterward because `org-entry-put'
+invalidates it incrementally, which can leave it in an
+inconsistent state that causes expensive rebuilds on the next
+cache-consuming operation (e.g. `org-encrypt-entries')."
   (when gdocs-sync--document-id
     (gdocs-sync--write-properties gdocs-sync--document-id
-                                  (or gdocs-sync--account ""))))
+                                  (or gdocs-sync--account ""))
+    (when (derived-mode-p 'org-mode)
+      (org-element-cache-reset))))
 
 (defun gdocs-sync--remove-properties ()
   "Remove all gdocs properties from the file-level property drawer."
@@ -692,7 +698,9 @@ also persisted when non-nil."
     (org-entry-delete nil "GDOCS_DOCUMENT_ID")
     (org-entry-delete nil "GDOCS_ACCOUNT")
     (org-entry-delete nil "GDOCS_REVISION_ID")
-    (org-entry-delete nil "GDOCS_LAST_SYNC")))
+    (org-entry-delete nil "GDOCS_LAST_SYNC"))
+  (when (derived-mode-p 'org-mode)
+    (org-element-cache-reset)))
 
 (defun gdocs-sync--clear-buffer-state ()
   "Clear all buffer-local sync state."
