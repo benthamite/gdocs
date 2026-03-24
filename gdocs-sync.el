@@ -301,12 +301,12 @@ freshly fetched document with current paragraph ranges."
 LOCAL-IR has the correct :level from the org buffer.  REMOTE-IR
 has :doc-start and :doc-end from the fetched document.
 
-Aligns elements by text content to find remote paragraphs whose
-nesting does not match the local level.  For each contiguous list
-group containing such mismatches, generates:
-  1. insertText of N tabs at each mismatched paragraph's startIndex
-  2. deleteParagraphBullets for the entire group range
-  3. createParagraphBullets for the entire group range
+Aligns elements by text content, then for each contiguous list
+group containing elements at level > 0, deletes existing bullets,
+resets indentation to zero, inserts leading tab characters (N tabs
+for level N), and re-creates bullets as a single grouped request.
+The Google Docs API counts leading tabs to determine nesting level
+and removes them afterward.
 
 Returns the ordered request list, or nil if no fixup is needed."
   (let* ((aligned (gdocs-sync--align-ir-elements local-ir remote-ir))
@@ -319,14 +319,18 @@ Returns the ordered request list, or nil if no fixup is needed."
            groups)))
     (when groups-needing-fixup
       (gdocs-convert--alternate-numbered-presets groups-needing-fixup)
-      (let ((tab-reqs nil)
-            (delete-bullet-reqs nil)
-            (create-bullet-reqs nil))
-        ;; For each group, gather the three kinds of requests
+      (let ((delete-reqs nil)
+            (reset-reqs nil)
+            (tab-reqs nil))
         (dolist (group groups-needing-fixup)
           (let ((group-start (plist-get group :start))
                 (group-end (plist-get group :end)))
-            ;; Tab insertions for each element in this group with level > 0
+            ;; Delete bullets for the group range
+            (push `((deleteParagraphBullets
+                     . ((range . ((startIndex . ,group-start)
+                                  (endIndex . ,(1- group-end)))))))
+                  delete-reqs)
+            ;; Reset indentation to zero and collect tab insertions.
             (dolist (er element-ranges)
               (let* ((elem (plist-get er :element))
                      (start (plist-get er :start))
@@ -336,31 +340,48 @@ Returns the ordered request list, or nil if no fixup is needed."
                                 (or (plist-get list-info :level) 0)
                               0)))
                 (when (and (>= start group-start)
-                           (<= end group-end)
-                           (> level 0))
-                  (push (cons start level) tab-reqs))))
-            ;; Delete bullets for the group range
-            (push `((deleteParagraphBullets
-                     . ((range . ((startIndex . ,group-start)
-                                  (endIndex . ,(1- group-end)))))))
-                  delete-bullet-reqs)
-            ;; Create bullets for the group range
-            (push (gdocs-convert--list-group-bullet-request group)
-                  create-bullet-reqs)))
-        ;; Sort tab insertions by descending startIndex
-        (setq tab-reqs (sort tab-reqs (lambda (a b) (> (car a) (car b)))))
-        ;; Build ordered request list:
-        ;; 1. Tab insertions (descending index order)
-        ;; 2. Delete bullets
-        ;; 3. Create bullets
-        (append
-         (mapcar (lambda (tr)
-                   (gdocs-convert--make-insert-text-request
-                    (make-string (cdr tr) ?\t)
-                    (car tr)))
-                 tab-reqs)
-         (nreverse delete-bullet-reqs)
-         (nreverse create-bullet-reqs))))))
+                           (<= end group-end))
+                  ;; Reset ALL indentation to zero so only tabs
+                  ;; signal the nesting depth.
+                  (push `((updateParagraphStyle
+                           . ((paragraphStyle
+                               . ((indentStart . ((magnitude . 0)
+                                                  (unit . "PT")))
+                                  (indentFirstLine . ((magnitude . 0)
+                                                      (unit . "PT")))))
+                              (range . ((startIndex . ,start)
+                                        (endIndex . ,(1- end))))
+                              (fields . "indentStart,indentFirstLine"))))
+                        reset-reqs)
+                  ;; Insert leading tabs for nested items
+                  (when (> level 0)
+                    (push (cons start level) tab-reqs)))))))
+        ;; Sort tab insertions by descending index
+        (setq tab-reqs
+              (sort tab-reqs (lambda (a b) (> (car a) (car b)))))
+        ;; Merge all groups into one createParagraphBullets so that
+        ;; mixed-type nested lists share one list object with correct
+        ;; nesting levels determined by leading tabs.
+        (let ((merged-start (plist-get (car groups-needing-fixup) :start))
+              (merged-end (plist-get (car (last groups-needing-fixup)) :end))
+              (merged-preset (plist-get (car groups-needing-fixup) :preset)))
+          (append
+           ;; 1. Delete existing bullets
+           (nreverse delete-reqs)
+           ;; 2. Reset indentation to zero
+           (nreverse reset-reqs)
+           ;; 3. Insert leading tabs (descending order)
+           (mapcar (lambda (tr)
+                     (gdocs-convert--make-insert-text-request
+                      (make-string (cdr tr) ?\t)
+                      (car tr)))
+                   tab-reqs)
+           ;; 4. Create ONE grouped bullet
+           (list `((createParagraphBullets
+                    . ((range . ((startIndex . ,merged-start)
+                                 (endIndex . ,(1- merged-end))))
+                       (bulletPreset . ,merged-preset)))))))))))
+
 
 (defun gdocs-sync--align-ir-elements (local-ir remote-ir)
   "Align LOCAL-IR and REMOTE-IR elements by text content.

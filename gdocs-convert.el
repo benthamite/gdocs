@@ -1994,44 +1994,25 @@ Returns a plist (:requests LIST :index NEW-INDEX)."
   "Convert an IR paragraph ELEMENT to requests starting at INDEX.
 Returns a plist (:requests LIST :index NEW-INDEX).
 
-For nested list items (level > 0), prepends tab characters to the
-inserted text.  `createParagraphBullets' counts leading tabs to
-determine nesting level, then removes them.  Style ranges are
-offset past the tabs since those characters are present when the
-styles are applied.
-
 A text-style reset request is emitted after the insertText to
 clear any inherited formatting before per-run styles are applied."
   (let* ((text (gdocs-convert--runs-to-plain-text
                 (plist-get element :contents)))
-         (list-info (plist-get element :list))
-         (level (if list-info (or (plist-get list-info :level) 0) 0))
-         (tabs (make-string level ?\t))
-         (tab-offset level)          ; each \t = 1 UTF-16 unit
-         (full-text (concat tabs text "\n"))
+         (full-text (concat text "\n"))
          (text-len (gdocs-convert--string-to-utf16-length full-text))
-         ;; The text range after createParagraphBullets removes
-         ;; tabs is text-len minus the tab chars, but during the
-         ;; batchUpdate the tabs ARE present.  The returned :index
-         ;; must account for all inserted characters.
+         (text-only-len (gdocs-convert--string-to-utf16-length text))
          (insert-req (gdocs-convert--make-insert-text-request
                       full-text index))
-         ;; Paragraph style and list indent cover the full range
-         ;; including tabs.
          (style-reqs (gdocs-convert--make-paragraph-style-requests
                       element index (+ index text-len)))
          ;; Reset formatting on the text portion (excluding trailing
-         ;; newline).  Covers tabs + text so inherited styles are
-         ;; cleared before per-run styles are applied.
-         (text-only-len (gdocs-convert--string-to-utf16-length text))
-         (reset-end (+ index tab-offset text-only-len))
-         (reset-req (when (> reset-end index)
+         ;; newline) so inherited styles are cleared before per-run
+         ;; styles are applied.
+         (reset-req (when (> text-only-len 0)
                       (gdocs-convert--make-text-style-reset-request
-                       index reset-end)))
-         ;; Per-run styles start after the tab prefix, since the
-         ;; tabs will be consumed by createParagraphBullets.
+                       index (+ index text-only-len))))
          (run-reqs (gdocs-convert--make-text-style-requests
-                    (plist-get element :contents) (+ index tab-offset)))
+                    (plist-get element :contents) index))
          (list-reqs (gdocs-convert--make-list-requests element index
                                                        (+ index text-len)))
          (marker-reqs (gdocs-convert--make-marker-requests
