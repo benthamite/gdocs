@@ -271,6 +271,20 @@ automatically with pageSize=100.  ACCOUNT is an optional account
 name."
   (gdocs-api--list-comments-page file-id nil nil callback account))
 
+(defun gdocs-api-resolve-comment (file-id comment-id callback
+                                           &optional account)
+  "Resolve COMMENT-ID on FILE-ID via the Drive Comments API.
+Marks the comment as resolved by setting `resolved' to true.
+CALLBACK receives the updated comment alist.  ACCOUNT is an
+optional account name."
+  (let ((url (concat gdocs-api--drive-base-url "/" file-id
+                     "/comments/" comment-id
+                     "?fields=id,resolved")))
+    (gdocs-api--request
+     'patch url callback
+     :account account
+     :body (json-encode '((resolved . t))))))
+
 (defun gdocs-api--list-comments-page (file-id page-token accumulated
                                                callback account)
   "Fetch one page of comments on FILE-ID and continue if more exist.

@@ -902,22 +902,53 @@ the callback context."
 
 (defun gdocs-sync--filter-commented-ops (diff-ops remote-ir local-ir comments)
   "Filter destructive DIFF-OPS that have at-risk comments.
-Prompts the user for each at-risk destructive operation.  Returns
-a plist with :ops (the filtered operation list) and :declined
-\(list of declined operations)."
+Prompts the user for each at-risk destructive operation with
+options to skip, delete, open the comment, or resolve and delete.
+Uppercase variants (S/D/R) apply the choice to all remaining
+conflicts.  Returns a plist with :ops (the filtered operation
+list) and :declined (list of declined operations)."
   (let ((comment-map (gdocs-sync--map-comments-to-elements
                       comments remote-ir))
         (filtered nil)
-        (declined nil))
+        (declined nil)
+        (default-action nil))
     (dolist (op diff-ops)
       (if (and (gdocs-sync--destructive-op-p op remote-ir local-ir)
                (gdocs-sync--op-has-at-risk-comments-p op comment-map))
-          (if (gdocs-sync--confirm-deletion op remote-ir comment-map)
-              (push op filtered)
-            (push op declined))
+          (let ((action (or default-action
+                            (gdocs-sync--confirm-deletion
+                             op remote-ir comment-map))))
+            ;; Handle "all" variants
+            (when (memq action '(skip-all delete-all resolve-all))
+              (setq default-action
+                    (pcase action
+                      ('skip-all 'skip)
+                      ('delete-all 'delete)
+                      ('resolve-all 'resolve))
+                    action default-action))
+            (pcase action
+              ('delete (push op filtered))
+              ('skip (push op declined))
+              ('resolve
+               (gdocs-sync--resolve-element-comments
+                op comment-map)
+               (push op filtered))))
         (push op filtered)))
     (list :ops (nreverse filtered)
           :declined (nreverse declined))))
+
+(defun gdocs-sync--resolve-element-comments (op comment-map)
+  "Resolve all comments on the element targeted by OP.
+COMMENT-MAP maps element indices to comment lists."
+  (let* ((oi (plist-get op :old-index))
+         (elem-comments (cdr (assq oi comment-map))))
+    (dolist (c elem-comments)
+      (let ((cid (alist-get 'id c)))
+        (when cid
+          (gdocs-api-resolve-comment
+           gdocs-sync--document-id cid
+           (lambda (_) nil)
+           gdocs-sync--account))))))
 
 (defun gdocs-sync--destructive-op-p (op remote-ir local-ir)
   "Return non-nil if OP is a destructive diff operation.
@@ -973,8 +1004,12 @@ without quoted text (document-level) are skipped."
 (defun gdocs-sync--confirm-deletion (op remote-ir comment-map)
   "Prompt the user about a destructive operation on a commented element.
 OP is the diff operation.  REMOTE-IR is the remote element list.
-COMMENT-MAP maps element indices to comment lists.  Returns
-non-nil if the user confirms."
+COMMENT-MAP maps element indices to comment lists.
+
+Returns a symbol: `delete' to proceed (destroying the comment),
+`skip' to skip this operation (preserving the comment),
+`resolve' to resolve the comment and then proceed, or
+`open' to open the comment URL first (re-prompts afterward)."
   (let* ((oi (plist-get op :old-index))
          (elem (nth oi remote-ir))
          (elem-type (symbol-name (plist-get elem :type)))
@@ -989,12 +1024,41 @@ non-nil if the user confirms."
                    (content (alist-get 'content c)))
                (format "  by %s: \"%s\""
                        (or author "Unknown") (or content ""))))
-           comments "\n")))
-    (y-or-n-p
-     (format "Deleting %s \"%s\" would lose comment%s:\n%s\nDelete anyway? "
-             elem-type elem-text
-             (if (> (length comments) 1) "s" "")
-             comment-lines))))
+           comments "\n"))
+         (prompt (format
+                  "Deleting %s \"%s\" would lose comment%s:\n%s\n[s]kip, [d]elete, [o]pen, [r]esolve & delete; uppercase=all? "
+                  elem-type elem-text
+                  (if (> (length comments) 1) "s" "")
+                  comment-lines)))
+    (gdocs-sync--comment-action-prompt prompt comments)))
+
+(defun gdocs-sync--comment-action-prompt (prompt comments)
+  "Display PROMPT and read a single-key action for COMMENTS.
+Returns `delete', `skip', `resolve', `delete-all', `skip-all',
+or `resolve-all'.  The `open' action opens the comment in a
+browser and re-prompts."
+  (let ((action nil))
+    (while (null action)
+      (let ((key (read-char-choice prompt
+                                   '(?s ?d ?o ?r ?S ?D ?R))))
+        (pcase key
+          (?s (setq action 'skip))
+          (?d (setq action 'delete))
+          (?r (setq action 'resolve))
+          (?S (setq action 'skip-all))
+          (?D (setq action 'delete-all))
+          (?R (setq action 'resolve-all))
+          (?o (gdocs-sync--open-comment-in-browser (car comments))
+              (message "Opened comment in browser.  Choose an action:")))))
+    action))
+
+(defun gdocs-sync--open-comment-in-browser (comment)
+  "Open COMMENT in the browser using the Google Docs comment URL."
+  (let* ((comment-id (alist-get 'id comment))
+         (doc-id gdocs-sync--document-id)
+         (url (format "https://docs.google.com/document/d/%s/edit?disco=%s"
+                      doc-id comment-id)))
+    (browse-url url)))
 
 (defun gdocs-sync--reconstruct-shadow (local-ir remote-ir declined-ops
                                                 diff-ops)
