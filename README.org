@@ -719,7 +719,11 @@ changes.
 The function ~gdocs-convert-docs-json-to-ir~ converts a Google Docs API
 JSON response (an alist with keys like =body=, =title=, =lists=, and
 =namedRanges=) to an IR element list.  It walks the document structure
-and maps each structural element to its IR equivalent.
+and maps each structural element to its IR equivalent.  Each resulting
+IR element carries =:doc-start= and =:doc-end= properties copied from
+the JSON's ~startIndex~ and ~endIndex~, giving the diff engine
+authoritative UTF-16 document positions
+([[#h:intermediate-representation][Intermediate representation]]).
 
 The function ~gdocs-convert-ir-to-docs-requests~ converts an IR element
 list to a list of Google Docs ~batchUpdate~ request alists.  It tracks
@@ -746,10 +750,14 @@ appropriate API requests.
 An optional START-INDEX argument specifies the UTF-16 code unit offset
 where the first IR element begins in the document body (default 1).
 The sync engine uses this to account for title elements that precede the
-diffable body content ([[#h:sync-engine][Sync engine]]).  Requests are ordered for correct
-index stability: deletions and modifications processed from highest
-index to lowest, with insertions interleaved so that earlier operations
-do not shift indices of later ones.
+diffable body content ([[#h:sync-engine][Sync engine]]).  When the old IR carries
+=:doc-start= / =:doc-end= properties (as produced by
+~gdocs-convert-docs-json-to-ir~), the engine uses those authoritative
+positions; otherwise it computes positions from element text lengths.
+Requests are ordered for correct index stability: deletions and
+modifications processed from highest index to lowest, with insertions
+interleaved so that earlier operations do not shift indices of later
+ones.
 
 For workflows that need to inspect or filter diff operations before
 generating API requests, two lower-level functions are available.  The
@@ -922,9 +930,16 @@ IR element has a =:type= (e.g., ~paragraph~, ~table~,
 =:contents= (a list of text runs with formatting properties like
 =:bold=, =:italic=, =:link=, etc.).
 
-This architecture means the diff engine ([[#h:diff-engine][Diff engine]]) only needs to
-understand the IR format, not both org-mode and Google Docs JSON
-independently.
+When the IR is produced from Google Docs JSON (via
+~gdocs-convert-docs-json-to-ir~), each element also carries
+=:doc-start= and =:doc-end= properties recording the element's
+~startIndex~ and ~endIndex~ from the JSON.  These authoritative UTF-16
+byte offsets allow the diff engine to use the exact document positions
+reported by the API rather than re-computing them from text lengths
+([[#h:diff-engine][Diff engine]]).
+
+This architecture means the diff engine only needs to understand the IR
+format, not both org-mode and Google Docs JSON independently.
 
 ** Org-only constructs
 :PROPERTIES:
@@ -1056,14 +1071,25 @@ last-known state to the current org state.
    Adjacent delete+insert pairs of the same type are collapsed into
    modify operations.
 
-3. Map operations to API requests:
+3. Compute the UTF-16 document position of each old element.  When the
+   old IR was produced from Google Docs JSON, elements carry
+   =:doc-start= / =:doc-end= properties with the authoritative byte
+   offsets reported by the API; the engine uses those directly.  For IR
+   produced from org-mode (which lacks document positions), it falls
+   back to computing positions from element text lengths.  Insertion
+   points for new elements are determined by the end position of the
+   nearest preceding kept or modified element; modified elements are
+   valid anchors because they still occupy a known position in the old
+   document.
+
+4. Map operations to API requests:
    - *Insert*: ~InsertText~, ~InsertTable~, ~CreateParagraphBullets~, etc.
    - *Delete*: ~DeleteContentRange~.
    - *Modify*: for style-only changes, ~UpdateParagraphStyle~; for
      formatting-only changes, ~UpdateTextStyle~; for content changes,
      word-level surgical diff ([[#h:word-level-diff][Word-level diff]]).
 
-4. Order requests correctly: deletions in reverse index order (highest
+5. Order requests correctly: deletions in reverse index order (highest
    first), then insertions in forward order.  This is necessary because
    the Google Docs API processes requests sequentially and earlier
    operations shift later indices.
