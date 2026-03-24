@@ -31,10 +31,10 @@
   "Compare OLD-IR and NEW-IR and return batchUpdate request plists.
 OLD-IR and NEW-IR are flat lists of IR element plists.  Returns a
 list of request plists suitable for `gdocs-api-batch-update'.
-Falls back to full replacement when the diff is too complex.
-START-INDEX is the UTF-16 index where the first element begins in
-the document (default 1).  This should account for title elements
-or other content that precedes the IR."
+Always uses incremental diff to preserve Google Docs comments on
+unchanged elements.  START-INDEX is the UTF-16 index where the
+first element begins in the document (default 1).  This should
+account for title elements or other content that precedes the IR."
   ;; Default 1: Google Docs index 0 is the document root
   (let* ((idx (or start-index 1))
          (old-keys (gdocs-diff--element-keys old-ir))
@@ -42,9 +42,7 @@ or other content that precedes the IR."
          (lcs-pairs (gdocs-diff--lcs old-keys new-keys))
          (diff-ops (gdocs-diff--classify-operations
                     old-ir new-ir lcs-pairs)))
-    (if (gdocs-diff--should-use-full-replace-p old-ir new-ir diff-ops)
-        (gdocs-diff--full-replace-requests old-ir new-ir idx)
-      (gdocs-diff--generate-requests old-ir new-ir diff-ops idx))))
+    (gdocs-diff--generate-requests old-ir new-ir diff-ops idx)))
 
 ;; ---------------------------------------------------------------------------
 ;;; Element keys
@@ -290,67 +288,6 @@ at the insertion point (an extra +1 not part of the table itself)."
                          (gdocs-convert--string-to-utf16-length text)
                          1)))))
     total))
-
-;; ---------------------------------------------------------------------------
-;;; Fallback detection
-
-(defconst gdocs-diff--full-replace-min-elements 3
-  "Minimum element count before the full-replacement fallback can trigger.
-Documents with 2 or fewer elements always use incremental diff,
-which is simpler and cheaper at that scale.")
-
-(defconst gdocs-diff--full-replace-kept-ratio 0.5
-  "Minimum fraction of kept elements to stay in incremental mode.
-When the fraction of unchanged elements drops below this value,
-the diff engine falls back to full document replacement to avoid
-generating a large number of granular requests.")
-
-(defun gdocs-diff--should-use-full-replace-p (old-ir new-ir diff-ops)
-  "Return non-nil if the diff is too complex for incremental update.
-OLD-IR and NEW-IR are the element lists.  DIFF-OPS is the
-classified operation list."
-  (let* ((total (max (length old-ir) (length new-ir) 1))
-         (kept (cl-count-if
-                (lambda (op) (eq (plist-get op :op) 'keep))
-                diff-ops)))
-    (and (>= total gdocs-diff--full-replace-min-elements)
-         (< kept (* gdocs-diff--full-replace-kept-ratio total)))))
-
-;; ---------------------------------------------------------------------------
-;;; Full replacement requests
-
-(defun gdocs-diff--full-replace-requests (old-ir new-ir start-index)
-  "Generate delete-all + insert-all requests for OLD-IR to NEW-IR.
-START-INDEX is the UTF-16 index where the first element begins."
-  (let ((delete-reqs (gdocs-diff--delete-all-requests old-ir start-index))
-        (insert-reqs (gdocs-diff--insert-all-requests new-ir start-index)))
-    (append delete-reqs insert-reqs)))
-
-(defun gdocs-diff--delete-all-requests (old-ir start-index)
-  "Generate a single delete request covering all content in OLD-IR.
-START-INDEX is the UTF-16 index where the first element begins.
-Excludes the trailing newline of the last element (when it is a
-paragraph) to avoid deleting the mandatory body newline that the
-Google Docs API protects.  Non-paragraph last elements (tables)
-are deleted in full to avoid partial structural deletions."
-  (let ((indices (gdocs-diff--compute-element-indices old-ir start-index)))
-    (when indices
-      (let* ((first-entry (cdar indices))
-             (last-entry (cdar (last indices)))
-             (last-elem (car (last old-ir)))
-             (start (car first-entry))
-             (end (if (eq (plist-get last-elem :type) 'paragraph)
-                      (1- (cdr last-entry))
-                    (cdr last-entry))))
-        (when (< start end)
-          (list (gdocs-diff--make-delete-request start end)))))))
-
-(defun gdocs-diff--insert-all-requests (new-ir start-index)
-  "Generate insert requests for all elements in NEW-IR.
-START-INDEX is the UTF-16 index where the first element begins.
-Delegates to `gdocs-convert-ir-to-docs-requests' so that list
-nesting fixups (e.g. alternating numbered presets) are applied."
-  (gdocs-convert-ir-to-docs-requests new-ir start-index))
 
 ;; ---------------------------------------------------------------------------
 ;;; Request generation from diff operations

@@ -64,12 +64,6 @@
   "Current sync status.
 One of `synced', `modified', `pushing', `conflict', or `error'.")
 
-(defconst gdocs-sync--empty-body-end-index 2
-  "End index of a Google Docs body that contains only the mandatory newline.
-The body always has at least one structural element (a paragraph
-with a trailing newline).  Index 1 = body start, index 2 = after
-that newline.  A body-end above this value means real content exists.")
-
 ;;;; Link context
 
 (defun gdocs-sync--make-link-context ()
@@ -102,11 +96,8 @@ ensuring same-document heading links resolve to anchored URLs."
            (let* ((link-ctx (gdocs-sync--make-link-context))
                   (gdocs-convert--link-context link-ctx)
                   (current-ir (gdocs-convert-org-buffer-to-ir)))
-             (if (null gdocs-sync--shadow-ir)
-                 (gdocs-sync--push-full-replacement
-                  current-ir buf link-ctx json)
-               (gdocs-sync--push-incremental
-                current-ir buf link-ctx json)))))
+             (gdocs-sync--push-incremental
+              current-ir buf link-ctx json))))
        acct
        (gdocs-sync--make-push-error-callback buf)))))
 
@@ -118,42 +109,6 @@ Return non-nil if the push was serialized (caller should abort)."
     (message "Push already in progress, queued")
     t))
 
-(defun gdocs-sync--push-full-replacement (current-ir buf link-ctx json)
-  "Push CURRENT-IR as a full document replacement.
-BUF is the originating buffer.  LINK-CTX is the link context for
-re-binding in callbacks.  JSON is the pre-fetched document used
-to determine the body end index."
-  (let ((doc-id gdocs-sync--document-id)
-        (acct gdocs-sync--account))
-    (let* ((body-end (gdocs-sync--body-end-index json))
-           (remote-title (alist-get 'title json))
-           (filtered-ir (gdocs-sync--filter-title current-ir))
-           (insert-reqs (gdocs-convert-ir-to-docs-requests filtered-ir))
-           ;; (1- body-end): preserve the mandatory trailing newline that
-           ;; Google Docs requires at the end of the document body.
-           (delete-req (when (> body-end gdocs-sync--empty-body-end-index)
-                         (list (gdocs-diff--make-delete-request
-                                1 (1- body-end)))))
-           (requests (append delete-req insert-reqs)))
-      (gdocs-sync--maybe-rename-document
-       current-ir remote-title doc-id acct)
-      (gdocs-api-batch-update
-       doc-id
-       requests
-       (gdocs-sync--make-push-callback current-ir buf link-ctx)
-       acct
-       (gdocs-sync--make-push-error-callback buf)))))
-
-(defun gdocs-sync--body-end-index (json)
-  "Extract the body end index from document JSON.
-Returns the endIndex of the last element in the body content."
-  (let* ((body (alist-get 'body json))
-         (content (alist-get 'content body)))
-    (if (or (null content) (= (length content) 0))
-        ;; Empty body: return 1 (body start) so no deletion range is
-        ;; generated, since (> 1 empty-body-end-index) is false.
-        1
-      (alist-get 'endIndex (aref content (1- (length content)))))))
 
 (defun gdocs-sync--push-incremental (current-ir buf link-ctx json)
   "Push CURRENT-IR as an incremental diff against the remote document.

@@ -41,22 +41,39 @@
 ;;;; Push tests
 
 (ert-deftest gdocs-sync-test-push-no-shadow ()
-  "First push without shadow uses full IR-to-requests conversion."
+  "First push without shadow uses incremental diff against remote.
+Previously this used full replacement which destroyed Google Docs
+comments; now it always diffs against the fetched remote document."
   (gdocs-sync-test-with-org-buffer "Hello world\n"
-    (let ((requests-received nil))
+    (let ((diff-called nil))
       (cl-letf (((symbol-function 'gdocs-api-get-document)
                  (lambda (_doc-id callback &optional _account _on-error)
                    (funcall callback
-                            '((body . ((content . [((endIndex . 2))])))))))
+                            '((title . "Test")
+                              (body . ((content
+                                        . [((startIndex . 0)
+                                            (endIndex . 1)
+                                            (sectionBreak . t))
+                                           ((startIndex . 1)
+                                            (endIndex . 2)
+                                            (paragraph
+                                             (elements . [((textRun
+                                                            (content . "\n")
+                                                            (textStyle)))])
+                                             (paragraphStyle
+                                              (namedStyleType . "NORMAL_TEXT"))))])))))))
+                ((symbol-function 'gdocs-diff-generate)
+                 (lambda (_old-ir _new-ir &optional _start-index)
+                   (setq diff-called t)
+                   (list '((insertText . "mock")))))
                 ((symbol-function 'gdocs-api-batch-update)
-                 (lambda (_doc-id requests callback &optional _account _on-error)
-                   (setq requests-received requests)
+                 (lambda (_doc-id _requests callback &optional _account _on-error)
                    (funcall callback
                             '((writeControl
                                (requiredRevisionId . "rev-1")))))))
         (should (null gdocs-sync--shadow-ir))
         (gdocs-sync-push)
-        (should requests-received)
+        (should diff-called)
         (should (eq gdocs-sync--status 'synced))))))
 
 (ert-deftest gdocs-sync-test-push-with-shadow ()
@@ -139,7 +156,22 @@
     (cl-letf (((symbol-function 'gdocs-api-get-document)
                (lambda (_doc-id callback &optional _account _on-error)
                  (funcall callback
-                          '((body . ((content . [((endIndex . 2))])))))))
+                          '((title . "Test")
+                            (body . ((content
+                                      . [((startIndex . 0)
+                                          (endIndex . 1)
+                                          (sectionBreak . t))
+                                         ((startIndex . 1)
+                                          (endIndex . 2)
+                                          (paragraph
+                                           (elements . [((textRun
+                                                          (content . "\n")
+                                                          (textStyle)))])
+                                           (paragraphStyle
+                                            (namedStyleType . "NORMAL_TEXT"))))])))))))
+              ((symbol-function 'gdocs-diff-generate)
+               (lambda (_old-ir _new-ir &optional _start-index)
+                 (list '((insertText . "mock")))))
               ((symbol-function 'gdocs-api-batch-update)
                (lambda (_doc-id _requests callback &optional _account _on-error)
                  (funcall callback
@@ -783,22 +815,6 @@ serialization is handled separately by `gdocs-sync--serialize-push'."
                         :contents (list (list :text "Body"))
                         :id "e-body"))))
     (should-not (gdocs-sync--extract-title ir))))
-
-;;;; Body end index
-
-(ert-deftest gdocs-sync-test-body-end-index-with-content ()
-  "Returns correct end index from document JSON."
-  (let ((json '((body . ((content . [((startIndex . 0) (endIndex . 1)
-                                       (sectionBreak . t))
-                                      ((startIndex . 1) (endIndex . 42)
-                                       (paragraph . ((elements . []))))]))))))
-    (should (= 42 (gdocs-sync--body-end-index json)))))
-
-(ert-deftest gdocs-sync-test-body-end-index-empty ()
-  "Returns 1 for empty/nil content."
-  (should (= 1 (gdocs-sync--body-end-index '((body . ((content . [])))))))
-  (should (= 1 (gdocs-sync--body-end-index '((body . nil)))))
-  (should (= 1 (gdocs-sync--body-end-index nil))))
 
 (provide 'gdocs-sync-test)
 ;;; gdocs-sync-test.el ends here

@@ -255,22 +255,6 @@ ROWS is a list of lists of lists of run plists."
                (< first-insert-pos most-positive-fixnum))
       (should (< last-delete-pos first-insert-pos)))))
 
-;;;; Fallback tests
-
-(ert-deftest gdocs-diff-test-full-replace-threshold ()
-  "Too many changes triggers full replace (delete-all + insert-all)."
-  (let* ((old-ir (list (gdocs-diff-test--make-paragraph "e1" "a")
-                       (gdocs-diff-test--make-paragraph "e2" "b")
-                       (gdocs-diff-test--make-paragraph "e3" "c")))
-         (new-ir (list (gdocs-diff-test--make-paragraph "e4" "x")
-                       (gdocs-diff-test--make-paragraph "e5" "y")
-                       (gdocs-diff-test--make-paragraph "e6" "z")))
-         (old-keys (gdocs-diff--element-keys old-ir))
-         (new-keys (gdocs-diff--element-keys new-ir))
-         (lcs (gdocs-diff--lcs old-keys new-keys))
-         (ops (gdocs-diff--classify-operations old-ir new-ir lcs)))
-    (should (gdocs-diff--should-use-full-replace-p old-ir new-ir ops))))
-
 ;;;; Index computation tests
 
 (ert-deftest gdocs-diff-test-element-indices-simple ()
@@ -518,58 +502,25 @@ residual bullet from the preserved paragraph."
 
 ;;;; Threshold boundary tests
 
-(ert-deftest gdocs-diff-test-threshold-exactly-50-percent-kept ()
-  "Exactly 50% kept elements uses incremental diff (>= threshold).
-2 of 4 elements kept = 50%, which meets the threshold."
-  (let* ((p1 (gdocs-diff-test--make-paragraph "e1" "keep1"))
-         (p2 (gdocs-diff-test--make-paragraph "e2" "drop1"))
-         (p3 (gdocs-diff-test--make-paragraph "e3" "keep2"))
-         (p4 (gdocs-diff-test--make-paragraph "e4" "drop2"))
-         (p5 (gdocs-diff-test--make-paragraph "e5" "new1"))
-         (p6 (gdocs-diff-test--make-paragraph "e6" "new2"))
-         (old-ir (list p1 p2 p3 p4))
-         (new-ir (list p1 p3 p5 p6))
-         (old-keys (gdocs-diff--element-keys old-ir))
-         (new-keys (gdocs-diff--element-keys new-ir))
-         (lcs (gdocs-diff--lcs old-keys new-keys))
-         (ops (gdocs-diff--classify-operations old-ir new-ir lcs)))
-    ;; 2 kept out of max(4,4)=4 -> 50%, not below threshold
-    (should-not (gdocs-diff--should-use-full-replace-p old-ir new-ir ops))))
-
-(ert-deftest gdocs-diff-test-threshold-below-50-percent-kept ()
-  "Below 50% kept elements triggers full replace.
-1 of 4 elements kept = 25%, below the 50% threshold."
-  (let* ((p1 (gdocs-diff-test--make-paragraph "e1" "keep"))
-         (p2 (gdocs-diff-test--make-paragraph "e2" "drop1"))
-         (p3 (gdocs-diff-test--make-paragraph "e3" "drop2"))
-         (p4 (gdocs-diff-test--make-paragraph "e4" "drop3"))
-         (p5 (gdocs-diff-test--make-paragraph "e5" "new1"))
-         (p6 (gdocs-diff-test--make-paragraph "e6" "new2"))
-         (p7 (gdocs-diff-test--make-paragraph "e7" "new3"))
-         (old-ir (list p1 p2 p3 p4))
-         (new-ir (list p1 p5 p6 p7))
-         (old-keys (gdocs-diff--element-keys old-ir))
-         (new-keys (gdocs-diff--element-keys new-ir))
-         (lcs (gdocs-diff--lcs old-keys new-keys))
-         (ops (gdocs-diff--classify-operations old-ir new-ir lcs)))
-    ;; 1 kept out of max(4,4)=4 -> 25%, below threshold
-    (should (gdocs-diff--should-use-full-replace-p old-ir new-ir ops))))
-
-(ert-deftest gdocs-diff-test-threshold-small-doc-no-fallback ()
-  "Documents below min-elements never trigger full replace.
-2 elements with 0 kept is below min-elements (3), so incremental."
-  (let* ((p1 (gdocs-diff-test--make-paragraph "e1" "old1"))
-         (p2 (gdocs-diff-test--make-paragraph "e2" "old2"))
-         (p3 (gdocs-diff-test--make-paragraph "e3" "new1"))
-         (p4 (gdocs-diff-test--make-paragraph "e4" "new2"))
-         (old-ir (list p1 p2))
-         (new-ir (list p3 p4))
-         (old-keys (gdocs-diff--element-keys old-ir))
-         (new-keys (gdocs-diff--element-keys new-ir))
-         (lcs (gdocs-diff--lcs old-keys new-keys))
-         (ops (gdocs-diff--classify-operations old-ir new-ir lcs)))
-    ;; max(2,2)=2 < 3 min-elements, so no full replace
-    (should-not (gdocs-diff--should-use-full-replace-p old-ir new-ir ops))))
+(ert-deftest gdocs-diff-test-many-changes-uses-incremental ()
+  "Even with all elements changed, incremental diff is used.
+This ensures comments on any remaining matching content survive."
+  (let* ((old-ir (list (gdocs-diff-test--make-paragraph "e1" "a")
+                       (gdocs-diff-test--make-paragraph "e2" "b")
+                       (gdocs-diff-test--make-paragraph "e3" "c")))
+         (new-ir (list (gdocs-diff-test--make-paragraph "e4" "x")
+                       (gdocs-diff-test--make-paragraph "e5" "y")
+                       (gdocs-diff-test--make-paragraph "e6" "z")))
+         (result (gdocs-diff-generate old-ir new-ir)))
+    ;; Should produce per-element modify requests, not a single
+    ;; delete-all + insert-all that would destroy comments.
+    (should result)
+    ;; Each of the 3 old paragraphs gets modified to a new one, so
+    ;; we should have individual delete+insert pairs, not one bulk delete.
+    (let ((deletes (cl-count-if
+                    (lambda (req) (alist-get 'deleteContentRange req))
+                    result)))
+      (should (>= deletes 3)))))
 
 ;;;; Horizontal rule operation tests
 
