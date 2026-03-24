@@ -185,7 +185,9 @@ the shadow."
 (defun gdocs-sync--handle-push-success (current-ir response)
   "Update sync state after a successful push.
 CURRENT-IR is the IR that was pushed.  RESPONSE is the API
-response alist."
+response alist.  When the pushed IR contains nested list items
+\(level > 0), triggers a post-push fixup to correct nesting
+before finalizing."
   (setq gdocs-sync--shadow-ir current-ir)
   (gdocs-sync--update-revision-from-response response)
   (gdocs-sync--update-last-sync-time)
@@ -195,10 +197,236 @@ response alist."
           (before-save-hook nil)
           (after-save-hook nil))
       (save-buffer)))
+  (if (gdocs-sync--ir-has-nested-lists-p current-ir)
+      ;; Nested lists need a fixup pass — keep push-in-progress
+      ;; until the fixup completes.
+      (gdocs-sync--begin-list-nesting-fixup current-ir)
+    (gdocs-sync--finalize-push)))
+
+(defun gdocs-sync--finalize-push ()
+  "Complete the push cycle: set status, release lock, drain queue."
   (gdocs-sync--set-status 'synced)
   (setq gdocs-sync--push-in-progress nil)
   (gdocs-sync--drain-push-queue)
   (message "Pushed to Google Docs"))
+
+;;;; Post-push list nesting fixup
+;;
+;; The diff path emits per-paragraph `createParagraphBullets' requests,
+;; which creates flat (level-0) lists.  The full conversion path has
+;; `gdocs-convert--fixup-list-nesting' to group bullets, but the diff
+;; path cannot use that mechanism because it interleaves modifications
+;; with insertions at varying document positions.
+;;
+;; This fixup runs a second batchUpdate after the main push succeeds.
+;; It fetches the just-pushed document to get current paragraph ranges,
+;; then for each contiguous list group containing nested items:
+;;   1. Inserts tab characters at each nested paragraph's startIndex
+;;   2. Deletes all existing bullets in the group range
+;;   3. Creates bullets for the entire group as a single request
+;; The `createParagraphBullets' API reads the tabs, assigns correct
+;; nesting levels, and removes the tabs.
+
+(defun gdocs-sync--ir-has-nested-lists-p (ir)
+  "Return non-nil if IR contains any list items with level > 0."
+  (cl-some (lambda (elem)
+             (let ((list-info (plist-get elem :list)))
+               (and list-info
+                    (> (or (plist-get list-info :level) 0) 0))))
+           ir))
+
+(defun gdocs-sync--begin-list-nesting-fixup (local-ir)
+  "Fetch the pushed document and apply list nesting fixup.
+LOCAL-IR is the IR that was just pushed (with correct :level values)."
+  (let ((buf (current-buffer))
+        (doc-id gdocs-sync--document-id)
+        (acct gdocs-sync--account)
+        (ir local-ir))
+    (message "Fixing list nesting...")
+    (gdocs-api-get-document
+     doc-id
+     (lambda (json)
+       (if (not (buffer-live-p buf))
+           (message "gdocs: fixup completed but buffer was killed")
+         (condition-case err
+             (with-current-buffer buf
+               (gdocs-sync--apply-list-nesting-fixup ir json))
+           (error
+            (if (buffer-live-p buf)
+                (with-current-buffer buf
+                  (gdocs-sync--handle-push-error err))
+              (message "List nesting fixup failed: %s"
+                       (error-message-string err)))))))
+     acct
+     (gdocs-sync--make-push-error-callback buf))))
+
+(defun gdocs-sync--apply-list-nesting-fixup (local-ir json)
+  "Compute and send the list nesting fixup batchUpdate.
+LOCAL-IR has the correct :level for each element.  JSON is the
+freshly fetched document with current paragraph ranges."
+  (let* ((doc-id gdocs-sync--document-id)
+         (acct gdocs-sync--account)
+         (buf (current-buffer))
+         (remote-ir (gdocs-convert-docs-json-to-ir json))
+         (remote-filtered (gdocs-sync--filter-empty-paragraphs
+                           (gdocs-sync--filter-title remote-ir)))
+         (local-filtered (gdocs-sync--filter-title local-ir))
+         (requests (gdocs-sync--compute-nesting-fixup-requests
+                    local-filtered remote-filtered)))
+    (if (null requests)
+        (progn
+          (message "No list nesting fixup needed")
+          (gdocs-sync--finalize-push))
+      (gdocs-api-batch-update
+       doc-id requests
+       (lambda (response)
+         (if (not (buffer-live-p buf))
+             (message "gdocs: fixup completed but buffer was killed")
+           (condition-case err
+               (with-current-buffer buf
+                 (gdocs-sync--update-revision-from-response response)
+                 (gdocs-sync--persist-properties)
+                 (gdocs-sync--finalize-push))
+             (error
+              (if (buffer-live-p buf)
+                  (with-current-buffer buf
+                    (gdocs-sync--handle-push-error err))
+                (message "List nesting fixup failed: %s"
+                         (error-message-string err)))))))
+       acct
+       (gdocs-sync--make-push-error-callback buf)))))
+
+(defun gdocs-sync--compute-nesting-fixup-requests (local-ir remote-ir)
+  "Compute batchUpdate requests to fix list nesting.
+LOCAL-IR has the correct :level from the org buffer.  REMOTE-IR
+has :doc-start and :doc-end from the fetched document.
+
+Aligns elements by text content to find remote paragraphs whose
+nesting does not match the local level.  For each contiguous list
+group containing such mismatches, generates:
+  1. insertText of N tabs at each mismatched paragraph's startIndex
+  2. deleteParagraphBullets for the entire group range
+  3. createParagraphBullets for the entire group range
+
+Returns the ordered request list, or nil if no fixup is needed."
+  (let* ((aligned (gdocs-sync--align-ir-elements local-ir remote-ir))
+         (element-ranges (gdocs-sync--build-fixup-element-ranges aligned))
+         (groups (gdocs-convert--find-list-groups element-ranges))
+         (groups-needing-fixup
+          (cl-remove-if-not
+           (lambda (group)
+             (gdocs-sync--group-needs-nesting-fixup-p group element-ranges))
+           groups)))
+    (when groups-needing-fixup
+      (gdocs-convert--alternate-numbered-presets groups-needing-fixup)
+      (let ((tab-reqs nil)
+            (delete-bullet-reqs nil)
+            (create-bullet-reqs nil))
+        ;; For each group, gather the three kinds of requests
+        (dolist (group groups-needing-fixup)
+          (let ((group-start (plist-get group :start))
+                (group-end (plist-get group :end)))
+            ;; Tab insertions for each element in this group with level > 0
+            (dolist (er element-ranges)
+              (let* ((elem (plist-get er :element))
+                     (start (plist-get er :start))
+                     (end (plist-get er :end))
+                     (list-info (plist-get elem :list))
+                     (level (if list-info
+                                (or (plist-get list-info :level) 0)
+                              0)))
+                (when (and (>= start group-start)
+                           (<= end group-end)
+                           (> level 0))
+                  (push (cons start level) tab-reqs))))
+            ;; Delete bullets for the group range
+            (push `((deleteParagraphBullets
+                     . ((range . ((startIndex . ,group-start)
+                                  (endIndex . ,(1- group-end)))))))
+                  delete-bullet-reqs)
+            ;; Create bullets for the group range
+            (push (gdocs-convert--list-group-bullet-request group)
+                  create-bullet-reqs)))
+        ;; Sort tab insertions by descending startIndex
+        (setq tab-reqs (sort tab-reqs (lambda (a b) (> (car a) (car b)))))
+        ;; Build ordered request list:
+        ;; 1. Tab insertions (descending index order)
+        ;; 2. Delete bullets
+        ;; 3. Create bullets
+        (append
+         (mapcar (lambda (tr)
+                   (gdocs-convert--make-insert-text-request
+                    (make-string (cdr tr) ?\t)
+                    (car tr)))
+                 tab-reqs)
+         (nreverse delete-bullet-reqs)
+         (nreverse create-bullet-reqs))))))
+
+(defun gdocs-sync--align-ir-elements (local-ir remote-ir)
+  "Align LOCAL-IR and REMOTE-IR elements by text content.
+Returns a list of plists, each with :local (local IR element or nil)
+and :remote (remote IR element or nil), matched by plain text content.
+Uses the same LCS approach as the diff engine."
+  (let* ((local-texts (mapcar #'gdocs-sync--element-plain-text local-ir))
+         (remote-texts (mapcar #'gdocs-sync--element-plain-text remote-ir))
+         (lcs-pairs (gdocs-diff--lcs local-texts remote-texts))
+         (local-matched (make-hash-table :test 'eql))
+         (remote-matched (make-hash-table :test 'eql))
+         (result nil))
+    ;; Mark matched pairs
+    (dolist (pair lcs-pairs)
+      (puthash (car pair) (cdr pair) local-matched)
+      (puthash (cdr pair) (car pair) remote-matched))
+    ;; Build aligned list: walk remote IR, include matched locals
+    (let ((ri 0))
+      (dolist (remote-elem remote-ir)
+        (let ((li (gethash ri remote-matched)))
+          (push (list :local (when li (nth li local-ir))
+                      :remote remote-elem)
+                result))
+        (setq ri (1+ ri))))
+    (nreverse result)))
+
+(defun gdocs-sync--build-fixup-element-ranges (aligned)
+  "Build element-range plists from ALIGNED pairs for fixup.
+Each entry has :element (using local level info merged into remote
+range info), :start, and :end.  The :element carries the local
+:list info (for correct :level) when available, falling back to
+the remote element's list info."
+  (let ((result nil))
+    (dolist (pair aligned)
+      (let* ((local-elem (plist-get pair :local))
+             (remote-elem (plist-get pair :remote))
+             (start (plist-get remote-elem :doc-start))
+             (end (plist-get remote-elem :doc-end)))
+        (when (and start end)
+          ;; Build a synthetic element with the remote's structural info
+          ;; but the local's :list (which has the correct :level).
+          (let ((elem (copy-sequence remote-elem)))
+            (when (and local-elem (plist-get local-elem :list))
+              (plist-put elem :list (plist-get local-elem :list)))
+            (push (list :element elem :start start :end end) result)))))
+    (nreverse result)))
+
+(defun gdocs-sync--group-needs-nesting-fixup-p (group element-ranges)
+  "Return non-nil if GROUP contains elements needing nesting fixup.
+GROUP is a plist with :start and :end document indices.
+Checks whether any list element in the group has level > 0."
+  (let ((group-start (plist-get group :start))
+        (group-end (plist-get group :end)))
+    (cl-some
+     (lambda (er)
+       (let* ((elem (plist-get er :element))
+              (start (plist-get er :start))
+              (end (plist-get er :end))
+              (list-info (plist-get elem :list))
+              (level (if list-info
+                         (or (plist-get list-info :level) 0)
+                       0)))
+         (and (>= start group-start)
+              (<= end group-end)
+              (> level 0))))
+     element-ranges)))
 
 (defun gdocs-sync--handle-push-error (err)
   "Handle a push failure.

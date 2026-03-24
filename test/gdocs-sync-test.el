@@ -1036,5 +1036,374 @@ serialization is handled separately by `gdocs-sync--serialize-push'."
     ;; No preceding for old-index 0
     (should-not (gdocs-sync--preceding-local-index 0 diff-ops))))
 
+;;;; Post-push list nesting fixup tests
+
+(ert-deftest gdocs-sync-test-ir-has-nested-lists-p-true ()
+  "Detects IR with nested list items (level > 0)."
+  (let ((ir (list (list :type 'paragraph :style 'normal
+                        :contents (list (list :text "Item 1"))
+                        :list (list :type 'bullet :level 0)
+                        :id "e1")
+                  (list :type 'paragraph :style 'normal
+                        :contents (list (list :text "Sub-item"))
+                        :list (list :type 'bullet :level 1)
+                        :id "e2"))))
+    (should (gdocs-sync--ir-has-nested-lists-p ir))))
+
+(ert-deftest gdocs-sync-test-ir-has-nested-lists-p-false ()
+  "Returns nil when all list items are at level 0."
+  (let ((ir (list (list :type 'paragraph :style 'normal
+                        :contents (list (list :text "Item 1"))
+                        :list (list :type 'bullet :level 0)
+                        :id "e1")
+                  (list :type 'paragraph :style 'normal
+                        :contents (list (list :text "Item 2"))
+                        :list (list :type 'bullet :level 0)
+                        :id "e2"))))
+    (should-not (gdocs-sync--ir-has-nested-lists-p ir))))
+
+(ert-deftest gdocs-sync-test-ir-has-nested-lists-p-no-lists ()
+  "Returns nil when IR has no list items."
+  (let ((ir (list (list :type 'paragraph :style 'normal
+                        :contents (list (list :text "Hello"))
+                        :id "e1"))))
+    (should-not (gdocs-sync--ir-has-nested-lists-p ir))))
+
+(ert-deftest gdocs-sync-test-align-ir-elements ()
+  "Aligns local and remote IR elements by text content."
+  (let* ((local-ir (list (list :type 'paragraph :style 'normal
+                               :contents (list (list :text "Alpha"))
+                               :list (list :type 'bullet :level 0)
+                               :id "L1")
+                         (list :type 'paragraph :style 'normal
+                               :contents (list (list :text "Beta"))
+                               :list (list :type 'bullet :level 1)
+                               :id "L2")))
+         (remote-ir (list (list :type 'paragraph :style 'normal
+                                :contents (list (list :text "Alpha"))
+                                :list (list :type 'bullet :level 0)
+                                :doc-start 1 :doc-end 7
+                                :id "R1")
+                          (list :type 'paragraph :style 'normal
+                                :contents (list (list :text "Beta"))
+                                :list (list :type 'bullet :level 0)
+                                :doc-start 7 :doc-end 12
+                                :id "R2")))
+         (aligned (gdocs-sync--align-ir-elements local-ir remote-ir)))
+    (should (= (length aligned) 2))
+    ;; First pair: local L1 matched with remote R1
+    (should (equal (plist-get (plist-get (nth 0 aligned) :local) :id) "L1"))
+    (should (equal (plist-get (plist-get (nth 0 aligned) :remote) :id) "R1"))
+    ;; Second pair: local L2 matched with remote R2
+    (should (equal (plist-get (plist-get (nth 1 aligned) :local) :id) "L2"))
+    (should (equal (plist-get (plist-get (nth 1 aligned) :remote) :id) "R2"))))
+
+(ert-deftest gdocs-sync-test-build-fixup-element-ranges ()
+  "Builds element ranges using local list info and remote positions."
+  (let* ((aligned (list (list :local (list :type 'paragraph :style 'normal
+                                           :contents (list (list :text "Item"))
+                                           :list (list :type 'bullet :level 0))
+                              :remote (list :type 'paragraph :style 'normal
+                                            :contents (list (list :text "Item"))
+                                            :list (list :type 'bullet :level 0)
+                                            :doc-start 1 :doc-end 6))
+                        (list :local (list :type 'paragraph :style 'normal
+                                           :contents (list (list :text "Sub"))
+                                           :list (list :type 'bullet :level 1))
+                              :remote (list :type 'paragraph :style 'normal
+                                            :contents (list (list :text "Sub"))
+                                            :list (list :type 'bullet :level 0)
+                                            :doc-start 6 :doc-end 10))))
+         (ranges (gdocs-sync--build-fixup-element-ranges aligned)))
+    (should (= (length ranges) 2))
+    ;; First element: local level 0
+    (should (= (plist-get (nth 0 ranges) :start) 1))
+    (should (= (plist-get (nth 0 ranges) :end) 6))
+    (should (= (plist-get (plist-get (plist-get (nth 0 ranges) :element) :list)
+                          :level) 0))
+    ;; Second element: local level 1 (overrides remote level 0)
+    (should (= (plist-get (nth 1 ranges) :start) 6))
+    (should (= (plist-get (nth 1 ranges) :end) 10))
+    (should (= (plist-get (plist-get (plist-get (nth 1 ranges) :element) :list)
+                          :level) 1))))
+
+(ert-deftest gdocs-sync-test-group-needs-nesting-fixup-p ()
+  "Detects groups that contain elements needing nesting fixup."
+  (let ((element-ranges
+         (list (list :element (list :type 'paragraph
+                                    :list (list :type 'bullet :level 0))
+                     :start 1 :end 6)
+               (list :element (list :type 'paragraph
+                                    :list (list :type 'bullet :level 1))
+                     :start 6 :end 10)))
+        (group (list :start 1 :end 10 :preset "BULLET_DISC_CIRCLE_SQUARE")))
+    (should (gdocs-sync--group-needs-nesting-fixup-p group element-ranges))))
+
+(ert-deftest gdocs-sync-test-group-needs-nesting-fixup-p-no ()
+  "Returns nil for groups where all elements are at level 0."
+  (let ((element-ranges
+         (list (list :element (list :type 'paragraph
+                                    :list (list :type 'bullet :level 0))
+                     :start 1 :end 6)
+               (list :element (list :type 'paragraph
+                                    :list (list :type 'bullet :level 0))
+                     :start 6 :end 10)))
+        (group (list :start 1 :end 10 :preset "BULLET_DISC_CIRCLE_SQUARE")))
+    (should-not (gdocs-sync--group-needs-nesting-fixup-p group element-ranges))))
+
+(ert-deftest gdocs-sync-test-compute-nesting-fixup-requests ()
+  "Generates correct fixup requests for nested list items."
+  (let* ((local-ir (list (list :type 'paragraph :style 'normal
+                               :contents (list (list :text "Parent"))
+                               :list (list :type 'bullet :level 0)
+                               :id "L1")
+                         (list :type 'paragraph :style 'normal
+                               :contents (list (list :text "Child"))
+                               :list (list :type 'bullet :level 1)
+                               :id "L2")
+                         (list :type 'paragraph :style 'normal
+                               :contents (list (list :text "Grandchild"))
+                               :list (list :type 'bullet :level 2)
+                               :id "L3")))
+         (remote-ir (list (list :type 'paragraph :style 'normal
+                                :contents (list (list :text "Parent"))
+                                :list (list :type 'bullet :level 0)
+                                :doc-start 1 :doc-end 9
+                                :id "R1")
+                          (list :type 'paragraph :style 'normal
+                                :contents (list (list :text "Child"))
+                                :list (list :type 'bullet :level 0)
+                                :doc-start 9 :doc-end 15
+                                :id "R2")
+                          (list :type 'paragraph :style 'normal
+                                :contents (list (list :text "Grandchild"))
+                                :list (list :type 'bullet :level 0)
+                                :doc-start 15 :doc-end 26
+                                :id "R3")))
+         (requests (gdocs-sync--compute-nesting-fixup-requests
+                    local-ir remote-ir)))
+    ;; Should have requests: 2 tab inserts + 1 delete bullets + 1 create bullets
+    (should requests)
+    (should (= (length requests) 4))
+    ;; First two should be insertText (tabs), sorted by descending index
+    ;; Grandchild at index 15 gets 2 tabs, Child at index 9 gets 1 tab
+    (let ((req1 (nth 0 requests))
+          (req2 (nth 1 requests)))
+      (should (alist-get 'insertText req1))
+      (should (alist-get 'insertText req2))
+      ;; Descending order: 15 before 9
+      (should (= (alist-get 'index
+                             (alist-get 'location
+                                        (alist-get 'insertText req1)))
+                 15))
+      (should (equal (alist-get 'text (alist-get 'insertText req1))
+                     "\t\t"))
+      (should (= (alist-get 'index
+                             (alist-get 'location
+                                        (alist-get 'insertText req2)))
+                 9))
+      (should (equal (alist-get 'text (alist-get 'insertText req2))
+                     "\t")))
+    ;; Third should be deleteParagraphBullets
+    (should (alist-get 'deleteParagraphBullets (nth 2 requests)))
+    ;; Fourth should be createParagraphBullets
+    (should (alist-get 'createParagraphBullets (nth 3 requests)))))
+
+(ert-deftest gdocs-sync-test-compute-nesting-fixup-no-nested ()
+  "Returns nil when no elements need nesting fixup."
+  (let* ((local-ir (list (list :type 'paragraph :style 'normal
+                               :contents (list (list :text "Item 1"))
+                               :list (list :type 'bullet :level 0)
+                               :id "L1")
+                         (list :type 'paragraph :style 'normal
+                               :contents (list (list :text "Item 2"))
+                               :list (list :type 'bullet :level 0)
+                               :id "L2")))
+         (remote-ir (list (list :type 'paragraph :style 'normal
+                                :contents (list (list :text "Item 1"))
+                                :list (list :type 'bullet :level 0)
+                                :doc-start 1 :doc-end 8
+                                :id "R1")
+                          (list :type 'paragraph :style 'normal
+                                :contents (list (list :text "Item 2"))
+                                :list (list :type 'bullet :level 0)
+                                :doc-start 8 :doc-end 15
+                                :id "R2")))
+         (requests (gdocs-sync--compute-nesting-fixup-requests
+                    local-ir remote-ir)))
+    (should-not requests)))
+
+(ert-deftest gdocs-sync-test-compute-nesting-fixup-mixed-groups ()
+  "Only groups containing nested items get fixup requests."
+  (let* ((local-ir (list
+                    ;; First group: flat bullet list (no fixup)
+                    (list :type 'paragraph :style 'normal
+                          :contents (list (list :text "Flat 1"))
+                          :list (list :type 'bullet :level 0)
+                          :id "L1")
+                    (list :type 'paragraph :style 'normal
+                          :contents (list (list :text "Flat 2"))
+                          :list (list :type 'bullet :level 0)
+                          :id "L2")
+                    ;; Non-list separator
+                    (list :type 'paragraph :style 'normal
+                          :contents (list (list :text "Separator"))
+                          :id "L3")
+                    ;; Second group: nested bullet list (needs fixup)
+                    (list :type 'paragraph :style 'normal
+                          :contents (list (list :text "Parent"))
+                          :list (list :type 'bullet :level 0)
+                          :id "L4")
+                    (list :type 'paragraph :style 'normal
+                          :contents (list (list :text "Child"))
+                          :list (list :type 'bullet :level 1)
+                          :id "L5")))
+         (remote-ir (list
+                     (list :type 'paragraph :style 'normal
+                           :contents (list (list :text "Flat 1"))
+                           :list (list :type 'bullet :level 0)
+                           :doc-start 1 :doc-end 8 :id "R1")
+                     (list :type 'paragraph :style 'normal
+                           :contents (list (list :text "Flat 2"))
+                           :list (list :type 'bullet :level 0)
+                           :doc-start 8 :doc-end 15 :id "R2")
+                     (list :type 'paragraph :style 'normal
+                           :contents (list (list :text "Separator"))
+                           :doc-start 15 :doc-end 25 :id "R3")
+                     (list :type 'paragraph :style 'normal
+                           :contents (list (list :text "Parent"))
+                           :list (list :type 'bullet :level 0)
+                           :doc-start 25 :doc-end 32 :id "R4")
+                     (list :type 'paragraph :style 'normal
+                           :contents (list (list :text "Child"))
+                           :list (list :type 'bullet :level 0)
+                           :doc-start 32 :doc-end 38 :id "R5")))
+         (requests (gdocs-sync--compute-nesting-fixup-requests
+                    local-ir remote-ir)))
+    ;; Should have: 1 tab insert + 1 delete bullets + 1 create bullets
+    ;; (only for the second group)
+    (should requests)
+    (should (= (length requests) 3))
+    ;; Tab insert for Child at index 32
+    (should (alist-get 'insertText (nth 0 requests)))
+    (should (= (alist-get 'index
+                           (alist-get 'location
+                                      (alist-get 'insertText (nth 0 requests))))
+               32))
+    ;; Delete bullets for second group range
+    (let* ((del-req (nth 1 requests))
+           (range (alist-get 'range (alist-get 'deleteParagraphBullets del-req))))
+      (should (= (alist-get 'startIndex range) 25))
+      ;; endIndex = group-end - 1 = 38 - 1 = 37
+      (should (= (alist-get 'endIndex range) 37)))
+    ;; Create bullets for second group range
+    (let* ((create-req (nth 2 requests))
+           (range (alist-get 'range (alist-get 'createParagraphBullets create-req))))
+      (should (= (alist-get 'startIndex range) 25))
+      (should (= (alist-get 'endIndex range) 37)))))
+
+(ert-deftest gdocs-sync-test-push-triggers-fixup-for-nested-lists ()
+  "Push with nested lists triggers a post-push fixup batchUpdate."
+  (gdocs-sync-test-with-org-buffer "- Item\n  - Sub-item\n"
+    (let ((batch-calls nil)
+          (get-doc-count 0)
+          (gdocs-preserve-comments nil))
+      (cl-letf (((symbol-function 'gdocs-api-get-document)
+                 (lambda (_doc-id callback &optional _account _on-error)
+                   (setq get-doc-count (1+ get-doc-count))
+                   (funcall callback
+                            '((title . "Test")
+                              (body . ((content
+                                        . [((startIndex . 0)
+                                            (endIndex . 1)
+                                            (sectionBreak . t))
+                                           ((startIndex . 1)
+                                            (endIndex . 6)
+                                            (paragraph
+                                             (elements . [((textRun
+                                                            (content . "Item\n")
+                                                            (textStyle)))])
+                                             (bullet . ((listId . "list1")
+                                                        (nestingLevel . 0)))
+                                             (paragraphStyle
+                                              (namedStyleType . "NORMAL_TEXT"))))
+                                           ((startIndex . 6)
+                                            (endIndex . 15)
+                                            (paragraph
+                                             (elements . [((textRun
+                                                            (content . "Sub-item\n")
+                                                            (textStyle)))])
+                                             (bullet . ((listId . "list1")
+                                                        (nestingLevel . 0)))
+                                             (paragraphStyle
+                                              (namedStyleType . "NORMAL_TEXT"))))])))
+                              (lists . ((list1
+                                         . ((listProperties
+                                             . ((nestingLevels
+                                                 . [((glyphType . "GLYPH_TYPE_UNSPECIFIED")
+                                                     (glyphSymbol . "-"))])))))))))))
+                ((symbol-function 'gdocs-diff-generate)
+                 (lambda (_old-ir _new-ir &optional _start-index)
+                   (list '((insertText . "mock")))))
+                ((symbol-function 'gdocs-api-batch-update)
+                 (lambda (_doc-id requests callback &optional _account _on-error)
+                   (push requests batch-calls)
+                   (funcall callback
+                            '((writeControl
+                               (requiredRevisionId . "rev-fixup")))))))
+        (gdocs-sync-push)
+        ;; Should have 2 batch-update calls: main push + fixup
+        (should (= (length batch-calls) 2))
+        ;; 2 get-document calls: initial fetch + fixup fetch
+        (should (= get-doc-count 2))
+        (should (eq gdocs-sync--status 'synced))))))
+
+(ert-deftest gdocs-sync-test-push-no-fixup-for-flat-lists ()
+  "Push with only flat lists (level 0) does not trigger fixup."
+  (gdocs-sync-test-with-org-buffer "- Item 1\n- Item 2\n"
+    (let ((batch-calls nil)
+          (get-doc-count 0)
+          (gdocs-preserve-comments nil))
+      (cl-letf (((symbol-function 'gdocs-api-get-document)
+                 (lambda (_doc-id callback &optional _account _on-error)
+                   (setq get-doc-count (1+ get-doc-count))
+                   (funcall callback
+                            '((title . "Test")
+                              (body . ((content
+                                        . [((startIndex . 0)
+                                            (endIndex . 1)
+                                            (sectionBreak . t))
+                                           ((startIndex . 1)
+                                            (endIndex . 10)
+                                            (paragraph
+                                             (elements . [((textRun
+                                                            (content . "Item 1\n")
+                                                            (textStyle)))])
+                                             (paragraphStyle
+                                              (namedStyleType . "NORMAL_TEXT"))))
+                                           ((startIndex . 10)
+                                            (endIndex . 19)
+                                            (paragraph
+                                             (elements . [((textRun
+                                                            (content . "Item 2\n")
+                                                            (textStyle)))])
+                                             (paragraphStyle
+                                              (namedStyleType . "NORMAL_TEXT"))))])))))))
+                ((symbol-function 'gdocs-diff-generate)
+                 (lambda (_old-ir _new-ir &optional _start-index)
+                   (list '((insertText . "mock")))))
+                ((symbol-function 'gdocs-api-batch-update)
+                 (lambda (_doc-id requests callback &optional _account _on-error)
+                   (push requests batch-calls)
+                   (funcall callback
+                            '((writeControl
+                               (requiredRevisionId . "rev-1")))))))
+        (gdocs-sync-push)
+        ;; Only 1 batch-update call (the main push, no fixup)
+        (should (= (length batch-calls) 1))
+        ;; Only 1 get-document call (no fixup fetch)
+        (should (= get-doc-count 1))
+        (should (eq gdocs-sync--status 'synced))))))
+
 (provide 'gdocs-sync-test)
 ;;; gdocs-sync-test.el ends here
