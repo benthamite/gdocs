@@ -98,13 +98,20 @@ ensuring same-document heading links resolve to anchored URLs."
       (gdocs-api-get-document
        doc-id
        (lambda (json)
-         (with-current-buffer buf
-           (gdocs-convert--cache-heading-ids doc-id json)
-           (let* ((link-ctx (gdocs-sync--make-link-context))
-                  (gdocs-convert--link-context link-ctx)
-                  (current-ir (gdocs-convert-org-buffer-to-ir)))
-             (gdocs-sync--push-incremental
-              current-ir buf link-ctx json))))
+         (condition-case err
+             (with-current-buffer buf
+               (gdocs-convert--cache-heading-ids doc-id json)
+               (let* ((link-ctx (gdocs-sync--make-link-context))
+                      (gdocs-convert--link-context link-ctx)
+                      (current-ir (gdocs-convert-org-buffer-to-ir)))
+                 (gdocs-sync--push-incremental
+                  current-ir buf link-ctx json)))
+           ((error quit)
+            (if (buffer-live-p buf)
+                (with-current-buffer buf
+                  (gdocs-sync--handle-push-error err))
+              (message "Push failed: %s"
+                       (error-message-string err))))))
        acct
        (gdocs-sync--make-push-error-callback buf)))))
 
@@ -171,12 +178,17 @@ buffer.  LINK-CTX is the link context for re-binding when setting
 the shadow."
   (lambda (response)
     (if (not (buffer-live-p buf))
-        (message "gdocs: push completed but buffer was killed")
+        (progn
+          (message "gdocs: push completed but buffer was killed")
+          ;; Release the lock even if the buffer is gone
+          (ignore-errors
+            (with-current-buffer buf
+              (setq gdocs-sync--push-in-progress nil))))
       (condition-case err
           (with-current-buffer buf
             (let ((gdocs-convert--link-context link-ctx))
               (gdocs-sync--handle-push-success current-ir response)))
-        (error
+        ((error quit)
          (if (buffer-live-p buf)
              (with-current-buffer buf
                (gdocs-sync--handle-push-error err))
@@ -251,7 +263,7 @@ LOCAL-IR is the IR that was just pushed (with correct :level values)."
          (condition-case err
              (with-current-buffer buf
                (gdocs-sync--apply-list-nesting-fixup ir json))
-           (error
+           ((error quit)
             (if (buffer-live-p buf)
                 (with-current-buffer buf
                   (gdocs-sync--handle-push-error err))
@@ -287,7 +299,7 @@ freshly fetched document with current paragraph ranges."
                  (gdocs-sync--update-revision-from-response response)
                  (gdocs-sync--persist-properties)
                  (gdocs-sync--finalize-push))
-             (error
+             ((error quit)
               (if (buffer-live-p buf)
                   (with-current-buffer buf
                     (gdocs-sync--handle-push-error err))
@@ -894,7 +906,7 @@ the callback context."
                                local-ir remote-filtered
                                declined-ops diff-ops)))
                   (gdocs-sync--handle-push-success shadow response)))))
-        (error
+        ((error quit)
          (if (buffer-live-p buf)
              (with-current-buffer buf
                (gdocs-sync--handle-push-error err))
