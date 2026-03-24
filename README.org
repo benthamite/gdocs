@@ -1048,6 +1048,58 @@ push is queued and executes automatically when the first completes.
 This ensures that the shadow copy is always consistent with what was
 last sent to the API.
 
+** Post-push list nesting fixup
+:PROPERTIES:
+:CUSTOM_ID: h:list-nesting-fixup
+:END:
+
+The diff engine emits per-paragraph ~createParagraphBullets~ requests,
+which always produce flat (level-0) lists.  The full conversion path
+has a separate mechanism (~gdocs-convert--fixup-list-nesting~) that
+groups bullets and inserts leading tabs so that the API infers correct
+nesting levels, but the diff path cannot use that mechanism because it
+interleaves modifications with insertions at varying document
+positions.
+
+To restore correct nesting, the sync engine runs a second
+~batchUpdate~ pass after the main push succeeds, but only when the
+local IR contains nested list items (level > 0).  The fixup proceeds
+as follows:
+
+1. Fetch the just-pushed document to obtain current paragraph ranges.
+
+2. Align local and remote IR elements by plain-text content using the
+   same LCS approach as the diff engine, so that each local element
+   (which carries the correct =:level= from the org source) is paired
+   with its remote counterpart (which carries =:doc-start= /
+   =:doc-end= positions).
+
+3. Build element-range plists that merge local nesting levels with
+   remote document positions.
+
+4. Identify contiguous list groups that contain at least one element
+   at level > 0.
+
+5. For each such group, emit four kinds of requests in order:
+   - ~deleteParagraphBullets~ to remove the flat bullets for the
+     group range.
+   - ~updateParagraphStyle~ to reset =indentStart= and
+     =indentFirstLine= to zero, so only leading tabs signal nesting
+     depth.
+   - ~insertText~ to insert /N/ tab characters at each nested
+     paragraph's =startIndex= (where /N/ is the nesting level).
+     Insertions are sorted by descending index to maintain correct
+     positions.
+   - A single ~createParagraphBullets~ spanning the entire group.
+     The API counts the leading tabs, assigns the correct nesting
+     levels, and removes the tabs afterward.
+
+The fixup keeps the push lock held until completion, so any queued
+push waits until nesting is fully resolved before proceeding
+([[#h:push-serialization][Push serialization]]).  If the local IR has no nested list items,
+the fixup is skipped entirely and the push completes in a single
+round trip.
+
 * Diff engine
 :PROPERTIES:
 :CUSTOM_ID: h:diff-engine
@@ -1129,6 +1181,30 @@ Token offsets are computed in UTF-16 code units using
 (such as emoji) that require surrogate pairs.  Even a fully rewritten
 paragraph produces correct operations; the word-level approach never
 falls back to a bulk replacement.
+
+** Text-style reset
+:PROPERTIES:
+:CUSTOM_ID: h:text-style-reset
+:END:
+
+When new text is inserted into a Google Doc---whether by the full
+conversion path or by the incremental diff engine---it inherits the
+formatting of adjacent text.  This means that inserting a plain
+paragraph next to a bold one would produce bold text unless the
+formatting is explicitly cleared.
+
+To prevent inherited formatting from bleeding into new content, every
+text insertion is followed by an ~updateTextStyle~ request that resets
+all character-level formatting across the inserted range.  The reset
+clears bold, italic, underline, strikethrough, ~weightedFontFamily~,
+~baselineOffset~, ~foregroundColor~, and ~backgroundColor~ by listing
+them in the API's ~fields~ mask with only default values in the
+~textStyle~ body.  Fields present in the mask but absent from the body
+are reset to their defaults by the Google Docs API.  After the reset,
+per-run style requests re-apply only the formatting that the org source
+actually specifies.  This two-step approach (reset then re-apply)
+ensures that every text run matches the org source exactly, regardless
+of surrounding context.
 
 ** Comment-aware push
 :PROPERTIES:
