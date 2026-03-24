@@ -1291,21 +1291,32 @@ occupy body space and are excluded from the offset."
 
 (defun gdocs-sync--filter-empty-paragraphs (ir)
   "Remove empty paragraphs from IR.
-Google Docs inserts structural empty paragraphs (e.g. between
-content elements) that cannot be deleted via the API.  Filtering
-them from the remote IR prevents the diff engine from generating
-doomed delete requests."
-  (cl-remove-if (lambda (element)
-                  (and (eq (plist-get element :type) 'paragraph)
-                       (not (plist-get element :list))
-                       (let ((contents (plist-get element :contents)))
-                         (or (null contents)
-                             (and (= (length contents) 1)
-                                  (string-empty-p
-                                   (string-trim
-                                    (or (plist-get (car contents) :text)
-                                        ""))))))))
-                ir))
+Google Docs inserts structural empty paragraphs that cannot be
+deleted via the API.  These include guard paragraphs before tables
+and trailing document paragraphs.  Filtering them from the remote
+IR prevents the diff engine from generating doomed delete requests.
+
+An empty paragraph is one whose text content is blank after
+trimming.  Both plain and bulleted empty paragraphs are filtered,
+since Google Docs can assign bullet properties to undeletable
+guard paragraphs."
+  (let ((ir-vec (vconcat ir))
+        (result nil)
+        (len (length ir)))
+    (dotimes (i len)
+      (let* ((element (aref ir-vec i))
+             (is-empty-para
+              (and (eq (plist-get element :type) 'paragraph)
+                   (let ((contents (plist-get element :contents)))
+                     (or (null contents)
+                         (and (= (length contents) 1)
+                              (string-empty-p
+                               (string-trim
+                                (or (plist-get (car contents) :text)
+                                    "")))))))))
+        (unless is-empty-para
+          (push element result))))
+    (nreverse result)))
 
 (defun gdocs-sync--filter-title (ir)
   "Return IR with title elements removed.
