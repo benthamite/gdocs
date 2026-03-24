@@ -2431,10 +2431,17 @@ element (+1), first row-start marker (+1), first cell-start
 marker (+1).")
 
 (defun gdocs-convert--table-cell-requests (rows table-index ncols)
-  "Generate insertText requests for non-empty cells in ROWS.
+  "Generate insertText and text-style-reset requests for cells in ROWS.
 TABLE-INDEX is the insertTable location index.  NCOLS is the
 column count.  The table body starts at TABLE-INDEX + 1 because
 insertTable preserves the existing paragraph at the location.
+
+For each non-empty cell, generates an insertText followed by a
+text-style reset to clear inherited formatting (font size, font
+family, colors).  Without the reset, cells inherit the style at
+the insertion point, which may be a heading or other non-body
+style.
+
 Iterates forward and pushes, so the result is in reverse order
 \(last cell first) for stable index processing."
   (let ((reqs nil)
@@ -2442,16 +2449,20 @@ Iterates forward and pushes, so the result is in reverse order
     (dolist (row rows)
       (let ((c 0))
         (dolist (cell row)
-          (let ((text (gdocs-convert--runs-to-plain-text cell)))
-            (when (> (length text) 0)
-              ;; Each subsequent row adds 1 + ncols*2 structural markers;
-              ;; each subsequent cell adds 2.
+          (let* ((text (gdocs-convert--runs-to-plain-text cell))
+                 (text-len (gdocs-convert--string-to-utf16-length text)))
+            (when (> text-len 0)
               (let ((cell-start (+ table-index
                                    gdocs-convert--table-base-cell-offset
                                    (* r (+ 1 (* ncols 2)))
                                    (* c 2))))
                 (push (gdocs-convert--make-insert-text-request
                        text cell-start)
+                      reqs)
+                ;; Reset formatting so cells don't inherit heading
+                ;; styles or other non-body formatting.
+                (push (gdocs-convert--make-text-style-reset-request
+                       cell-start (+ cell-start text-len))
                       reqs))))
           (setq c (1+ c))))
       (setq r (1+ r)))
