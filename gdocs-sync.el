@@ -37,6 +37,13 @@
   :type 'boolean
   :group 'gdocs)
 
+(defcustom gdocs-preserve-comments t
+  "When non-nil, check for Google Docs comments before pushing.
+Destructive changes (element deletions, cross-type modifications)
+that would destroy comments prompt for per-element confirmation."
+  :type 'boolean
+  :group 'gdocs)
+
 ;;;; Buffer-local variables
 
 (defvar-local gdocs-sync--shadow-ir nil
@@ -115,27 +122,39 @@ Return non-nil if the push was serialized (caller should abort)."
 BUF is the originating buffer.  LINK-CTX is the link context for
 re-binding in callbacks.  JSON is the pre-fetched document used
 for accurate UTF-16 indices."
-  (let ((doc-id gdocs-sync--document-id)
-        (acct gdocs-sync--account)
-        (local-ir current-ir))
-    (let* ((remote-ir (gdocs-convert-docs-json-to-ir json))
-           (remote-title (alist-get 'title json))
-           (start-index (gdocs-sync--body-start-index remote-ir))
-           (remote-filtered (gdocs-sync--filter-empty-paragraphs
-                             (gdocs-sync--filter-title remote-ir)))
-           (local-filtered (gdocs-sync--filter-title local-ir))
-           (requests (gdocs-diff-generate
-                      remote-filtered local-filtered start-index)))
-      (gdocs-sync--maybe-rename-document
-       local-ir remote-title doc-id acct)
-      (if (null requests)
-          (gdocs-sync--push-no-changes buf)
-        (gdocs-api-batch-update
+  (let* ((doc-id gdocs-sync--document-id)
+         (acct gdocs-sync--account)
+         (local-ir current-ir)
+         (remote-ir (gdocs-convert-docs-json-to-ir json))
+         (remote-title (alist-get 'title json))
+         (start-index (gdocs-sync--body-start-index remote-ir))
+         (remote-filtered (gdocs-sync--filter-empty-paragraphs
+                           (gdocs-sync--filter-title remote-ir)))
+         (local-filtered (gdocs-sync--filter-title local-ir)))
+    (gdocs-sync--maybe-rename-document
+     local-ir remote-title doc-id acct)
+    (if gdocs-preserve-comments
+        ;; Fetch comments, then push with comment protection
+        (gdocs-api-list-comments
          doc-id
-         requests
-         (gdocs-sync--make-push-callback local-ir buf link-ctx)
-         acct
-         (gdocs-sync--make-push-error-callback buf))))))
+         (lambda (comments)
+           (when (buffer-live-p buf)
+             (with-current-buffer buf
+               (let ((gdocs-convert--link-context link-ctx))
+                 (gdocs-sync--push-with-comment-protection
+                  local-ir local-filtered remote-filtered
+                  comments start-index buf link-ctx)))))
+         acct)
+      ;; Standard flow: compute diff and push
+      (let ((requests (gdocs-diff-generate
+                       remote-filtered local-filtered start-index)))
+        (if (null requests)
+            (gdocs-sync--push-no-changes buf)
+          (gdocs-api-batch-update
+           doc-id requests
+           (gdocs-sync--make-push-callback local-ir buf link-ctx)
+           acct
+           (gdocs-sync--make-push-error-callback buf)))))))
 
 (defun gdocs-sync--push-no-changes (buf)
   "Handle the case where push found no changes.
@@ -572,6 +591,207 @@ nil or has no marker, returns REMOTE-ELEM unchanged."
               (when (plist-get remote-elem :list)
                 (list :list (plist-get remote-elem :list))))
     remote-elem))
+
+;;;; Comment-aware push
+
+(defun gdocs-sync--push-with-comment-protection (local-ir local-filtered
+                                                          remote-filtered
+                                                          comments start-index
+                                                          buf link-ctx)
+  "Push with per-element confirmation for destructive commented changes.
+LOCAL-IR is the full local IR.  LOCAL-FILTERED and
+REMOTE-FILTERED are title-filtered IRs for diffing.  COMMENTS is
+the list of Drive comments.  START-INDEX is the body start UTF-16
+index.  BUF is the originating buffer.  LINK-CTX is the link
+context."
+  (let* ((doc-id gdocs-sync--document-id)
+         (acct gdocs-sync--account)
+         (diff-ops (gdocs-diff-compute-operations
+                    remote-filtered local-filtered))
+         (result (gdocs-sync--filter-commented-ops
+                  diff-ops remote-filtered local-filtered comments))
+         (filtered-ops (plist-get result :ops))
+         (declined-ops (plist-get result :declined))
+         (requests (gdocs-diff-generate-from-ops
+                    remote-filtered local-filtered
+                    filtered-ops start-index)))
+    (if (null requests)
+        (gdocs-sync--push-no-changes buf)
+      (gdocs-api-batch-update
+       doc-id requests
+       (gdocs-sync--make-comment-aware-push-callback
+        local-ir remote-filtered declined-ops diff-ops buf link-ctx)
+       acct
+       (gdocs-sync--make-push-error-callback buf)))))
+
+(defun gdocs-sync--make-comment-aware-push-callback (local-ir remote-filtered
+                                                              declined-ops
+                                                              diff-ops
+                                                              buf link-ctx)
+  "Return a push callback that accounts for declined deletions.
+LOCAL-IR is the IR that was pushed.  REMOTE-FILTERED is the
+pre-push remote IR.  DECLINED-OPS are user-declined diff ops.
+DIFF-OPS is the full operation list.  BUF and LINK-CTX are for
+the callback context."
+  (lambda (response)
+    (if (not (buffer-live-p buf))
+        (message "gdocs: push completed but buffer was killed")
+      (condition-case err
+          (with-current-buffer buf
+            (let ((gdocs-convert--link-context link-ctx))
+              (if (null declined-ops)
+                  (gdocs-sync--handle-push-success local-ir response)
+                (let ((shadow (gdocs-sync--reconstruct-shadow
+                               local-ir remote-filtered
+                               declined-ops diff-ops)))
+                  (gdocs-sync--handle-push-success shadow response)))))
+        (error
+         (if (buffer-live-p buf)
+             (with-current-buffer buf
+               (gdocs-sync--handle-push-error err))
+           (message "Push failed: %s" (error-message-string err))))))))
+
+(defun gdocs-sync--filter-commented-ops (diff-ops remote-ir local-ir comments)
+  "Filter destructive DIFF-OPS that have at-risk comments.
+Prompts the user for each at-risk destructive operation.  Returns
+a plist with :ops (the filtered operation list) and :declined
+\(list of declined operations)."
+  (let ((comment-map (gdocs-sync--map-comments-to-elements
+                      comments remote-ir))
+        (filtered nil)
+        (declined nil))
+    (dolist (op diff-ops)
+      (if (and (gdocs-sync--destructive-op-p op remote-ir local-ir)
+               (gdocs-sync--op-has-at-risk-comments-p op comment-map))
+          (if (gdocs-sync--confirm-deletion op remote-ir comment-map)
+              (push op filtered)
+            (push op declined))
+        (push op filtered)))
+    (list :ops (nreverse filtered)
+          :declined (nreverse declined))))
+
+(defun gdocs-sync--destructive-op-p (op remote-ir local-ir)
+  "Return non-nil if OP is a destructive diff operation.
+Destructive means element deletion or cross-type modification."
+  (let ((op-type (plist-get op :op)))
+    (or (eq op-type 'delete)
+        (and (eq op-type 'modify)
+             (let ((old-elem (nth (plist-get op :old-index) remote-ir))
+                   (new-elem (nth (plist-get op :new-index) local-ir)))
+               (not (eq (plist-get old-elem :type)
+                        (plist-get new-elem :type))))))))
+
+(defun gdocs-sync--map-comments-to-elements (comments remote-ir)
+  "Map comments to the remote IR elements they are anchored to.
+Returns an alist of (ELEMENT-INDEX . COMMENT-LIST).  Comments
+without quoted text (document-level) are skipped."
+  (let ((map nil))
+    (dolist (comment comments)
+      (unless (eq (alist-get 'deleted comment) t)
+        (let* ((quoted (alist-get 'quotedFileContent comment))
+               (quoted-text (and quoted (alist-get 'value quoted))))
+          (when (and quoted-text (not (string-empty-p quoted-text)))
+            (let ((i 0))
+              (dolist (elem remote-ir)
+                (let ((plain (gdocs-sync--element-plain-text elem)))
+                  (when (and (not (string-empty-p plain))
+                             (string-search quoted-text plain))
+                    (let ((existing (assq i map)))
+                      (if existing
+                          (push comment (cdr existing))
+                        (push (cons i (list comment)) map)))))
+                (setq i (1+ i))))))))
+    map))
+
+(defun gdocs-sync--element-plain-text (element)
+  "Extract plain text from ELEMENT for comment matching."
+  (pcase (plist-get element :type)
+    ('paragraph
+     (gdocs-convert--runs-to-plain-text (plist-get element :contents)))
+    ('table
+     (mapconcat
+      (lambda (row)
+        (mapconcat #'gdocs-convert--runs-to-plain-text row " "))
+      (plist-get element :rows) " "))
+    ('footnote
+     (gdocs-convert--runs-to-plain-text (plist-get element :contents)))
+    (_ "")))
+
+(defun gdocs-sync--op-has-at-risk-comments-p (op comment-map)
+  "Return non-nil if OP targets an element with comments in COMMENT-MAP."
+  (assq (plist-get op :old-index) comment-map))
+
+(defun gdocs-sync--confirm-deletion (op remote-ir comment-map)
+  "Prompt the user about a destructive operation on a commented element.
+OP is the diff operation.  REMOTE-IR is the remote element list.
+COMMENT-MAP maps element indices to comment lists.  Returns
+non-nil if the user confirms."
+  (let* ((oi (plist-get op :old-index))
+         (elem (nth oi remote-ir))
+         (elem-type (symbol-name (plist-get elem :type)))
+         (elem-text (truncate-string-to-width
+                     (gdocs-sync--element-plain-text elem) 50 nil nil "..."))
+         (comments (cdr (assq oi comment-map)))
+         (comment-lines
+          (mapconcat
+           (lambda (c)
+             (let ((author (alist-get 'displayName
+                                      (alist-get 'author c)))
+                   (content (alist-get 'content c)))
+               (format "  by %s: \"%s\""
+                       (or author "Unknown") (or content ""))))
+           comments "\n")))
+    (y-or-n-p
+     (format "Deleting %s \"%s\" would lose comment%s:\n%s\nDelete anyway? "
+             elem-type elem-text
+             (if (> (length comments) 1) "s" "")
+             comment-lines))))
+
+(defun gdocs-sync--reconstruct-shadow (local-ir remote-ir declined-ops
+                                                diff-ops)
+  "Build a shadow IR that includes declined deletion elements.
+LOCAL-IR is the IR that was pushed.  REMOTE-IR is the pre-push
+remote IR.  DECLINED-OPS are the user-declined operations.
+DIFF-OPS is the full operation list used to determine insertion
+positions."
+  (if (null declined-ops)
+      local-ir
+    (let ((insertions nil))
+      (dolist (dop declined-ops)
+        (let* ((oi (plist-get dop :old-index))
+               (remote-elem (nth oi remote-ir))
+               (preceding-local-idx
+                (gdocs-sync--preceding-local-index oi diff-ops)))
+          (push (cons (if preceding-local-idx
+                          (1+ preceding-local-idx)
+                        0)
+                      remote-elem)
+                insertions)))
+      ;; Insert from highest position first to preserve indices
+      (setq insertions
+            (sort insertions (lambda (a b) (> (car a) (car b)))))
+      (let ((shadow (copy-sequence local-ir)))
+        (dolist (ins insertions)
+          (let ((pos (min (car ins) (length shadow)))
+                (elem (cdr ins)))
+            (setq shadow (append (cl-subseq shadow 0 pos)
+                                 (list elem)
+                                 (cl-subseq shadow pos)))))
+        shadow))))
+
+(defun gdocs-sync--preceding-local-index (old-idx diff-ops)
+  "Find the local index of the nearest preceding kept/modified op.
+OLD-IDX is the remote element index.  DIFF-OPS is the full
+operation list.  Returns the :new-index of the nearest preceding
+keep or modify operation, or nil if none precedes OLD-IDX."
+  (let ((result nil))
+    (dolist (op diff-ops)
+      (let ((op-type (plist-get op :op))
+            (oi (plist-get op :old-index)))
+        (when (and oi (< oi old-idx)
+                   (memq op-type '(keep modify)))
+          (setq result (plist-get op :new-index)))))
+    result))
 
 ;;;; Push on save
 

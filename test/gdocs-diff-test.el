@@ -627,5 +627,211 @@ This ensures comments on any remaining matching content survive."
     (should insert-req)
     (should (= (alist-get 'index loc) 15))))
 
+;;;; Tokenizer tests
+
+(ert-deftest gdocs-diff-test-tokenize-simple ()
+  "Tokenizes a sentence into words and spaces."
+  (let ((tokens (gdocs-diff--tokenize-text "Hello world")))
+    (should (= (length tokens) 3))
+    (should (equal (plist-get (nth 0 tokens) :text) "Hello"))
+    (should (equal (plist-get (nth 1 tokens) :text) " "))
+    (should (equal (plist-get (nth 2 tokens) :text) "world"))
+    ;; Check offsets
+    (should (= (plist-get (nth 0 tokens) :offset) 0))
+    (should (= (plist-get (nth 1 tokens) :offset) 5))
+    (should (= (plist-get (nth 2 tokens) :offset) 6))))
+
+(ert-deftest gdocs-diff-test-tokenize-multiple-spaces ()
+  "Multiple spaces form a single whitespace token."
+  (let ((tokens (gdocs-diff--tokenize-text "A  B")))
+    (should (= (length tokens) 3))
+    (should (equal (plist-get (nth 1 tokens) :text) "  "))
+    (should (= (plist-get (nth 1 tokens) :length) 2))))
+
+(ert-deftest gdocs-diff-test-tokenize-empty ()
+  "Empty string produces no tokens."
+  (should (null (gdocs-diff--tokenize-text ""))))
+
+(ert-deftest gdocs-diff-test-tokenize-single-word ()
+  "Single word produces one token."
+  (let ((tokens (gdocs-diff--tokenize-text "word")))
+    (should (= (length tokens) 1))
+    (should (equal (plist-get (car tokens) :text) "word"))
+    (should (= (plist-get (car tokens) :offset) 0))
+    (should (= (plist-get (car tokens) :length) 4))))
+
+(ert-deftest gdocs-diff-test-tokenize-utf16-surrogate ()
+  "Non-BMP characters get correct UTF-16 lengths."
+  ;; U+1F600 (grinning face) requires 2 UTF-16 code units
+  (let* ((text (concat "hi" (string #x1F600) "bye"))
+         (tokens (gdocs-diff--tokenize-text text)))
+    ;; Single word token (no whitespace)
+    (should (= (length tokens) 1))
+    ;; "hi" = 2, emoji = 2, "bye" = 3 → 7 UTF-16 units
+    (should (= (plist-get (car tokens) :length) 7))))
+
+;;;; Word-level diff tests
+
+(ert-deftest gdocs-diff-test-word-level-single-word-change ()
+  "Changing one word in a paragraph produces targeted delete+insert."
+  (let* ((old-ir (list (gdocs-diff-test--make-paragraph "e1" "Hello world")))
+         (new-ir (list (gdocs-diff-test--make-paragraph "e1" "Hello earth")))
+         (result (gdocs-diff-generate old-ir new-ir))
+         (deletes (cl-remove-if-not
+                   (lambda (req) (alist-get 'deleteContentRange req))
+                   result))
+         (inserts (cl-remove-if-not
+                   (lambda (req) (alist-get 'insertText req))
+                   result)))
+    ;; Should delete "world" and insert "earth", not delete entire text
+    (should (= (length deletes) 1))
+    (should (>= (length inserts) 1))
+    ;; The delete range should cover only "world" (5 UTF-16 units at offset 6)
+    ;; Paragraph starts at 1, "world" starts at offset 6 → doc pos 7
+    (let* ((del (car deletes))
+           (range (alist-get 'range (alist-get 'deleteContentRange del))))
+      (should (= (alist-get 'startIndex range) 7))
+      (should (= (alist-get 'endIndex range) 12)))
+    ;; The insert should place "earth" at position 7 (after "Hello ")
+    (let* ((ins (cl-find-if (lambda (req)
+                              (let ((it (alist-get 'insertText req)))
+                                (and it (equal (alist-get 'text it)
+                                               "earth"))))
+                            inserts))
+           (loc (alist-get 'location (alist-get 'insertText ins))))
+      (should ins)
+      (should (= (alist-get 'index loc) 7)))))
+
+(ert-deftest gdocs-diff-test-word-level-multi-word-change ()
+  "Changing multiple words generates correct delete+insert ops."
+  (let* ((old-ir (list (gdocs-diff-test--make-paragraph
+                        "e1" "A B C D E")))
+         (new-ir (list (gdocs-diff-test--make-paragraph
+                        "e1" "A X C Y E")))
+         (result (gdocs-diff-generate old-ir new-ir))
+         (deletes (cl-remove-if-not
+                   (lambda (req) (alist-get 'deleteContentRange req))
+                   result)))
+    ;; Two word changes: B→X and D→Y
+    (should (= (length deletes) 2))))
+
+(ert-deftest gdocs-diff-test-word-level-whitespace-preservation ()
+  "Double spaces between words are preserved as tokens."
+  (let* ((old-ir (list (gdocs-diff-test--make-paragraph
+                        "e1" "A  B")))
+         (new-ir (list (gdocs-diff-test--make-paragraph
+                        "e1" "A  C")))
+         (result (gdocs-diff-generate old-ir new-ir))
+         (deletes (cl-remove-if-not
+                   (lambda (req) (alist-get 'deleteContentRange req))
+                   result)))
+    ;; Only "B" should be deleted, not the double-space
+    (should (= (length deletes) 1))
+    (let* ((range (alist-get 'range
+                             (alist-get 'deleteContentRange
+                                        (car deletes)))))
+      ;; "A  B" starts at doc pos 1
+      ;; "A"=offset 0, "  "=offset 1, "B"=offset 3
+      ;; Delete "B" at doc [4, 5)
+      (should (= (alist-get 'startIndex range) 4))
+      (should (= (alist-get 'endIndex range) 5)))))
+
+(ert-deftest gdocs-diff-test-word-level-full-rewrite ()
+  "Full paragraph rewrite still produces valid operations."
+  (let* ((old-ir (list (gdocs-diff-test--make-paragraph
+                        "e1" "old text here")))
+         (new-ir (list (gdocs-diff-test--make-paragraph
+                        "e1" "completely different")))
+         (result (gdocs-diff-generate old-ir new-ir)))
+    ;; Should produce some deletes and inserts
+    (should (cl-some (lambda (req)
+                       (alist-get 'deleteContentRange req))
+                     result))
+    (should (cl-some (lambda (req)
+                       (alist-get 'insertText req))
+                     result))))
+
+(ert-deftest gdocs-diff-test-word-level-utf16-offsets ()
+  "Word-level diff computes correct UTF-16 offsets for non-BMP chars."
+  (let* ((emoji (string #x1F600))
+         (old-ir (list (gdocs-diff-test--make-paragraph
+                        "e1" (concat "Hi " emoji " world"))))
+         (new-ir (list (gdocs-diff-test--make-paragraph
+                        "e1" (concat "Hi " emoji " earth"))))
+         (result (gdocs-diff-generate old-ir new-ir))
+         (deletes (cl-remove-if-not
+                   (lambda (req) (alist-get 'deleteContentRange req))
+                   result)))
+    ;; "world" should be deleted.
+    ;; Paragraph at doc pos 1.
+    ;; "Hi"=2, " "=1, emoji=2(UTF-16), " "=1, "world"=5
+    ;; "world" starts at UTF-16 offset 6, doc pos 7
+    (should (= (length deletes) 1))
+    (let ((range (alist-get 'range
+                            (alist-get 'deleteContentRange (car deletes)))))
+      (should (= (alist-get 'startIndex range) 7))
+      (should (= (alist-get 'endIndex range) 12)))))
+
+(ert-deftest gdocs-diff-test-word-level-insert-at-beginning ()
+  "Adding a word at the beginning of a paragraph."
+  (let* ((old-ir (list (gdocs-diff-test--make-paragraph "e1" "world")))
+         (new-ir (list (gdocs-diff-test--make-paragraph
+                        "e1" "Hello world")))
+         (result (gdocs-diff-generate old-ir new-ir))
+         (inserts (cl-remove-if-not
+                   (lambda (req)
+                     (let ((it (alist-get 'insertText req)))
+                       (and it (equal (alist-get 'text it) "Hello "))))
+                   result)))
+    ;; Should insert "Hello " at the paragraph start (doc pos 1)
+    (should (= (length inserts) 1))
+    (let ((loc (alist-get 'location
+                          (alist-get 'insertText (car inserts)))))
+      (should (= (alist-get 'index loc) 1)))))
+
+(ert-deftest gdocs-diff-test-word-level-delete-at-end ()
+  "Removing a word from the end of a paragraph."
+  (let* ((old-ir (list (gdocs-diff-test--make-paragraph
+                        "e1" "Hello world")))
+         (new-ir (list (gdocs-diff-test--make-paragraph "e1" "Hello")))
+         (result (gdocs-diff-generate old-ir new-ir))
+         (deletes (cl-remove-if-not
+                   (lambda (req) (alist-get 'deleteContentRange req))
+                   result)))
+    ;; Should delete " world" (space + word)
+    (should (= (length deletes) 1))
+    (let ((range (alist-get 'range
+                            (alist-get 'deleteContentRange (car deletes)))))
+      ;; " world" at UTF-16 offset 5 in paragraph, doc pos 6
+      (should (= (alist-get 'startIndex range) 6))
+      (should (= (alist-get 'endIndex range) 12)))))
+
+;;;; Public API: compute-operations and generate-from-ops
+
+(ert-deftest gdocs-diff-test-compute-operations ()
+  "compute-operations returns correct op types."
+  (let* ((p1 (gdocs-diff-test--make-paragraph "e1" "keep"))
+         (p2 (gdocs-diff-test--make-paragraph "e2" "delete-me"))
+         (p3 (gdocs-diff-test--make-paragraph "e3" "insert-me"))
+         (old-ir (list p1 p2))
+         (new-ir (list p1 p3))
+         (ops (gdocs-diff-compute-operations old-ir new-ir)))
+    (should (cl-some (lambda (op) (eq (plist-get op :op) 'keep)) ops))
+    ;; Adjacent delete+insert collapses to modify
+    (should (cl-some (lambda (op) (eq (plist-get op :op) 'modify)) ops))
+    (should (= (length ops) 2))))
+
+(ert-deftest gdocs-diff-test-generate-from-ops ()
+  "generate-from-ops produces same result as generate."
+  (let* ((p1 (gdocs-diff-test--make-paragraph "e1" "alpha"))
+         (p2 (gdocs-diff-test--make-paragraph "e2" "beta"))
+         (p3 (gdocs-diff-test--make-paragraph "e3" "gamma"))
+         (old-ir (list p1 p2))
+         (new-ir (list p1 p3))
+         (direct (gdocs-diff-generate old-ir new-ir 5))
+         (ops (gdocs-diff-compute-operations old-ir new-ir))
+         (from-ops (gdocs-diff-generate-from-ops old-ir new-ir ops 5)))
+    (should (equal direct from-ops))))
+
 (provide 'gdocs-diff-test)
 ;;; gdocs-diff-test.el ends here

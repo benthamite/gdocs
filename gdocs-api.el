@@ -262,6 +262,44 @@ optional account name."
    callback
    account))
 
+;;;; Public API — Drive Comments
+
+(defun gdocs-api-list-comments (file-id callback &optional account)
+  "Fetch all comments on FILE-ID via the Drive Comments API.
+CALLBACK receives a list of comment alists.  Paginates
+automatically with pageSize=100.  ACCOUNT is an optional account
+name."
+  (gdocs-api--list-comments-page file-id nil nil callback account))
+
+(defun gdocs-api--list-comments-page (file-id page-token accumulated
+                                               callback account)
+  "Fetch one page of comments on FILE-ID and continue if more exist.
+PAGE-TOKEN paginates; ACCUMULATED collects results across pages.
+CALLBACK receives the complete list when done.  ACCOUNT is the
+account name."
+  (let ((url (concat gdocs-api--drive-base-url "/" file-id "/comments"
+                     "?fields="
+                     (url-hexify-string
+                      (concat "comments(id,content,"
+                              "quotedFileContent,resolved,deleted,"
+                              "replies(id,content,author,createdTime),"
+                              "author,createdTime),nextPageToken"))
+                     "&pageSize=100"
+                     (when page-token
+                       (concat "&pageToken="
+                               (url-hexify-string page-token))))))
+    (gdocs-api--request
+     'get url
+     (lambda (json)
+       (let* ((page-comments (append (alist-get 'comments json) nil))
+              (all (append accumulated page-comments))
+              (next (alist-get 'nextPageToken json)))
+         (if next
+             (gdocs-api--list-comments-page
+              file-id next all callback account)
+           (funcall callback all))))
+     :account account)))
+
 ;;;; Core request infrastructure
 
 (cl-defun gdocs-api--request (method url callback

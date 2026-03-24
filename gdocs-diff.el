@@ -35,14 +35,24 @@ Always uses incremental diff to preserve Google Docs comments on
 unchanged elements.  START-INDEX is the UTF-16 index where the
 first element begins in the document (default 1).  This should
 account for title elements or other content that precedes the IR."
-  ;; Default 1: Google Docs index 0 is the document root
-  (let* ((idx (or start-index 1))
-         (old-keys (gdocs-diff--element-keys old-ir))
+  (let ((diff-ops (gdocs-diff-compute-operations old-ir new-ir)))
+    (gdocs-diff-generate-from-ops old-ir new-ir diff-ops start-index)))
+
+(defun gdocs-diff-compute-operations (old-ir new-ir)
+  "Compute diff operations between OLD-IR and NEW-IR.
+Returns a list of operation plists with :op and relevant indices.
+Operations: :keep, :delete, :insert, :modify."
+  (let* ((old-keys (gdocs-diff--element-keys old-ir))
          (new-keys (gdocs-diff--element-keys new-ir))
-         (lcs-pairs (gdocs-diff--lcs old-keys new-keys))
-         (diff-ops (gdocs-diff--classify-operations
-                    old-ir new-ir lcs-pairs)))
-    (gdocs-diff--generate-requests old-ir new-ir diff-ops idx)))
+         (lcs-pairs (gdocs-diff--lcs old-keys new-keys)))
+    (gdocs-diff--classify-operations old-ir new-ir lcs-pairs)))
+
+(defun gdocs-diff-generate-from-ops (old-ir new-ir diff-ops &optional start-index)
+  "Generate batchUpdate requests from pre-computed DIFF-OPS.
+OLD-IR and NEW-IR are the element lists.  DIFF-OPS is the output
+of `gdocs-diff-compute-operations'.  START-INDEX is the UTF-16
+index where the first element begins (default 1)."
+  (gdocs-diff--generate-requests old-ir new-ir diff-ops (or start-index 1)))
 
 ;; ---------------------------------------------------------------------------
 ;;; Element keys
@@ -531,7 +541,8 @@ rejects."
          (end (cdr range)))
     (if (and (eq (plist-get old-elem :type) 'paragraph)
              (eq (plist-get new-elem :type) 'paragraph))
-        (gdocs-diff--paragraph-content-modification new-elem start end)
+        (gdocs-diff--word-level-paragraph-modification
+         old-elem new-elem start end)
       (let* ((delete-req (gdocs-diff--make-delete-request start end))
              (insert-result (gdocs-convert--ir-element-to-requests
                              new-elem start)))
@@ -539,32 +550,166 @@ rejects."
               :insert-reqs (plist-get insert-result :requests)
               :style-reqs nil)))))
 
-(defun gdocs-diff--paragraph-content-modification (new-elem start end)
-  "Generate all requests to replace a paragraph at START to END.
-Handles text deletion and insertion, paragraph style, text
-formatting, and list properties.  Deletes [START, END-1) to
-preserve the trailing newline, then inserts new text at START."
-  (let* ((text (gdocs-convert--runs-to-plain-text
-                (plist-get new-elem :contents)))
-         (text-len (gdocs-convert--string-to-utf16-length text))
-         (para-end (+ start text-len 1))
-         (delete-req (when (> (1- end) start)
-                       (gdocs-diff--make-delete-request start (1- end))))
-         (insert-req (when (> text-len 0)
-                       (gdocs-convert--make-insert-text-request text start)))
-         (style-reqs (gdocs-convert--make-paragraph-style-requests
-                      new-elem start para-end))
-         (run-reqs (gdocs-convert--make-text-style-requests
-                    (plist-get new-elem :contents) start))
-         (list-reqs (gdocs-convert--make-list-requests
-                     new-elem start para-end)))
-    ;; Pack style, run, and list requests into :insert-reqs so the
-    ;; caller groups them with the text insertion at the same index,
-    ;; keeping the whole modification atomic.
-    (list :delete-reqs (when delete-req (list delete-req))
-          :insert-reqs (append (when insert-req (list insert-req))
-                               style-reqs run-reqs list-reqs)
-          :style-reqs nil)))
+;; ---------------------------------------------------------------------------
+;;; Word-level diff for paragraph modifications
+
+(defun gdocs-diff--tokenize-text (text)
+  "Tokenize TEXT into word and whitespace tokens.
+A token is a contiguous run of non-whitespace (a word) or a
+contiguous run of whitespace.  Returns a list of plists, each
+with :text, :offset (UTF-16 offset from start of TEXT), and
+:length (UTF-16 code unit length)."
+  (let ((tokens nil)
+        (pos 0)
+        (utf16-offset 0)
+        (len (length text)))
+    (while (< pos len)
+      (let ((start-pos pos)
+            (start-offset utf16-offset)
+            (is-ws (memq (aref text pos) '(?\s ?\t ?\n ?\r))))
+        (if is-ws
+            (while (and (< pos len)
+                        (memq (aref text pos) '(?\s ?\t ?\n ?\r)))
+              (setq utf16-offset
+                    (+ utf16-offset (if (> (aref text pos) #xFFFF) 2 1)))
+              (setq pos (1+ pos)))
+          (while (and (< pos len)
+                      (not (memq (aref text pos) '(?\s ?\t ?\n ?\r))))
+            (setq utf16-offset
+                  (+ utf16-offset (if (> (aref text pos) #xFFFF) 2 1)))
+            (setq pos (1+ pos))))
+        (push (list :text (substring text start-pos pos)
+                    :offset start-offset
+                    :length (- utf16-offset start-offset))
+              tokens)))
+    (nreverse tokens)))
+
+(defun gdocs-diff--word-level-paragraph-modification (old-elem new-elem
+                                                                start end)
+  "Generate word-level diff requests for a paragraph text change.
+OLD-ELEM and NEW-ELEM are paragraph elements.  START and END are
+the document range of OLD-ELEM (END includes trailing newline).
+Tokenizes old and new text, computes LCS on token strings, and
+generates targeted delete and insert requests only for changed
+tokens so that comment anchors on unchanged text survive."
+  (ignore end) ; range end is implicit from token offsets
+  (let* ((old-text (gdocs-convert--runs-to-plain-text
+                    (plist-get old-elem :contents)))
+         (new-text (gdocs-convert--runs-to-plain-text
+                    (plist-get new-elem :contents)))
+         (old-tokens (gdocs-diff--tokenize-text old-text))
+         (new-tokens (gdocs-diff--tokenize-text new-text))
+         (old-strs (mapcar (lambda (tk) (plist-get tk :text)) old-tokens))
+         (new-strs (mapcar (lambda (tk) (plist-get tk :text)) new-tokens))
+         (lcs-pairs (gdocs-diff--lcs old-strs new-strs))
+         ;; Build kept-index sets and new→old index mapping
+         (old-kept (make-hash-table :test 'eql))
+         (new-kept (make-hash-table :test 'eql))
+         (new-to-old (make-hash-table :test 'eql)))
+    (dolist (pair lcs-pairs)
+      (puthash (car pair) t old-kept)
+      (puthash (cdr pair) t new-kept)
+      (puthash (cdr pair) (car pair) new-to-old))
+    (let* ((delete-ranges (gdocs-diff--deleted-token-ranges
+                           old-tokens old-kept start))
+           (delete-reqs
+            (mapcar (lambda (r)
+                      (gdocs-diff--make-delete-request (car r) (cdr r)))
+                    (sort delete-ranges
+                          (lambda (a b) (> (car a) (car b))))))
+           (insert-ops (gdocs-diff--inserted-token-ops
+                        new-tokens new-kept new-to-old
+                        old-tokens old-kept start))
+           (insert-reqs
+            (mapcar (lambda (op)
+                      (gdocs-convert--make-insert-text-request
+                       (car op) (cdr op)))
+                    (sort insert-ops
+                          (lambda (a b) (> (cdr a) (cdr b))))))
+           ;; Style requests for the paragraph's new extent
+           (new-text-len (gdocs-convert--string-to-utf16-length new-text))
+           (para-end (+ start new-text-len 1))
+           (style-reqs (gdocs-convert--make-paragraph-style-requests
+                        new-elem start para-end))
+           (run-reqs (gdocs-convert--make-text-style-requests
+                      (plist-get new-elem :contents) start))
+           (list-reqs (gdocs-convert--make-list-requests
+                       new-elem start para-end)))
+      (list :delete-reqs delete-reqs
+            :insert-reqs (append insert-reqs style-reqs run-reqs list-reqs)
+            :style-reqs nil))))
+
+(defun gdocs-diff--deleted-token-ranges (old-tokens old-kept start)
+  "Compute document ranges for deleted tokens in OLD-TOKENS.
+OLD-KEPT is a hash table of kept old-token indices.  START is the
+paragraph's document start index.  Returns a list of
+\(DOC-START . DOC-END) ranges with adjacent deletions collapsed."
+  (let ((ranges nil)
+        (range-start nil)
+        (range-end nil)
+        (i 0))
+    (dolist (token old-tokens)
+      (if (gethash i old-kept)
+          (when range-start
+            (push (cons range-start range-end) ranges)
+            (setq range-start nil range-end nil))
+        (let ((ts (+ start (plist-get token :offset)))
+              (te (+ start (plist-get token :offset)
+                     (plist-get token :length))))
+          (if range-start
+              (setq range-end te)
+            (setq range-start ts range-end te))))
+      (setq i (1+ i)))
+    (when range-start
+      (push (cons range-start range-end) ranges))
+    (nreverse ranges)))
+
+(defun gdocs-diff--inserted-token-ops (new-tokens new-kept new-to-old
+                                                   old-tokens old-kept start)
+  "Compute insertion operations for new tokens not in NEW-KEPT.
+Returns a list of (TEXT . DOC-POS) pairs for insertText requests.
+DOC-POS is the post-deletion document position."
+  (let ((ops nil)
+        (accum nil)
+        (insert-pos nil)
+        (i 0)
+        (n (length new-tokens)))
+    (while (< i n)
+      (if (gethash i new-kept)
+          (progn
+            (when accum
+              (push (cons (apply #'concat (nreverse accum)) insert-pos) ops)
+              (setq accum nil insert-pos nil))
+            (setq i (1+ i)))
+        (unless accum
+          (setq insert-pos
+                (gdocs-diff--token-insert-position
+                 i new-kept new-to-old old-tokens old-kept start)))
+        (push (plist-get (nth i new-tokens) :text) accum)
+        (setq i (1+ i))))
+    (when accum
+      (push (cons (apply #'concat (nreverse accum)) insert-pos) ops))
+    ops))
+
+(defun gdocs-diff--token-insert-position (new-idx new-kept new-to-old
+                                                   old-tokens old-kept start)
+  "Compute the post-deletion insertion position for token NEW-IDX.
+Finds the nearest preceding kept new token, maps it to its old
+token via NEW-TO-OLD, and returns START plus the cumulative
+UTF-16 length of kept old tokens up to and including that one."
+  (let ((prev-kept-old nil))
+    (cl-loop for j from (1- new-idx) downto 0
+             when (gethash j new-kept)
+             do (setq prev-kept-old (gethash j new-to-old))
+             and return nil)
+    (if prev-kept-old
+        (let ((cum 0) (k 0))
+          (dolist (tok old-tokens)
+            (when (and (gethash k old-kept) (<= k prev-kept-old))
+              (setq cum (+ cum (plist-get tok :length))))
+            (setq k (1+ k)))
+          (+ start cum))
+      start)))
 
 (provide 'gdocs-diff)
 ;;; gdocs-diff.el ends here

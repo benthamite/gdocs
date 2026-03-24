@@ -45,7 +45,8 @@
 Previously this used full replacement which destroyed Google Docs
 comments; now it always diffs against the fetched remote document."
   (gdocs-sync-test-with-org-buffer "Hello world\n"
-    (let ((diff-called nil))
+    (let ((diff-called nil)
+          (gdocs-preserve-comments nil))
       (cl-letf (((symbol-function 'gdocs-api-get-document)
                  (lambda (_doc-id callback &optional _account _on-error)
                    (funcall callback
@@ -79,7 +80,8 @@ comments; now it always diffs against the fetched remote document."
 (ert-deftest gdocs-sync-test-push-with-shadow ()
   "Incremental push fetches document and generates diff."
   (gdocs-sync-test-with-org-buffer "Updated content\n"
-    (let ((diff-called nil))
+    (let ((diff-called nil)
+          (gdocs-preserve-comments nil))
       (setq gdocs-sync--shadow-ir
             (list (list :type 'paragraph :style 'normal
                         :contents (list (list :text "Original" :bold nil))
@@ -116,7 +118,8 @@ comments; now it always diffs against the fetched remote document."
 (ert-deftest gdocs-sync-test-push-no-changes ()
   "No changes detected results in no API call."
   (gdocs-sync-test-with-org-buffer "Hello world\n"
-    (let ((api-called nil))
+    (let ((api-called nil)
+          (gdocs-preserve-comments nil))
       (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
       (cl-letf (((symbol-function 'gdocs-api-get-document)
                  (lambda (_doc-id callback &optional _account _on-error)
@@ -152,39 +155,41 @@ comments; now it always diffs against the fetched remote document."
 (ert-deftest gdocs-sync-test-push-success-updates-shadow ()
   "Shadow IR is updated to current IR on successful push."
   (gdocs-sync-test-with-org-buffer "New content\n"
-    (setq gdocs-sync--shadow-ir nil)
-    (cl-letf (((symbol-function 'gdocs-api-get-document)
-               (lambda (_doc-id callback &optional _account _on-error)
-                 (funcall callback
-                          '((title . "Test")
-                            (body . ((content
-                                      . [((startIndex . 0)
-                                          (endIndex . 1)
-                                          (sectionBreak . t))
-                                         ((startIndex . 1)
-                                          (endIndex . 2)
-                                          (paragraph
-                                           (elements . [((textRun
-                                                          (content . "\n")
-                                                          (textStyle)))])
-                                           (paragraphStyle
-                                            (namedStyleType . "NORMAL_TEXT"))))])))))))
-              ((symbol-function 'gdocs-diff-generate)
-               (lambda (_old-ir _new-ir &optional _start-index)
-                 (list '((insertText . "mock")))))
-              ((symbol-function 'gdocs-api-batch-update)
-               (lambda (_doc-id _requests callback &optional _account _on-error)
-                 (funcall callback
-                          '((writeControl
-                             (requiredRevisionId . "rev-3")))))))
-      (gdocs-sync-push)
-      (should gdocs-sync--shadow-ir)
-      (should (equal gdocs-sync--revision-id "rev-3")))))
+    (let ((gdocs-preserve-comments nil))
+      (setq gdocs-sync--shadow-ir nil)
+      (cl-letf (((symbol-function 'gdocs-api-get-document)
+                 (lambda (_doc-id callback &optional _account _on-error)
+                   (funcall callback
+                            '((title . "Test")
+                              (body . ((content
+                                        . [((startIndex . 0)
+                                            (endIndex . 1)
+                                            (sectionBreak . t))
+                                           ((startIndex . 1)
+                                            (endIndex . 2)
+                                            (paragraph
+                                             (elements . [((textRun
+                                                            (content . "\n")
+                                                            (textStyle)))])
+                                             (paragraphStyle
+                                              (namedStyleType . "NORMAL_TEXT"))))])))))))
+                ((symbol-function 'gdocs-diff-generate)
+                 (lambda (_old-ir _new-ir &optional _start-index)
+                   (list '((insertText . "mock")))))
+                ((symbol-function 'gdocs-api-batch-update)
+                 (lambda (_doc-id _requests callback &optional _account _on-error)
+                   (funcall callback
+                            '((writeControl
+                               (requiredRevisionId . "rev-3")))))))
+        (gdocs-sync-push)
+        (should gdocs-sync--shadow-ir)
+        (should (equal gdocs-sync--revision-id "rev-3"))))))
 
 (ert-deftest gdocs-sync-test-push-error-preserves-shadow ()
   "Shadow IR is updated on successful push."
   (gdocs-sync-test-with-org-buffer "Content\n"
-    (let ((original-shadow '((:type paragraph))))
+    (let ((original-shadow '((:type paragraph)))
+          (gdocs-preserve-comments nil))
       (setq gdocs-sync--shadow-ir original-shadow)
       (cl-letf (((symbol-function 'gdocs-api-get-document)
                  (lambda (_doc-id callback &optional _account _on-error)
@@ -342,7 +347,8 @@ local changes) but remote has new content."
   "Status transitions through push lifecycle."
   (gdocs-sync-test-with-org-buffer "Content\n"
     (should (eq gdocs-sync--status 'synced))
-    (let ((captured-status nil))
+    (let ((captured-status nil)
+          (gdocs-preserve-comments nil))
       (cl-letf (((symbol-function 'gdocs-api-get-document)
                  (lambda (_doc-id callback &optional _account _on-error)
                    (funcall callback
@@ -815,6 +821,220 @@ serialization is handled separately by `gdocs-sync--serialize-push'."
                         :contents (list (list :text "Body"))
                         :id "e-body"))))
     (should-not (gdocs-sync--extract-title ir))))
+
+;;;; Comment-aware push tests
+
+(ert-deftest gdocs-sync-test-map-comments-to-elements ()
+  "Maps comments to elements by quoted text substring match."
+  (let* ((remote-ir
+          (list (list :type 'paragraph :style 'normal
+                      :contents (list (list :text "Hello world"))
+                      :id "e1")
+                (list :type 'paragraph :style 'normal
+                      :contents (list (list :text "Goodbye moon"))
+                      :id "e2")))
+         (comments
+          (list `((id . "c1")
+                  (content . "Nice greeting")
+                  (quotedFileContent . ((value . "Hello")))
+                  (author . ((displayName . "Alice")))
+                  (resolved . :json-false))
+                `((id . "c2")
+                  (content . "Farewell")
+                  (quotedFileContent . ((value . "Goodbye")))
+                  (author . ((displayName . "Bob")))
+                  (resolved . :json-false))))
+         (map (gdocs-sync--map-comments-to-elements comments remote-ir)))
+    ;; Comment c1 should map to element 0, c2 to element 1
+    (should (assq 0 map))
+    (should (assq 1 map))
+    (should (= (length (cdr (assq 0 map))) 1))
+    (should (= (length (cdr (assq 1 map))) 1))))
+
+(ert-deftest gdocs-sync-test-map-comments-skips-empty-quoted ()
+  "Comments without quoted text are not mapped."
+  (let* ((remote-ir
+          (list (list :type 'paragraph :style 'normal
+                      :contents (list (list :text "Hello"))
+                      :id "e1")))
+         (comments
+          (list `((id . "c1")
+                  (content . "Document-level comment")
+                  (author . ((displayName . "Alice")))
+                  (resolved . :json-false))))
+         (map (gdocs-sync--map-comments-to-elements comments remote-ir)))
+    (should (null map))))
+
+(ert-deftest gdocs-sync-test-destructive-op-delete ()
+  "A delete operation is always destructive."
+  (let ((op (list :op 'delete :old-index 0))
+        (remote-ir (list (list :type 'paragraph)))
+        (local-ir nil))
+    (should (gdocs-sync--destructive-op-p op remote-ir local-ir))))
+
+(ert-deftest gdocs-sync-test-destructive-op-same-type-modify ()
+  "A modify between same types is not destructive."
+  (let ((op (list :op 'modify :old-index 0 :new-index 0))
+        (remote-ir (list (list :type 'paragraph)))
+        (local-ir (list (list :type 'paragraph))))
+    (should-not (gdocs-sync--destructive-op-p op remote-ir local-ir))))
+
+(ert-deftest gdocs-sync-test-destructive-op-cross-type-modify ()
+  "A modify between different types is destructive."
+  (let ((op (list :op 'modify :old-index 0 :new-index 0))
+        (remote-ir (list (list :type 'table)))
+        (local-ir (list (list :type 'paragraph))))
+    (should (gdocs-sync--destructive-op-p op remote-ir local-ir))))
+
+(ert-deftest gdocs-sync-test-destructive-op-keep ()
+  "A keep operation is never destructive."
+  (let ((op (list :op 'keep :old-index 0 :new-index 0))
+        (remote-ir (list (list :type 'paragraph)))
+        (local-ir (list (list :type 'paragraph))))
+    (should-not (gdocs-sync--destructive-op-p op remote-ir local-ir))))
+
+(ert-deftest gdocs-sync-test-filter-commented-ops-no-comments ()
+  "No comments means all ops pass through unchanged."
+  (let* ((diff-ops (list (list :op 'delete :old-index 0)))
+         (remote-ir (list (list :type 'paragraph :style 'normal
+                                :contents (list (list :text "Hello"))
+                                :id "e1")))
+         (local-ir nil)
+         (comments nil)
+         (result (gdocs-sync--filter-commented-ops
+                  diff-ops remote-ir local-ir comments)))
+    (should (= (length (plist-get result :ops)) 1))
+    (should (null (plist-get result :declined)))))
+
+(ert-deftest gdocs-sync-test-filter-commented-ops-decline ()
+  "Declining a deletion removes it from ops and adds to declined."
+  (let* ((diff-ops (list (list :op 'keep :old-index 0 :new-index 0)
+                         (list :op 'delete :old-index 1)))
+         (remote-ir
+          (list (list :type 'paragraph :style 'normal
+                      :contents (list (list :text "Keep me"))
+                      :id "e1")
+                (list :type 'paragraph :style 'normal
+                      :contents (list (list :text "Delete me"))
+                      :id "e2")))
+         (local-ir
+          (list (list :type 'paragraph :style 'normal
+                      :contents (list (list :text "Keep me"))
+                      :id "e1")))
+         (comments
+          (list `((id . "c1")
+                  (content . "Important note")
+                  (quotedFileContent . ((value . "Delete")))
+                  (author . ((displayName . "Alice")))
+                  (resolved . :json-false))))
+         (result
+          ;; Mock y-or-n-p to decline
+          (cl-letf (((symbol-function 'y-or-n-p)
+                     (lambda (_prompt) nil)))
+            (gdocs-sync--filter-commented-ops
+             diff-ops remote-ir local-ir comments))))
+    ;; The keep op passes through; the delete is declined
+    (should (= (length (plist-get result :ops)) 1))
+    (should (eq (plist-get (car (plist-get result :ops)) :op) 'keep))
+    (should (= (length (plist-get result :declined)) 1))))
+
+(ert-deftest gdocs-sync-test-filter-commented-ops-accept ()
+  "Accepting a deletion keeps it in ops."
+  (let* ((diff-ops (list (list :op 'delete :old-index 0)))
+         (remote-ir
+          (list (list :type 'paragraph :style 'normal
+                      :contents (list (list :text "Delete me"))
+                      :id "e1")))
+         (local-ir nil)
+         (comments
+          (list `((id . "c1")
+                  (content . "Note")
+                  (quotedFileContent . ((value . "Delete")))
+                  (author . ((displayName . "Alice")))
+                  (resolved . :json-false))))
+         (result
+          (cl-letf (((symbol-function 'y-or-n-p)
+                     (lambda (_prompt) t)))
+            (gdocs-sync--filter-commented-ops
+             diff-ops remote-ir local-ir comments))))
+    (should (= (length (plist-get result :ops)) 1))
+    (should (null (plist-get result :declined)))))
+
+(ert-deftest gdocs-sync-test-reconstruct-shadow-no-declined ()
+  "With no declined ops, shadow equals local IR."
+  (let ((local-ir (list (list :type 'paragraph :id "L1")
+                        (list :type 'paragraph :id "L2")))
+        (remote-ir nil)
+        (declined nil)
+        (diff-ops nil))
+    (should (equal (gdocs-sync--reconstruct-shadow
+                    local-ir remote-ir declined diff-ops)
+                   local-ir))))
+
+(ert-deftest gdocs-sync-test-reconstruct-shadow-with-declined ()
+  "Declined deletions are re-inserted into the shadow."
+  (let* ((local-ir (list (list :type 'paragraph :id "L0")
+                         (list :type 'paragraph :id "L1")))
+         (remote-ir (list (list :type 'paragraph :id "R0")
+                          (list :type 'paragraph :id "R1")
+                          (list :type 'paragraph :id "R2")))
+         ;; Diff: keep R0→L0, delete R1 (declined), keep R2→L1
+         (diff-ops (list (list :op 'keep :old-index 0 :new-index 0)
+                         (list :op 'delete :old-index 1)
+                         (list :op 'keep :old-index 2 :new-index 1)))
+         (declined (list (list :op 'delete :old-index 1)))
+         (shadow (gdocs-sync--reconstruct-shadow
+                  local-ir remote-ir declined diff-ops)))
+    ;; Shadow should be [L0, R1, L1]
+    (should (= (length shadow) 3))
+    (should (equal (plist-get (nth 0 shadow) :id) "L0"))
+    (should (equal (plist-get (nth 1 shadow) :id) "R1"))
+    (should (equal (plist-get (nth 2 shadow) :id) "L1"))))
+
+(ert-deftest gdocs-sync-test-reconstruct-shadow-declined-at-start ()
+  "Declined deletion at position 0 inserts at start of shadow."
+  (let* ((local-ir (list (list :type 'paragraph :id "L1")))
+         (remote-ir (list (list :type 'paragraph :id "R0")
+                          (list :type 'paragraph :id "R1")))
+         (diff-ops (list (list :op 'delete :old-index 0)
+                         (list :op 'keep :old-index 1 :new-index 0)))
+         (declined (list (list :op 'delete :old-index 0)))
+         (shadow (gdocs-sync--reconstruct-shadow
+                  local-ir remote-ir declined diff-ops)))
+    ;; Shadow should be [R0, L1]
+    (should (= (length shadow) 2))
+    (should (equal (plist-get (nth 0 shadow) :id) "R0"))
+    (should (equal (plist-get (nth 1 shadow) :id) "L1"))))
+
+(ert-deftest gdocs-sync-test-element-plain-text-paragraph ()
+  "Extracts plain text from a paragraph element."
+  (let ((elem (list :type 'paragraph :style 'normal
+                    :contents (list (list :text "Hello ")
+                                   (list :text "world")))))
+    (should (equal (gdocs-sync--element-plain-text elem) "Hello world"))))
+
+(ert-deftest gdocs-sync-test-element-plain-text-table ()
+  "Extracts plain text from a table element."
+  (let ((elem (list :type 'table
+                    :rows (list (list (list (list :text "A"))
+                                     (list (list :text "B")))))))
+    (let ((text (gdocs-sync--element-plain-text elem)))
+      (should (string-match-p "A" text))
+      (should (string-match-p "B" text)))))
+
+(ert-deftest gdocs-sync-test-preceding-local-index ()
+  "Finds the local index of the nearest preceding kept/modified op."
+  (let ((diff-ops (list (list :op 'keep :old-index 0 :new-index 0)
+                        (list :op 'delete :old-index 1)
+                        (list :op 'modify :old-index 2 :new-index 1)
+                        (list :op 'delete :old-index 3)
+                        (list :op 'keep :old-index 4 :new-index 2))))
+    ;; Preceding local index for old-index 1: keep at 0 → local 0
+    (should (= (gdocs-sync--preceding-local-index 1 diff-ops) 0))
+    ;; Preceding local index for old-index 3: modify at 2 → local 1
+    (should (= (gdocs-sync--preceding-local-index 3 diff-ops) 1))
+    ;; No preceding for old-index 0
+    (should-not (gdocs-sync--preceding-local-index 0 diff-ops))))
 
 (provide 'gdocs-sync-test)
 ;;; gdocs-sync-test.el ends here
