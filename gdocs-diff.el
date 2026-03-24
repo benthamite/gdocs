@@ -464,13 +464,21 @@ RANGE is a (START . END) cons.  Returns a plist with
            (gdocs-diff--content-modification old-elem new-elem range)))))
     ;; Handle bullet removal: all modification paths preserve the
     ;; trailing newline (paragraph identity), so residual bullets
-    ;; persist unless explicitly deleted.
+    ;; persist unless explicitly deleted.  Use the NEW paragraph
+    ;; extent for the range because by the time this request
+    ;; executes, the content modification has already replaced the
+    ;; text—the old range can exceed the document boundary if the
+    ;; new text is shorter.
     (when (and (plist-get old-elem :list)
                (not (plist-get new-elem :list)))
-      (plist-put result :style-reqs
-                 (append (plist-get result :style-reqs)
-                         (list (gdocs-diff--make-delete-bullets-request
-                                (car range) (cdr range))))))
+      (let* ((new-text (gdocs-convert--runs-to-plain-text
+                        (plist-get new-elem :contents)))
+             (new-len (gdocs-convert--string-to-utf16-length new-text))
+             (new-end (+ (car range) new-len 1)))
+        (plist-put result :style-reqs
+                   (append (plist-get result :style-reqs)
+                           (list (gdocs-diff--make-delete-bullets-request
+                                  (car range) new-end))))))
     result))
 
 (defun gdocs-diff--same-text-paragraphs-p (old-elem new-elem)
