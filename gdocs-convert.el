@@ -1492,13 +1492,26 @@ like `body', `title', `lists', and `namedRanges'."
             result))
     (seq-doseq (structural-element content)
       (let ((ir (gdocs-convert--structural-element-to-ir
-                 structural-element lists-map markers)))
+                 structural-element lists-map markers))
+            (si (alist-get 'startIndex structural-element))
+            (ei (alist-get 'endIndex structural-element)))
         (when ir
           ;; Some converters (e.g. tables with split rows) return a list
           ;; of IR elements rather than a single one.  Detect the multi-
           ;; element case by checking if (car ir) is itself a typed plist.
           (if (and (listp ir) (listp (car ir)) (plist-get (car ir) :type))
-              (setq result (nconc (nreverse ir) result))
+              (progn
+                ;; Store doc indices on first sub-element only; for
+                ;; tables split into sub-rows the individual ranges
+                ;; are not available from the JSON.
+                (when (and si (car ir))
+                  (plist-put (car ir) :doc-start si)
+                  (plist-put (car ir) :doc-end ei))
+                (setq result (nconc (nreverse ir) result)))
+            ;; Single IR element — store the JSON indices directly.
+            (when si
+              (plist-put ir :doc-start si)
+              (plist-put ir :doc-end ei))
             (push ir result)))))
     (let ((ir (nreverse result)))
       (gdocs-convert--assign-list-counters ir)

@@ -833,5 +833,101 @@ This ensures comments on any remaining matching content survive."
          (from-ops (gdocs-diff-generate-from-ops old-ir new-ir ops 5)))
     (should (equal direct from-ops))))
 
+;;;; Insertion anchoring tests
+
+(ert-deftest gdocs-diff-test-insert-after-modify-anchors-correctly ()
+  "Insertions after a modified element use the modify as anchor.
+Regression: `preceding-kept-old-index' used to ignore :modify ops,
+causing insertions to land before the modified element instead of
+after it."
+  (let* ((pA (gdocs-diff-test--make-paragraph "A" "alpha"))
+         (pB (gdocs-diff-test--make-paragraph "B" "beta"))
+         (pC (gdocs-diff-test--make-paragraph "C" "gamma"))
+         ;; B is modified to B', D is inserted between B' and C.
+         (pB2 (gdocs-diff-test--make-paragraph "B2" "beta-modified"))
+         (pD (gdocs-diff-test--make-paragraph "D" "delta"))
+         (old-ir (list pA pB pC))
+         (new-ir (list pA pB2 pD pC))
+         (ops (gdocs-diff-compute-operations old-ir new-ir)))
+    ;; The modify op for B→B' should exist.
+    (should (cl-some (lambda (op) (eq (plist-get op :op) 'modify)) ops))
+    ;; The insert op for D should exist.
+    (should (cl-some (lambda (op) (eq (plist-get op :op) 'insert)) ops))
+    ;; Key check: the insertion of D must anchor to B's old range end,
+    ;; not A's.  B is "beta" (4 chars + 1 newline = 5 UTF-16 units),
+    ;; starting at index 1 + 6 (A is "alpha"=5 + 1 newline = 6), so
+    ;; B's range is [7, 12).  The insert should be at index 12.
+    (let* ((result (gdocs-diff-generate old-ir new-ir))
+           ;; Find the insertText request for "delta"
+           (insert-req (cl-find-if
+                        (lambda (req)
+                          (let ((it (alist-get 'insertText req)))
+                            (and it
+                                 (string-match-p "delta"
+                                                 (alist-get 'text it)))))
+                        result)))
+      (should insert-req)
+      ;; The insertion index must be at 12 (B's old range end),
+      ;; not at 7 (A's old range end).
+      (let ((loc (alist-get 'location (alist-get 'insertText insert-req))))
+        (should (= (alist-get 'index loc) 12))))))
+
+(ert-deftest gdocs-diff-test-multiple-inserts-after-modify ()
+  "Multiple insertions after a modify are ordered correctly.
+When two new elements are inserted after a modified element, they
+should both anchor to the modify and stack in forward order."
+  (let* ((pA (gdocs-diff-test--make-paragraph "A" "alpha"))
+         (pB (gdocs-diff-test--make-paragraph "B" "beta"))
+         (pC (gdocs-diff-test--make-paragraph "C" "gamma"))
+         (pB2 (gdocs-diff-test--make-paragraph "B2" "beta-new"))
+         (pD (gdocs-diff-test--make-paragraph "D" "delta"))
+         (pE (gdocs-diff-test--make-paragraph "E" "epsilon"))
+         (old-ir (list pA pB pC))
+         (new-ir (list pA pB2 pD pE pC))
+         (result (gdocs-diff-generate old-ir new-ir))
+         ;; Both D and E should be inserted at B's old range end (12).
+         (insert-reqs
+          (cl-remove-if-not
+           (lambda (req)
+             (let ((it (alist-get 'insertText req)))
+               (and it (let ((text (alist-get 'text it)))
+                         (or (string-match-p "delta" text)
+                             (string-match-p "epsilon" text))))))
+           result)))
+    (should (= (length insert-reqs) 2))
+    ;; Both insert at B's old end (12), not A's end (7).
+    (dolist (req insert-reqs)
+      (let ((loc (alist-get 'location (alist-get 'insertText req))))
+        (should (= (alist-get 'index loc) 12))))))
+
+(ert-deftest gdocs-diff-test-insert-in-gap-with-delete-and-modify ()
+  "Insert after a gap containing both deletes and a modify.
+Old: [A, B, C, D, E], New: [A, X, C, Y, Z, E]
+Gap 1 has delete(B)+insert(X)→modify.  Gap 2 has delete(D)+
+insert(Y)→modify, plus insert(Z).  Z must anchor to the modify
+at D's position, not to keep(C)."
+  (let* ((pA (gdocs-diff-test--make-paragraph "A" "aa"))
+         (pB (gdocs-diff-test--make-paragraph "B" "bb"))
+         (pC (gdocs-diff-test--make-paragraph "C" "cc"))
+         (pD (gdocs-diff-test--make-paragraph "D" "dd"))
+         (pE (gdocs-diff-test--make-paragraph "E" "ee"))
+         (pX (gdocs-diff-test--make-paragraph "X" "xx"))
+         (pY (gdocs-diff-test--make-paragraph "Y" "yy"))
+         (pZ (gdocs-diff-test--make-paragraph "Z" "zz"))
+         (old-ir (list pA pB pC pD pE))
+         (new-ir (list pA pX pC pY pZ pE))
+         (result (gdocs-diff-generate old-ir new-ir))
+         ;; Each element is 2 chars + 1 newline = 3 UTF-16 units.
+         ;; Ranges: A=[1,4), B=[4,7), C=[7,10), D=[10,13), E=[13,16)
+         ;; Z should anchor to modify at D's old-index, i.e., 13.
+         (z-req (cl-find-if
+                 (lambda (req)
+                   (let ((it (alist-get 'insertText req)))
+                     (and it (string-match-p "zz" (alist-get 'text it)))))
+                 result)))
+    (should z-req)
+    (let ((loc (alist-get 'location (alist-get 'insertText z-req))))
+      (should (= (alist-get 'index loc) 13)))))
+
 (provide 'gdocs-diff-test)
 ;;; gdocs-diff-test.el ends here

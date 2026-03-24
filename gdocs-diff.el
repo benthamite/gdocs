@@ -248,16 +248,27 @@ handles cross-type changes by falling back to full delete+re-insert."
 
 (defun gdocs-diff--compute-element-indices (ir &optional start-index)
   "Compute start and end UTF-16 indices for each element in IR.
-Returns an alist of (ELEMENT-INDEX . (START . END)).  START-INDEX
-is the UTF-16 index where the first element begins (default 1)."
+Returns an alist of (ELEMENT-INDEX . (START . END)).  When
+elements carry :doc-start and :doc-end properties (set by
+`gdocs-convert-docs-json-to-ir'), those authoritative values are
+used instead of re-computing from text lengths.  START-INDEX is
+the UTF-16 index where the first element begins (default 1)."
   (let ((index (or start-index 1))
         (result nil)
         (i 0))
     (dolist (element ir)
-      (let ((len (gdocs-diff--element-utf16-length element)))
-        (push (cons i (cons index (+ index len))) result)
-        (setq index (+ index len))
-        (setq i (1+ i))))
+      (let ((ds (plist-get element :doc-start))
+            (de (plist-get element :doc-end)))
+        (if (and ds de)
+            ;; Use the authoritative JSON indices.
+            (progn
+              (push (cons i (cons ds de)) result)
+              (setq index de))
+          ;; Fallback: compute from element length.
+          (let ((len (gdocs-diff--element-utf16-length element)))
+            (push (cons i (cons index (+ index len))) result)
+            (setq index (+ index len)))))
+      (setq i (1+ i)))
     (nreverse result)))
 
 (defun gdocs-diff--element-utf16-length (element)
@@ -434,16 +445,18 @@ index when inserting before all kept elements."
       start-index)))
 
 (defun gdocs-diff--preceding-kept-old-index (op diff-ops)
-  "Find the old-index of the nearest preceding :keep operation before OP.
-DIFF-OPS is the full operation list.  Returns nil if OP has no
-preceding kept element."
+  "Find the old-index of the nearest preceding :keep or :modify before OP.
+DIFF-OPS is the full operation list.  A :modify element still
+occupies a known position in the old document, so it is a valid
+anchor for subsequent insertions.  Returns nil if OP has no
+preceding kept or modified element."
   (let ((found nil)
         (target-reached nil))
     (dolist (other diff-ops)
       (unless target-reached
         (if (eq other op)
             (setq target-reached t)
-          (when (eq (plist-get other :op) 'keep)
+          (when (memq (plist-get other :op) '(keep modify))
             (setq found (plist-get other :old-index))))))
     found))
 
