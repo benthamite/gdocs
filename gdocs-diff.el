@@ -541,14 +541,40 @@ rejects."
          (end (cdr range)))
     (if (and (eq (plist-get old-elem :type) 'paragraph)
              (eq (plist-get new-elem :type) 'paragraph))
-        (gdocs-diff--word-level-paragraph-modification
-         old-elem new-elem start end)
+        (gdocs-diff--paragraph-content-modification new-elem start end)
       (let* ((delete-req (gdocs-diff--make-delete-request start end))
              (insert-result (gdocs-convert--ir-element-to-requests
                              new-elem start)))
         (list :delete-reqs (list delete-req)
               :insert-reqs (plist-get insert-result :requests)
               :style-reqs nil)))))
+
+(defun gdocs-diff--paragraph-content-modification (new-elem start end)
+  "Generate all requests to replace a paragraph at START to END.
+Handles text deletion and insertion, paragraph style, text
+formatting, and list properties.  Deletes [START, END-1) to
+preserve the trailing newline, then inserts new text at START."
+  (let* ((text (gdocs-convert--runs-to-plain-text
+                (plist-get new-elem :contents)))
+         (text-len (gdocs-convert--string-to-utf16-length text))
+         (para-end (+ start text-len 1))
+         (delete-req (when (> (1- end) start)
+                       (gdocs-diff--make-delete-request start (1- end))))
+         (insert-req (when (> text-len 0)
+                       (gdocs-convert--make-insert-text-request text start)))
+         (style-reqs (gdocs-convert--make-paragraph-style-requests
+                      new-elem start para-end))
+         (run-reqs (gdocs-convert--make-text-style-requests
+                    (plist-get new-elem :contents) start))
+         (list-reqs (gdocs-convert--make-list-requests
+                     new-elem start para-end)))
+    ;; Pack style, run, and list requests into :insert-reqs so the
+    ;; caller groups them with the text insertion at the same index,
+    ;; keeping the whole modification atomic.
+    (list :delete-reqs (when delete-req (list delete-req))
+          :insert-reqs (append (when insert-req (list insert-req))
+                               style-reqs run-reqs list-reqs)
+          :style-reqs nil)))
 
 ;; ---------------------------------------------------------------------------
 ;;; Word-level diff for paragraph modifications
