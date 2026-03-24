@@ -658,6 +658,15 @@ includes its =id=, =content=, =quotedFileContent= (the anchored text),
 function is used by the comment-aware push flow when
 ~gdocs-preserve-comments~ is non-nil ([[#h:comment-aware-push][Comment-aware push]]).
 
+#+findex: gdocs-api-resolve-comment
+The function ~gdocs-api-resolve-comment~ resolves a comment on a Google
+Drive file via the Drive Comments API.  It takes a FILE-ID and
+COMMENT-ID and marks the comment as resolved by sending a PATCH request
+that sets the =resolved= field to true.  CALLBACK receives the updated
+comment alist.  This function is used by the comment-aware push flow
+when the user chooses the "resolve & delete" action
+([[#h:comment-aware-push][Comment-aware push]]).
+
 #+findex: gdocs-api-rename-file
 #+findex: gdocs-api-create-folder
 #+findex: gdocs-api-move-file
@@ -1225,9 +1234,24 @@ sending the batch update.  The extended flow is:
    to it.  A comment is considered "on" an element if the comment's
    =quotedFileContent.value= appears as a substring of the element's
    plain text.
-5. Prompt the user for each at-risk operation with ~y-or-n-p~, showing
-   the element text, comment author, and comment content.
-6. Remove declined operations from the diff operation list.
+5. Prompt the user for each at-risk operation via a single-key prompt
+   showing the element text, comment author, and comment content.  The
+   prompt offers four actions:
+   - =[s]kip= -- keep the element in the remote document, preserving the
+     comment.
+   - =[d]elete= -- proceed with the deletion, destroying the comment.
+   - =[o]pen= -- open the comment in the browser using the Google Docs
+     comment URL (=https://docs.google.com/document/d/DOC-ID/edit?disco=COMMENT-ID=),
+     then re-prompt for the same element so you can inspect the comment
+     in context before deciding.
+   - =[r]esolve & delete= -- resolve the comment via the Drive Comments
+     API (~gdocs-api-resolve-comment~) before proceeding with the
+     deletion.  This marks the discussion as resolved while still
+     removing the element from the document.
+   Uppercase variants (=S=, =D=, =R=) apply the chosen action to all
+   remaining conflicts, so you do not have to answer individually for
+   every at-risk element.
+6. Remove declined (skipped) operations from the diff operation list.
 7. Generate API requests from the filtered operations
    (~gdocs-diff-generate-from-ops~).
 8. Send the batch update.
