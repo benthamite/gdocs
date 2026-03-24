@@ -541,13 +541,23 @@ NEW-ELEM provides the new style.  RANGE is (START . END)."
 
 (defun gdocs-diff--formatting-only-modification (new-elem range)
   "Generate updateTextStyle requests for formatting changes.
-NEW-ELEM provides the new runs.  RANGE is (START . END)."
+NEW-ELEM provides the new runs.  RANGE is (START . END).
+A text-style reset is emitted first to clear existing formatting,
+followed by per-run style requests for the new formatting."
   (let* ((start (car range))
+         (text (gdocs-convert--runs-to-plain-text
+                (plist-get new-elem :contents)))
+         (text-len (gdocs-convert--string-to-utf16-length text))
+         (reset-end (+ start text-len))
+         (reset-req (when (> reset-end start)
+                      (gdocs-convert--make-text-style-reset-request
+                       start reset-end)))
          (runs (plist-get new-elem :contents))
          (style-reqs (gdocs-convert--make-text-style-requests runs start)))
     (list :delete-reqs nil
           :insert-reqs nil
-          :style-reqs style-reqs)))
+          :style-reqs (append (when reset-req (list reset-req))
+                              style-reqs))))
 
 (defun gdocs-diff--content-modification (old-elem new-elem range)
   "Generate delete+insert requests for a content change.
@@ -574,19 +584,41 @@ rejects."
   "Generate all requests to replace a paragraph at START to END.
 Handles text deletion and insertion, paragraph style, text
 formatting, and list properties.  Deletes [START, END-1) to
-preserve the trailing newline, then inserts new text at START."
+preserve the trailing newline, then inserts new text at START.
+
+For nested list items, prepends tab characters so
+`createParagraphBullets' can determine the nesting level.
+A text-style reset clears inherited formatting before per-run
+styles are applied."
   (let* ((text (gdocs-convert--runs-to-plain-text
                 (plist-get new-elem :contents)))
+         (list-info (plist-get new-elem :list))
+         (level (if list-info (or (plist-get list-info :level) 0) 0))
+         (tabs (make-string level ?\t))
+         (tab-offset level)          ; each \t = 1 UTF-16 unit
+         (insert-text (concat tabs text))
          (text-len (gdocs-convert--string-to-utf16-length text))
-         (para-end (+ start text-len 1))
+         (insert-len (gdocs-convert--string-to-utf16-length insert-text))
+         ;; para-end accounts for tabs + text + trailing newline
+         (para-end (+ start insert-len 1))
          (delete-req (when (> (1- end) start)
                        (gdocs-diff--make-delete-request start (1- end))))
-         (insert-req (when (> text-len 0)
-                       (gdocs-convert--make-insert-text-request text start)))
+         (insert-req (when (> insert-len 0)
+                       (gdocs-convert--make-insert-text-request
+                        insert-text start)))
+         ;; Paragraph style covers the full range including tabs.
          (style-reqs (gdocs-convert--make-paragraph-style-requests
                       new-elem start para-end))
+         ;; Reset formatting on tabs + text (excluding trailing
+         ;; newline) to clear inherited styles.
+         (reset-end (+ start tab-offset text-len))
+         (reset-req (when (> reset-end start)
+                      (gdocs-convert--make-text-style-reset-request
+                       start reset-end)))
+         ;; Per-run styles start after the tab prefix.
          (run-reqs (gdocs-convert--make-text-style-requests
-                    (plist-get new-elem :contents) start))
+                    (plist-get new-elem :contents)
+                    (+ start tab-offset)))
          (list-reqs (gdocs-convert--make-list-requests
                      new-elem start para-end)))
     ;; Pack style, run, and list requests into :insert-reqs so the
@@ -594,7 +626,9 @@ preserve the trailing newline, then inserts new text at START."
     ;; keeping the whole modification atomic.
     (list :delete-reqs (when delete-req (list delete-req))
           :insert-reqs (append (when insert-req (list insert-req))
-                               style-reqs run-reqs list-reqs)
+                               style-reqs
+                               (when reset-req (list reset-req))
+                               run-reqs list-reqs)
           :style-reqs nil)))
 
 ;; ---------------------------------------------------------------------------
