@@ -335,6 +335,11 @@ freshly fetched document with current paragraph ranges."
                (with-current-buffer buf
                  (gdocs-sync--update-revision-from-response response)
                  (gdocs-sync--persist-properties)
+                 (when buffer-file-name
+                   (let ((gdocs-auto-push-on-save nil)
+                         (before-save-hook nil)
+                         (after-save-hook nil))
+                     (save-buffer)))
                  (gdocs-sync--finalize-push))
              ((error quit)
               (if (buffer-live-p buf)
