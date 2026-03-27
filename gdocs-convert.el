@@ -714,8 +714,13 @@ links are preserved with a file: prefix."
   "Resolve an id: link ID to a Google Docs URL.
 Uses `org-id-find' to locate the target file, then reads its
 `gdocs-document-id'.  Returns nil when the target has no Google
-Doc, so the link is rendered as plain text."
-  (when-let* ((location (org-id-find id)))
+Doc, so the link is rendered as plain text.
+Suppresses `org-id-update-id-locations' inside `org-id-find' so
+that uncached IDs do not trigger a full scan of all org files,
+which can freeze Emacs for several seconds."
+  (when-let* ((location
+               (cl-letf (((symbol-function 'org-id-update-id-locations) #'ignore))
+                 (org-id-find id))))
     (let* ((file (if (consp location) (car location) location))
            (target-doc-id (gdocs-convert--read-file-property-gdocs-id file)))
       (when target-doc-id
