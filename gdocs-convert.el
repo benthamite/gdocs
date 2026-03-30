@@ -2461,13 +2461,15 @@ Iterates forward and pushes, so the result is in reverse order
                                    gdocs-convert--table-base-cell-offset
                                    (* r (+ 1 (* ncols 2)))
                                    (* c 2))))
-                (push (gdocs-convert--make-insert-text-request
-                       text cell-start)
-                      reqs)
                 ;; Reset formatting so cells don't inherit heading
-                ;; styles or other non-body formatting.
+                ;; styles or other non-body formatting.  Push reset
+                ;; first so that after reversal (last-to-first) the
+                ;; insertText runs before the reset in the batch.
                 (push (gdocs-convert--make-text-style-reset-request
                        cell-start (+ cell-start text-len))
+                      reqs)
+                (push (gdocs-convert--make-insert-text-request
+                       text cell-start)
                       reqs))))
           (setq c (1+ c))))
       (setq r (1+ r)))

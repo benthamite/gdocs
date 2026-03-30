@@ -1062,13 +1062,23 @@ last sent to the API.
 :CUSTOM_ID: h:list-nesting-fixup
 :END:
 
-The diff engine emits per-paragraph ~createParagraphBullets~ requests,
-which always produce flat (level-0) lists.  The full conversion path
-has a separate mechanism (~gdocs-convert--fixup-list-nesting~) that
-groups bullets and inserts leading tabs so that the API infers correct
-nesting levels, but the diff path cannot use that mechanism because it
-interleaves modifications with insertions at varying document
-positions.
+The diff engine emits ~createParagraphBullets~ requests for new list
+items and for modifications that change the list type or nesting level.
+These per-paragraph requests always produce flat (level-0) lists.  The
+full conversion path has a separate mechanism
+(~gdocs-convert--fixup-list-nesting~) that groups bullets and inserts
+leading tabs so that the API infers correct nesting levels, but the diff
+path cannot use that mechanism because it interleaves modifications with
+insertions at varying document positions.
+
+When a content modification does not change the list structure (same
+type and level), the diff engine suppresses the ~createParagraphBullets~
+request entirely.  The trailing newline is preserved during paragraph
+modifications, which keeps the paragraph in its existing Google Docs
+list object.  Re-emitting a bullet request with a fixed preset would
+overwrite the alternated preset assigned during document creation and
+cause Google Docs to merge separate numbered lists into one continuous
+sequence.
 
 To restore correct nesting, the sync engine runs a second
 ~batchUpdate~ pass after the main push succeeds, but only when the
