@@ -1198,8 +1198,11 @@ The word-level algorithm works as follows:
 Token offsets are computed in UTF-16 code units using
 ~gdocs-convert--string-to-utf16-length~ to handle non-BMP characters
 (such as emoji) that require surrogate pairs.  Even a fully rewritten
-paragraph produces correct operations; the word-level approach never
-falls back to a bulk replacement.
+paragraph produces correct operations.  The word-level approach is used
+whenever the list structure is unchanged (same type and level, or both
+non-list); modifications that change the list type or nesting level fall
+back to a bulk replacement to handle the tab prefix and bullet preset
+changes that list transitions require.
 
 ** Text-style reset
 :PROPERTIES:

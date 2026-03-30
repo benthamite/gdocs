@@ -501,6 +501,15 @@ RANGE is a (START . END) cons.  Returns a plist with
        (equal (gdocs-convert--runs-to-plain-text (plist-get old-elem :contents))
               (gdocs-convert--runs-to-plain-text (plist-get new-elem :contents)))))
 
+(defun gdocs-diff--same-list-p (old-elem new-elem)
+  "Return non-nil if both elements are list items of the same type and level."
+  (let ((old-list (plist-get old-elem :list))
+        (new-list (plist-get new-elem :list)))
+    (and old-list new-list
+         (eq (plist-get old-list :type) (plist-get new-list :type))
+         (= (or (plist-get old-list :level) 0)
+            (or (plist-get new-list :level) 0)))))
+
 (defun gdocs-diff--only-style-changed-p (old-elem new-elem)
   "Return non-nil if only the paragraph style differs between elements."
   (and (gdocs-diff--same-text-paragraphs-p old-elem new-elem)
@@ -567,12 +576,44 @@ are paragraphs, preserves the trailing newline to avoid breaking
 document structure.  For any type mismatch (e.g. table to
 paragraph) or non-paragraph old element, performs a full delete
 and re-insert to avoid partial structural deletions that the API
-rejects."
+rejects.
+
+When both paragraphs are list items of the same type and level,
+the `createParagraphBullets' request is suppressed.  The trailing
+newline preservation keeps the paragraph in its existing list
+object, so re-emitting a bullet with a fixed preset would
+overwrite the alternated preset from the create path and cause
+Google Docs to merge separate numbered lists.
+
+When the list structure is unchanged (same type and level, or both
+non-list), a word-level diff is used to generate targeted delete
+and insert requests for only the changed tokens, preserving
+comment anchors on unchanged text."
   (let* ((start (car range))
          (end (cdr range)))
     (if (and (eq (plist-get old-elem :type) 'paragraph)
              (eq (plist-get new-elem :type) 'paragraph))
-        (gdocs-diff--paragraph-content-modification new-elem start end)
+        (let* ((same-list-structure
+                (or (and (null (plist-get old-elem :list))
+                         (null (plist-get new-elem :list)))
+                    (gdocs-diff--same-list-p old-elem new-elem)))
+               (result
+                (if same-list-structure
+                    (gdocs-diff--word-level-paragraph-modification
+                     old-elem new-elem start end)
+                  (gdocs-diff--paragraph-content-modification
+                   new-elem start end))))
+          ;; Suppress createParagraphBullets when list membership is
+          ;; unchanged — the paragraph retains its existing list object.
+          (when (or (gdocs-diff--same-list-p old-elem new-elem)
+                    (and (null (plist-get old-elem :list))
+                         (null (plist-get new-elem :list))))
+            (plist-put result :insert-reqs
+                       (cl-remove-if
+                        (lambda (req)
+                          (alist-get 'createParagraphBullets req))
+                        (plist-get result :insert-reqs))))
+          result)
       (let* ((delete-req (gdocs-diff--make-delete-request start end))
              (insert-result (gdocs-convert--ir-element-to-requests
                              new-elem start)))
