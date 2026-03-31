@@ -652,6 +652,14 @@ Scans for files containing a `Local Variables' block with
 
 (add-hook 'org-mode-hook #'gdocs--maybe-enable)
 
+;; Activate in org buffers that were opened before gdocs loaded (e.g.
+;; restored by desktop-save-mode or a session manager).
+(dolist (buf (buffer-list))
+  (with-current-buffer buf
+    (when (and (derived-mode-p 'org-mode)
+               (not (bound-and-true-p gdocs-mode)))
+      (gdocs--maybe-enable))))
+
 ;;;; Org tag management
 
 (defun gdocs--ensure-org-tag ()

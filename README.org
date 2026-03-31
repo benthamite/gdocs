@@ -1319,7 +1319,10 @@ Google Doc.  It provides:
 
 The mode activates automatically when you open an org file that has a
 =GDOCS_DOCUMENT_ID= property in its file-level property drawer (via a
-hook on ~org-mode-hook~).  You can also toggle it manually.
+hook on ~org-mode-hook~).  If buffers were restored at startup before
+gdocs loaded (e.g. by ~desktop-save-mode~), gdocs scans already-open
+org buffers at load time and activates the mode retroactively.  You
+can also toggle it manually.
 
 ** Keybindings
 :PROPERTIES:
