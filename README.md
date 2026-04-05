@@ -21,21 +21,22 @@ The `gdocs-mode` minor mode activates automatically on linked buffers, providing
 ### package-vc (built-in since Emacs 30)
 
 ```emacs-lisp
-(package-vc-install "https://github.com/benthamite/gdocs")
+(use-package gdocs
+  :vc (:url "https://github.com/benthamite/gdocs"))
 ```
 
 ### Elpaca
 
 ```emacs-lisp
 (use-package gdocs
-  :ensure (gdocs :host github :repo "benthamite/gdocs"))
+  :ensure (:host github :repo "benthamite/gdocs"))
 ```
 
 ### straight.el
 
 ```emacs-lisp
-(straight-use-package
- '(gdocs :type git :host github :repo "benthamite/gdocs"))
+(use-package gdocs
+  :straight (:host github :repo "benthamite/gdocs"))
 ```
 
 ### Dependencies
