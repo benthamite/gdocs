@@ -1240,7 +1240,8 @@ sending the batch update.  The extended flow is:
 
 1. Fetch the remote document (as before).
 2. Fetch all comments on the document via the Drive Comments API
-   (~gdocs-api-list-comments~).
+   (~gdocs-api-list-comments~).  Deleted and resolved comments are
+   excluded from the mapping, so they never trigger prompts.
 3. Compute the diff operations
    (~gdocs-diff-compute-operations~).
 4. For each destructive operation (element deletion or cross-type

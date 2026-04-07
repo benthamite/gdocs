@@ -1021,7 +1021,8 @@ Returns an alist of (ELEMENT-INDEX . COMMENT-LIST).  Comments
 without quoted text (document-level) are skipped."
   (let ((map nil))
     (dolist (comment comments)
-      (unless (eq (alist-get 'deleted comment) t)
+      (unless (or (eq (alist-get 'deleted comment) t)
+                  (eq (alist-get 'resolved comment) t))
         (let* ((quoted (alist-get 'quotedFileContent comment))
                (quoted-text (and quoted (alist-get 'value quoted))))
           (when (and quoted-text (not (string-empty-p quoted-text)))

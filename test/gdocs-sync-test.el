@@ -865,6 +865,21 @@ serialization is handled separately by `gdocs-sync--serialize-push'."
          (map (gdocs-sync--map-comments-to-elements comments remote-ir)))
     (should (null map))))
 
+(ert-deftest gdocs-sync-test-map-comments-skips-resolved ()
+  "Resolved comments are not mapped to elements."
+  (let* ((remote-ir
+          (list (list :type 'paragraph :style 'normal
+                      :contents (list (list :text "Hello world"))
+                      :id "e1")))
+         (comments
+          (list `((id . "c1")
+                  (content . "Old feedback")
+                  (quotedFileContent . ((value . "Hello")))
+                  (author . ((displayName . "Alice")))
+                  (resolved . t))))
+         (map (gdocs-sync--map-comments-to-elements comments remote-ir)))
+    (should (null map))))
+
 (ert-deftest gdocs-sync-test-destructive-op-delete ()
   "A delete operation is always destructive."
   (let ((op (list :op 'delete :old-index 0))
