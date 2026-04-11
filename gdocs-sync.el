@@ -450,9 +450,10 @@ Uses the same LCS approach as the diff engine."
 (defun gdocs-sync--build-fixup-element-ranges (aligned)
   "Build element-range plists from ALIGNED pairs for fixup.
 Each entry has :element (using local level info merged into remote
-range info), :start, and :end.  The :element carries the local
-:list info (for correct :level) when available, falling back to
-the remote element's list info."
+range info), :start, and :end.  The :element always carries the
+local :list info when a local element exists, even when nil.  This
+ensures headings that the remote erroneously shows as list items
+are correctly treated as non-list elements by the guard logic."
   (let ((result nil))
     (dolist (pair aligned)
       (let* ((local-elem (plist-get pair :local))
@@ -463,7 +464,7 @@ the remote element's list info."
           ;; Build a synthetic element with the remote's structural info
           ;; but the local's :list (which has the correct :level).
           (let ((elem (copy-sequence remote-elem)))
-            (when (and local-elem (plist-get local-elem :list))
+            (when local-elem
               (plist-put elem :list (plist-get local-elem :list)))
             (push (list :element elem :start start :end end) result)))))
     (nreverse result)))

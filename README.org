@@ -1094,8 +1094,11 @@ as follows:
    with its remote counterpart (which carries =:doc-start= /
    =:doc-end= positions).
 
-3. Build element-range plists that merge local nesting levels with
-   remote document positions.
+3. Build element-range plists that merge local list info with remote
+   document positions.  The local element's =:list= always takes
+   precedence, even when nil — this ensures that headings erroneously
+   bulleted by the API are correctly treated as non-list elements by
+   the guard logic in step 6.
 
 4. Identify contiguous list groups that contain at least one element
    at level > 0.
