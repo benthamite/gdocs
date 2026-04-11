@@ -1110,9 +1110,15 @@ as follows:
      paragraph's =startIndex= (where /N/ is the nesting level).
      Insertions are sorted by descending index to maintain correct
      positions.
-   - A single ~createParagraphBullets~ spanning the entire group.
-     The API counts the leading tabs, assigns the correct nesting
-     levels, and removes the tabs afterward.
+   - A per-group ~createParagraphBullets~ request.  The API counts
+     the leading tabs, assigns the correct nesting levels, and
+     removes the tabs afterward.
+
+6. Emit defensive ~deleteParagraphBullets~ requests for non-list
+   paragraphs adjacent to the list groups.  The Google Docs API can
+   extend bullet formatting to heading paragraphs near
+   ~createParagraphBullets~ ranges, so these guards prevent headings
+   from being accidentally turned into bullet points.
 
 The fixup keeps the push lock held until completion, so any queued
 push waits until nesting is fully resolved before proceeding

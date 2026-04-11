@@ -358,9 +358,10 @@ has :doc-start and :doc-end from the fetched document.
 Aligns elements by text content, then for each contiguous list
 group containing elements at level > 0, deletes existing bullets,
 resets indentation to zero, inserts leading tab characters (N tabs
-for level N), and re-creates bullets as a single grouped request.
-The Google Docs API counts leading tabs to determine nesting level
-and removes them afterward.
+for level N), and re-creates bullets as per-group requests.  Also
+emits `deleteParagraphBullets' guards for non-list paragraphs
+near list groups to prevent the API from extending bullet
+formatting to adjacent headings.
 
 Returns the ordered request list, or nil if no fixup is needed."
   (let* ((aligned (gdocs-sync--align-ir-elements local-ir remote-ir))
@@ -379,12 +380,10 @@ Returns the ordered request list, or nil if no fixup is needed."
         (dolist (group groups-needing-fixup)
           (let ((group-start (plist-get group :start))
                 (group-end (plist-get group :end)))
-            ;; Delete bullets for the group range
             (push `((deleteParagraphBullets
                      . ((range . ((startIndex . ,group-start)
                                   (endIndex . ,(1- group-end)))))))
                   delete-reqs)
-            ;; Reset indentation to zero and collect tab insertions.
             (dolist (er element-ranges)
               (let* ((elem (plist-get er :element))
                      (start (plist-get er :start))
@@ -395,8 +394,6 @@ Returns the ordered request list, or nil if no fixup is needed."
                               0)))
                 (when (and (>= start group-start)
                            (<= end group-end))
-                  ;; Reset ALL indentation to zero so only tabs
-                  ;; signal the nesting depth.
                   (push `((updateParagraphStyle
                            . ((paragraphStyle
                                . ((indentStart . ((magnitude . 0)
@@ -407,34 +404,22 @@ Returns the ordered request list, or nil if no fixup is needed."
                                         (endIndex . ,(1- end))))
                               (fields . "indentStart,indentFirstLine"))))
                         reset-reqs)
-                  ;; Insert leading tabs for nested items
                   (when (> level 0)
                     (push (cons start level) tab-reqs)))))))
-        ;; Sort tab insertions by descending index
         (setq tab-reqs
               (sort tab-reqs (lambda (a b) (> (car a) (car b)))))
-        ;; Merge all groups into one createParagraphBullets so that
-        ;; mixed-type nested lists share one list object with correct
-        ;; nesting levels determined by leading tabs.
-        (let ((merged-start (plist-get (car groups-needing-fixup) :start))
-              (merged-end (plist-get (car (last groups-needing-fixup)) :end))
-              (merged-preset (plist-get (car groups-needing-fixup) :preset)))
-          (append
-           ;; 1. Delete existing bullets
-           (nreverse delete-reqs)
-           ;; 2. Reset indentation to zero
-           (nreverse reset-reqs)
-           ;; 3. Insert leading tabs (descending order)
-           (mapcar (lambda (tr)
-                     (gdocs-convert--make-insert-text-request
-                      (make-string (cdr tr) ?\t)
-                      (car tr)))
-                   tab-reqs)
-           ;; 4. Create ONE grouped bullet
-           (list `((createParagraphBullets
-                    . ((range . ((startIndex . ,merged-start)
-                                 (endIndex . ,(1- merged-end))))
-                       (bulletPreset . ,merged-preset)))))))))))
+        (append
+         (nreverse delete-reqs)
+         (nreverse reset-reqs)
+         (mapcar (lambda (tr)
+                   (gdocs-convert--make-insert-text-request
+                    (make-string (cdr tr) ?\t)
+                    (car tr)))
+                 tab-reqs)
+         (mapcar #'gdocs-convert--list-group-bullet-request
+                 groups-needing-fixup)
+         (gdocs-convert--guard-non-list-paragraphs
+          element-ranges groups-needing-fixup))))))
 
 
 (defun gdocs-sync--align-ir-elements (local-ir remote-ir)

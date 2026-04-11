@@ -2322,35 +2322,67 @@ GROUP is a plist with :start, :end, and :preset."
           (bulletPreset . ,preset))))))
 
 (defun gdocs-convert--guard-non-list-paragraphs (element-ranges groups)
-  "Generate `deleteParagraphBullets' for non-list paragraphs between GROUPS.
+  "Generate `deleteParagraphBullets' for non-list paragraphs near GROUPS.
 ELEMENT-RANGES is the full list of element ranges.  GROUPS is the
 list of list groups from `gdocs-convert--find-list-groups'.
 
 The Google Docs API can extend bullet formatting to heading
 paragraphs adjacent to `createParagraphBullets' ranges.  This
 function emits defensive `deleteParagraphBullets' requests for
-every non-list paragraph that sits between two consecutive list
-groups, ensuring headings are never accidentally bulleted."
-  (when (>= (length groups) 2)
-    (let ((requests nil))
-      (cl-loop for (g1 g2) on groups
-               while g2
-               do (let ((gap-start (plist-get g1 :end))
-                        (gap-end (plist-get g2 :start)))
-                    (dolist (range element-ranges)
-                      (let* ((elem (plist-get range :element))
-                             (start (plist-get range :start))
-                             (end (plist-get range :end)))
-                        (when (and (eq (plist-get elem :type) 'paragraph)
-                                   (not (plist-get elem :list))
-                                   (>= start gap-start)
-                                   (<= end gap-end))
-                          (push `((deleteParagraphBullets
-                                   . ((range
-                                       . ((startIndex . ,start)
-                                          (endIndex . ,(1- end)))))))
-                                requests))))))
+every non-list paragraph that sits between consecutive list
+groups, immediately before the first group, or immediately after
+the last group."
+  (when groups
+    (let ((requests nil)
+          (gaps (gdocs-convert--list-group-gaps element-ranges groups)))
+      (dolist (range element-ranges)
+        (let* ((elem (plist-get range :element))
+               (start (plist-get range :start))
+               (end (plist-get range :end)))
+          (when (and (eq (plist-get elem :type) 'paragraph)
+                     (not (plist-get elem :list))
+                     (gdocs-convert--in-any-gap-p start end gaps))
+            (push `((deleteParagraphBullets
+                     . ((range
+                         . ((startIndex . ,start)
+                            (endIndex . ,(1- end)))))))
+                  requests))))
       (nreverse requests))))
+
+(defun gdocs-convert--list-group-gaps (element-ranges groups)
+  "Compute gap ranges around and between GROUPS.
+ELEMENT-RANGES provides the document extent.  Returns a list of
+\(GAP-START . GAP-END) cons cells covering the region immediately
+before the first group, between consecutive groups, and
+immediately after the last group."
+  (let ((gaps nil)
+        (first-group (car groups))
+        (last-group (car (last groups))))
+    (cl-loop for (g1 g2) on groups
+             while g2
+             do (push (cons (plist-get g1 :end)
+                            (plist-get g2 :start))
+                      gaps))
+    (gdocs-convert--add-edge-gaps
+     gaps first-group last-group element-ranges)))
+
+(defun gdocs-convert--add-edge-gaps (gaps first-group last-group ranges)
+  "Add edge gaps before FIRST-GROUP and after LAST-GROUP to GAPS.
+RANGES provides the document extent.  Returns the augmented gap list."
+  (let ((doc-start (plist-get (car ranges) :start))
+        (doc-end (plist-get (car (last ranges)) :end)))
+    (when (> (plist-get first-group :start) doc-start)
+      (push (cons doc-start (plist-get first-group :start)) gaps))
+    (when (< (plist-get last-group :end) doc-end)
+      (push (cons (plist-get last-group :end) doc-end) gaps))
+    gaps))
+
+(defun gdocs-convert--in-any-gap-p (start end gaps)
+  "Return non-nil if the range START..END falls within any gap in GAPS."
+  (cl-some (lambda (gap)
+             (and (>= start (car gap))
+                  (<= end (cdr gap))))
+           gaps))
 
 (defun gdocs-convert--make-marker-requests (element start end)
   "Create named range requests for org-only markers in ELEMENT.

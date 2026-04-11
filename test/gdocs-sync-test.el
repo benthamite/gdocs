@@ -1197,32 +1197,29 @@ serialization is handled separately by `gdocs-sync--serialize-push'."
                                 :id "R3")))
          (requests (gdocs-sync--compute-nesting-fixup-requests
                     local-ir remote-ir)))
-    ;; Should have requests: 2 tab inserts + 1 delete bullets + 1 create bullets
+    ;; 1 deleteParagraphBullets + 3 updateParagraphStyle (reset
+    ;; indentation) + 2 insertText (tabs) + 1 createParagraphBullets
     (should requests)
-    (should (= (length requests) 4))
-    ;; First two should be insertText (tabs), sorted by descending index
-    ;; Grandchild at index 15 gets 2 tabs, Child at index 9 gets 1 tab
-    (let ((req1 (nth 0 requests))
-          (req2 (nth 1 requests)))
-      (should (alist-get 'insertText req1))
-      (should (alist-get 'insertText req2))
-      ;; Descending order: 15 before 9
-      (should (= (alist-get 'index
-                             (alist-get 'location
-                                        (alist-get 'insertText req1)))
-                 15))
-      (should (equal (alist-get 'text (alist-get 'insertText req1))
-                     "\t\t"))
-      (should (= (alist-get 'index
-                             (alist-get 'location
-                                        (alist-get 'insertText req2)))
-                 9))
-      (should (equal (alist-get 'text (alist-get 'insertText req2))
-                     "\t")))
-    ;; Third should be deleteParagraphBullets
-    (should (alist-get 'deleteParagraphBullets (nth 2 requests)))
-    ;; Fourth should be createParagraphBullets
-    (should (alist-get 'createParagraphBullets (nth 3 requests)))))
+    (should (= (length requests) 7))
+    (should (alist-get 'deleteParagraphBullets (nth 0 requests)))
+    ;; Three indentation resets
+    (should (alist-get 'updateParagraphStyle (nth 1 requests)))
+    (should (alist-get 'updateParagraphStyle (nth 2 requests)))
+    (should (alist-get 'updateParagraphStyle (nth 3 requests)))
+    ;; Tab inserts in descending index order
+    (should (equal (alist-get 'text (alist-get 'insertText (nth 4 requests)))
+                   "\t\t"))
+    (should (= (alist-get 'index
+                           (alist-get 'location
+                                      (alist-get 'insertText (nth 4 requests))))
+               15))
+    (should (equal (alist-get 'text (alist-get 'insertText (nth 5 requests)))
+                   "\t"))
+    (should (= (alist-get 'index
+                           (alist-get 'location
+                                      (alist-get 'insertText (nth 5 requests))))
+               9))
+    (should (alist-get 'createParagraphBullets (nth 6 requests)))))
 
 (ert-deftest gdocs-sync-test-compute-nesting-fixup-no-nested ()
   "Returns nil when no elements need nesting fixup."
@@ -1295,27 +1292,40 @@ serialization is handled separately by `gdocs-sync--serialize-push'."
                            :doc-start 32 :doc-end 38 :id "R5")))
          (requests (gdocs-sync--compute-nesting-fixup-requests
                     local-ir remote-ir)))
-    ;; Should have: 1 tab insert + 1 delete bullets + 1 create bullets
-    ;; (only for the second group)
+    ;; 1 deleteParagraphBullets + 2 updateParagraphStyle +
+    ;; 1 insertText + 1 createParagraphBullets +
+    ;; 1 deleteParagraphBullets guard for Separator
     (should requests)
-    (should (= (length requests) 3))
+    (should (= (length requests) 6))
+    ;; Delete bullets for second group
+    (let* ((del-req (nth 0 requests))
+           (range (alist-get 'range
+                             (alist-get 'deleteParagraphBullets del-req))))
+      (should (= (alist-get 'startIndex range) 25))
+      (should (= (alist-get 'endIndex range) 37)))
+    ;; Two indentation resets for Parent and Child
+    (should (alist-get 'updateParagraphStyle (nth 1 requests)))
+    (should (alist-get 'updateParagraphStyle (nth 2 requests)))
     ;; Tab insert for Child at index 32
-    (should (alist-get 'insertText (nth 0 requests)))
+    (should (equal (alist-get 'text
+                              (alist-get 'insertText (nth 3 requests)))
+                   "\t"))
     (should (= (alist-get 'index
                            (alist-get 'location
-                                      (alist-get 'insertText (nth 0 requests))))
+                                      (alist-get 'insertText (nth 3 requests))))
                32))
-    ;; Delete bullets for second group range
-    (let* ((del-req (nth 1 requests))
-           (range (alist-get 'range (alist-get 'deleteParagraphBullets del-req))))
+    ;; Create bullets for second group
+    (let* ((create-req (nth 4 requests))
+           (range (alist-get 'range
+                             (alist-get 'createParagraphBullets create-req))))
       (should (= (alist-get 'startIndex range) 25))
-      ;; endIndex = group-end - 1 = 38 - 1 = 37
       (should (= (alist-get 'endIndex range) 37)))
-    ;; Create bullets for second group range
-    (let* ((create-req (nth 2 requests))
-           (range (alist-get 'range (alist-get 'createParagraphBullets create-req))))
-      (should (= (alist-get 'startIndex range) 25))
-      (should (= (alist-get 'endIndex range) 37)))))
+    ;; Guard: deleteParagraphBullets for Separator between groups
+    (let* ((guard-req (nth 5 requests))
+           (range (alist-get 'range
+                             (alist-get 'deleteParagraphBullets guard-req))))
+      (should (= (alist-get 'startIndex range) 15))
+      (should (= (alist-get 'endIndex range) 24)))))
 
 (ert-deftest gdocs-sync-test-push-triggers-fixup-for-nested-lists ()
   "Push with nested lists triggers a post-push fixup batchUpdate."
