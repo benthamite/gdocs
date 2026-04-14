@@ -222,9 +222,9 @@ element.  Returns a plist with:
                 segments)))
       (list :ir full-ir
             :segments (nreverse segments)
-            :preamble (buffer-substring-no-properties 1 first-pos)
+            :preamble (buffer-substring-no-properties (point-min) first-pos)
             :postamble (buffer-substring-no-properties
-                        postamble-start (1+ (buffer-size)))))))
+                        postamble-start (point-max))))))
 
 (defun gdocs-convert--find-postamble-start ()
   "Find the buffer position where the postamble begins.

@@ -270,11 +270,13 @@ authentication."
   (let* ((creds (gdocs-auth--account-credentials account))
          (client-id (alist-get 'client-id creds))
          (client-secret (alist-get 'client-secret creds))
+         (state (gdocs-auth--generate-state))
          (server (gdocs-auth--start-callback-server
-                  account client-id client-secret callback))
+                  account client-id client-secret callback state))
          (port (process-contact server :service))
          (redirect-uri (format "http://localhost:%d" port))
-         (auth-url (gdocs-auth--build-auth-url client-id redirect-uri)))
+         (auth-url (gdocs-auth--build-auth-url
+                    client-id redirect-uri state)))
     (message "Opening browser for Google OAuth consent...")
     (browse-url auth-url)))
 
@@ -286,10 +288,10 @@ Signal an error if ACCOUNT is not found."
       (error "Account %s not found in `gdocs-accounts'" account))
     (cdr entry)))
 
-(defun gdocs-auth--build-auth-url (client-id redirect-uri)
+(defun gdocs-auth--build-auth-url (client-id redirect-uri state)
   "Build the Google OAuth authorization URL.
 CLIENT-ID is the OAuth client ID.  REDIRECT-URI is the local
-callback URL."
+callback URL.  STATE is the CSRF protection token."
   (concat gdocs-auth--auth-url "?"
           (gdocs-auth--url-encode-params
            `(("client_id" . ,client-id)
@@ -297,17 +299,20 @@ callback URL."
              ("response_type" . "code")
              ("scope" . ,gdocs-auth--scopes)
              ("access_type" . "offline")
-             ("prompt" . "consent")))))
+             ("prompt" . "consent")
+             ("state" . ,state)))))
 
 ;;;; Callback server
 
 (defun gdocs-auth--start-callback-server (account client-id
-                                                  client-secret callback)
+                                                  client-secret callback
+                                                  expected-state)
   "Start a local HTTP server to receive the OAuth callback.
 ACCOUNT is the account name to store tokens for.  CLIENT-ID and
 CLIENT-SECRET are the OAuth credentials used for the token
 exchange.  CALLBACK, if non-nil, is called with the access token
-on success.  Return the server process.  The server is
+on success.  EXPECTED-STATE is the CSRF token to verify on the
+redirect.  Return the server process.  The server is
 automatically killed after
 `gdocs-auth--callback-server-timeout' seconds to prevent
 resource leaks if the user abandons the flow."
@@ -319,13 +324,12 @@ resource leaks if the user abandons the flow."
            :host "127.0.0.1"
            :service t
            :family 'ipv4
-           ;; No accumulation needed: localhost OAuth redirects arrive in one segment
            :filter (lambda (proc data)
                      (gdocs-auth--handle-callback
                       proc data server
-                      account client-id client-secret callback))
+                      account client-id client-secret callback
+                      expected-state))
            :sentinel #'ignore))
-    ;; Auto-cleanup if the OAuth flow is never completed
     (run-at-time gdocs-auth--callback-server-timeout nil
                  (lambda ()
                    (when (process-live-p server)
@@ -335,32 +339,48 @@ resource leaks if the user abandons the flow."
     server))
 
 (defun gdocs-auth--handle-callback (proc data server account
-                                         client-id client-secret callback)
+                                         client-id client-secret callback
+                                         expected-state)
   "Handle an incoming HTTP request on the OAuth callback server.
 PROC is the client connection process.  DATA is the raw HTTP
 request string.  SERVER is the server process to clean up.
 ACCOUNT, CLIENT-ID, and CLIENT-SECRET are used for the token
 exchange.  CALLBACK, if non-nil, is called with the access token
-on success."
-  (let ((code (gdocs-auth--extract-auth-code data)))
-    (if code
-        (let ((redirect-uri (format "http://localhost:%d"
-                                    (process-contact server :service))))
-          (gdocs-auth--send-success-response proc)
-          (delete-process server)
-          (gdocs-auth--exchange-code-for-tokens
-           code redirect-uri client-id client-secret account callback))
-      ;; Non-auth request (favicon, prefetch, etc.): respond but keep
-      ;; the server alive for the real OAuth redirect.
+on success.  EXPECTED-STATE is the CSRF token that must match."
+  (let ((code (gdocs-auth--extract-auth-code data))
+        (state (gdocs-auth--extract-state data)))
+    (cond
+     ((and code (equal state expected-state))
+      (let ((redirect-uri (format "http://localhost:%d"
+                                  (process-contact server :service))))
+        (gdocs-auth--send-success-response proc)
+        (delete-process server)
+        (gdocs-auth--exchange-code-for-tokens
+         code redirect-uri client-id client-secret account callback)))
+     (code
+      (gdocs-auth--send-error-response proc)
+      (message "gdocs: OAuth state mismatch for account %s — possible CSRF attempt"
+               account))
+     (t
       (process-send-string
        proc "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-      (delete-process proc))))
+      (delete-process proc)))))
 
 (defun gdocs-auth--extract-auth-code (http-request)
   "Extract the authorization code from HTTP-REQUEST string.
 Return the code string, or nil if not found."
   (when (string-match "[?&]code=\\([^& \r\n]+\\)" http-request)
     (match-string 1 http-request)))
+
+(defun gdocs-auth--extract-state (http-request)
+  "Extract the state parameter from HTTP-REQUEST string.
+Return the state string, or nil if not found."
+  (when (string-match "[?&]state=\\([^& \r\n]+\\)" http-request)
+    (match-string 1 http-request)))
+
+(defun gdocs-auth--generate-state ()
+  "Generate a random state string for OAuth CSRF protection."
+  (sha1 (format "%s%s%s" (float-time) (random) (emacs-pid))))
 
 (defun gdocs-auth--send-http-response (proc status-code body)
   "Send an HTTP response with STATUS-CODE and BODY to PROC.

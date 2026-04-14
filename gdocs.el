@@ -54,8 +54,10 @@ that have a Google Doc counterpart.  Set to nil to disable."
 ;;;; Dir-local variable safety
 
 (defvar gdocs-folder-id nil "Google Drive folder ID (dir-local).")
+(defvar gdocs-account nil "Google account name (dir-local).")
 
 (put 'gdocs-folder-id 'safe-local-variable #'stringp)
+(put 'gdocs-account 'safe-local-variable #'stringp)
 
 ;;;; Modeline
 

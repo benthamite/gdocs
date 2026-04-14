@@ -178,12 +178,7 @@ buffer.  LINK-CTX is the link context for re-binding when setting
 the shadow."
   (lambda (response)
     (if (not (buffer-live-p buf))
-        (progn
-          (message "gdocs: push completed but buffer was killed")
-          ;; Release the lock even if the buffer is gone
-          (ignore-errors
-            (with-current-buffer buf
-              (setq gdocs-sync--push-in-progress nil))))
+        (message "gdocs: push completed but buffer was killed")
       (condition-case err
           (with-current-buffer buf
             (let ((gdocs-convert--link-context link-ctx))
