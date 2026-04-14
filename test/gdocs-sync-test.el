@@ -943,9 +943,8 @@ serialization is handled separately by `gdocs-sync--serialize-push'."
                   (author . ((displayName . "Alice")))
                   (resolved . :json-false))))
          (result
-          ;; Mock y-or-n-p to decline
-          (cl-letf (((symbol-function 'y-or-n-p)
-                     (lambda (_prompt) nil)))
+          (cl-letf (((symbol-function 'gdocs-sync--comment-action-prompt)
+                     (lambda (_prompt _comments) 'skip)))
             (gdocs-sync--filter-commented-ops
              diff-ops remote-ir local-ir comments))))
     ;; The keep op passes through; the delete is declined
@@ -968,8 +967,8 @@ serialization is handled separately by `gdocs-sync--serialize-push'."
                   (author . ((displayName . "Alice")))
                   (resolved . :json-false))))
          (result
-          (cl-letf (((symbol-function 'y-or-n-p)
-                     (lambda (_prompt) t)))
+          (cl-letf (((symbol-function 'gdocs-sync--comment-action-prompt)
+                     (lambda (_prompt _comments) 'delete)))
             (gdocs-sync--filter-commented-ops
              diff-ops remote-ir local-ir comments))))
     (should (= (length (plist-get result :ops)) 1))

@@ -1365,6 +1365,16 @@ The mode defines three faces for visual differentiation:
 - ~gdocs-merge-remote-face~ (red background) for remote changes.
 - ~gdocs-merge-resolved-face~ (blue background) for resolved hunks.
 
+* Development
+:PROPERTIES:
+:CUSTOM_ID: h:development
+:END:
+
+#+begin_src sh
+make test     # run the full ERT suite
+make compile  # byte-compile with warnings-as-errors
+#+end_src
+
 * Indices
 :PROPERTIES:
 :CUSTOM_ID: h:indices

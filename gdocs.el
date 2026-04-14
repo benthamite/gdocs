@@ -252,13 +252,15 @@ to move the document into."
          account))
      account)))
 
+;;;###autoload
 (defun gdocs-push ()
-  "Push local changes to the linked Google Doc."
+  "Push local modifications to the linked Google Doc."
   (interactive)
   (gdocs-sync-push))
 
+;;;###autoload
 (defun gdocs-pull ()
-  "Pull remote changes from the linked Google Doc."
+  "Pull remote modifications from the linked Google Doc."
   (interactive)
   (gdocs-sync-pull))
 
@@ -423,7 +425,7 @@ returned list includes TARGET-DIR but excludes ANCESTOR-DIR."
     (nreverse result)))
 
 (defun gdocs--confirm-intermediate-dirs (dirs)
-  "Prompt the user if DIRS contains intermediate directories.
+  "Prompt the user if DIRS includes intermediate directories.
 DIRS is the list from `gdocs--intermediate-dirs'."
   (when (> (length dirs) 1)
     (let ((intermediates (mapcar #'cdr (butlast dirs))))
@@ -475,6 +477,7 @@ created and linked locally."
            (or gdocs-sync--revision-id "unknown")
            (or gdocs-sync--last-sync-time "never")))
 
+;;;###autoload
 (defun gdocs-open-in-browser ()
   "Open the linked Google Doc or folder in the default web browser.
 In a `dired' buffer, operate on the file or directory at point."
@@ -486,7 +489,7 @@ In a `dired' buffer, operate on the file or directory at point."
     (browse-url (gdocs--document-url gdocs-sync--document-id))))
 
 (defun gdocs--open-dired-entry-in-browser ()
-  "Open the Google Doc or folder linked to the dired entry at point."
+  "Open the Google Doc or folder linked to the Dired entry at point."
   (let ((file (dired-get-filename nil t)))
     (unless file
       (user-error "No file at point"))
@@ -507,7 +510,7 @@ lives) to avoid loading large org files into memory."
   (gdocs-convert--read-file-property-gdocs-id file))
 
 (defun gdocs--read-dir-local-variable (dir variable)
-  "Return the org-mode DIR-local VARIABLE from DIR's `.dir-locals.el', or nil."
+  "Return the `org-mode' DIR-local VARIABLE from DIR's `.dir-locals.el', or nil."
   (let ((dl-file (expand-file-name ".dir-locals.el" dir)))
     (when (file-exists-p dl-file)
       (with-temp-buffer
