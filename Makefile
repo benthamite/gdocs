@@ -1,14 +1,13 @@
 EMACS ?= emacs
-ELPACA_DIR ?= $(HOME)/.config/emacs-profiles/8.1.0-dev/elpaca/builds
-
-LOAD_PATH = -L . -L test \
-  -L $(ELPACA_DIR)/plz \
-  -L $(ELPACA_DIR)/dash \
-  -L $(ELPACA_DIR)/s \
-  -L $(ELPACA_DIR)/transient \
-  -L $(ELPACA_DIR)/cond-let \
-  -L $(ELPACA_DIR)/seq \
-  -L $(ELPACA_DIR)/llama
+ELPACA_REPOS := $(dir $(CURDIR))
+LOAD_PATH := -L $(CURDIR) -L test \
+             -L $(ELPACA_REPOS)plz \
+             -L $(ELPACA_REPOS)dash \
+             -L $(ELPACA_REPOS)s \
+             -L $(ELPACA_REPOS)transient/lisp \
+             -L $(ELPACA_REPOS)cond-let \
+             -L $(ELPACA_REPOS)seq \
+             -L $(ELPACA_REPOS)llama
 
 TEST_FILES = \
   test/gdocs-test-helpers.el \
@@ -18,24 +17,27 @@ TEST_FILES = \
   test/gdocs-diff-test.el \
   test/gdocs-sync-test.el \
   test/gdocs-merge-test.el \
+  test/gdocs-roundtrip-test.el \
   test/gdocs-test.el
 
 LOAD_TESTS = $(foreach f,$(TEST_FILES),-l $(f))
 
+SRC_FILES := $(wildcard gdocs*.el)
+
 .PHONY: test test-verbose compile clean
 
 test:
-	$(EMACS) --batch $(LOAD_PATH) -l ert $(LOAD_TESTS) \
+	$(EMACS) -Q --batch $(LOAD_PATH) -l ert $(LOAD_TESTS) \
 	  -f ert-run-tests-batch-and-exit
 
 test-verbose:
-	$(EMACS) --batch $(LOAD_PATH) -l ert $(LOAD_TESTS) \
+	$(EMACS) -Q --batch $(LOAD_PATH) -l ert $(LOAD_TESTS) \
 	  --eval '(ert-run-tests-batch-and-exit t)'
 
 compile:
-	$(EMACS) --batch $(LOAD_PATH) \
+	$(EMACS) -Q --batch $(LOAD_PATH) \
 	  --eval '(setq byte-compile-error-on-warn t)' \
-	  -f batch-byte-compile gdocs*.el
+	  -f batch-byte-compile $(SRC_FILES)
 
 clean:
 	rm -f *.elc test/*.elc
