@@ -74,7 +74,7 @@ Once a buffer is linked, changes are pushed to Google Docs on every save (when `
 
 ## Documentation
 
-For a comprehensive description of all user options, commands, and functions, see the [manual](README.org).
+For a comprehensive description of all user options, commands, and functions, see the [manual](https://stafforini.com/notes/gdocs/).
 
 ## Roadmap
 
