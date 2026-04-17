@@ -116,6 +116,8 @@ automatically.  Changes are pushed to Google Docs on every save (when
 ~gdocs-auto-push-on-save~ is non-nil), and you can pull remote changes
 at any time with =M-x gdocs-pull=.
 
+The development repository is on [[https://github.com/benthamite/gdocs][GitHub]].
+
 * User options
 :PROPERTIES:
 :CUSTOM_ID: h:user-options
