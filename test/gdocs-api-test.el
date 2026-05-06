@@ -256,6 +256,88 @@
     (gdocs-api--hide-progress)
     (should (equal "" gdocs-api--modeline-string))))
 
+(ert-deftest gdocs-api-test-request-does-not-show-progress-during-auth ()
+  "Request progress starts only after authentication completes."
+  (let ((gdocs-api--active-requests 0)
+        (gdocs-api--modeline-string "")
+        (gdocs-accounts '(("acct"))))
+    (cl-letf (((symbol-function 'gdocs-auth-get-access-token)
+               (lambda (_account _callback &optional _errback) nil)))
+      (gdocs-api--request 'get "https://example.com" #'ignore
+                           :account "acct")
+      (should (equal 0 gdocs-api--active-requests))
+      (should (equal "" gdocs-api--modeline-string)))))
+
+(ert-deftest gdocs-api-test-request-does-not-leak-progress-on-auth-error ()
+  "Authentication errors before the request do not touch progress."
+  (let ((gdocs-api--active-requests 0)
+        (gdocs-api--modeline-string "")
+        (gdocs-accounts '(("acct"))))
+    (cl-letf (((symbol-function 'gdocs-auth-get-access-token)
+               (lambda (&rest _args)
+                 (error "auth failed"))))
+      (should-error
+       (gdocs-api--request 'get "https://example.com" #'ignore
+                           :account "acct")
+       :type 'error)
+      (should (equal 0 gdocs-api--active-requests))
+      (should (equal "" gdocs-api--modeline-string)))))
+
+(ert-deftest gdocs-api-test-send-request-hides-progress-with-finally ()
+  "Send-request relies on the plz finalizer to clear progress."
+  (let ((gdocs-api--active-requests 0)
+        (gdocs-api--modeline-string "")
+        captured-finally)
+    (cl-letf (((symbol-function 'plz)
+               (lambda (_method _url &rest args)
+                 (setq captured-finally (plist-get args :finally)))))
+      (gdocs-api--send-request 'get "https://example.com" "token"
+                               #'ignore "acct" nil 0)
+      (should (equal 1 gdocs-api--active-requests))
+      (should (functionp captured-finally))
+      (funcall captured-finally)
+      (should (equal 0 gdocs-api--active-requests))
+      (should (equal "" gdocs-api--modeline-string)))))
+
+(ert-deftest gdocs-api-test-send-request-hides-progress-on-startup-error ()
+  "Send-request clears progress if plz setup signals synchronously."
+  (let ((gdocs-api--active-requests 0)
+        (gdocs-api--modeline-string ""))
+    (cl-letf (((symbol-function 'plz)
+               (lambda (&rest _args)
+                 (error "startup failed"))))
+      (should-error
+       (gdocs-api--send-request 'get "https://example.com" "token"
+                                #'ignore "acct" nil 0)
+       :type 'error)
+      (should (equal 0 gdocs-api--active-requests))
+      (should (equal "" gdocs-api--modeline-string)))))
+
+(ert-deftest gdocs-api-test-upload-image-hides-progress-with-finally ()
+  "Image upload uses the plz finalizer to clear progress."
+  (let ((gdocs-api--active-requests 0)
+        (gdocs-api--modeline-string "")
+        (gdocs-accounts '(("acct")))
+        (temp-file (make-temp-file "gdocs-test-img" nil ".png"))
+        captured-finally)
+    (unwind-protect
+        (progn
+          (with-temp-file temp-file
+            (insert "fake-png-data"))
+          (cl-letf (((symbol-function 'gdocs-auth-get-access-token)
+                     (lambda (_account callback &optional _errback)
+                       (funcall callback "token")))
+                    ((symbol-function 'plz)
+                     (lambda (_method _url &rest args)
+                       (setq captured-finally (plist-get args :finally)))))
+            (gdocs-api-upload-image temp-file #'ignore "acct")
+            (should (equal 1 gdocs-api--active-requests))
+            (should (functionp captured-finally))
+            (funcall captured-finally)
+            (should (equal 0 gdocs-api--active-requests))
+            (should (equal "" gdocs-api--modeline-string))))
+      (delete-file temp-file))))
+
 ;;;; MIME type guessing
 
 (ert-deftest gdocs-api-test-mime-type-png ()

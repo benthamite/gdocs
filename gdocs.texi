@@ -1077,7 +1077,9 @@ directing you to run @code{gdocs-authenticate} to re-authorize.
 
 While API requests are in flight, the global modeline displays
 @samp{[GDocs: syncing...]} to indicate that a network operation is in
-progress.  The indicator disappears when all pending requests complete.
+progress.  The indicator tracks actual Google HTTP requests, not the
+OAuth authorization prompt, and disappears when all pending requests
+complete.
 
 @node Format conversion
 @chapter Format conversion

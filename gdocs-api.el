@@ -172,18 +172,24 @@ the account name for error reporting."
   (let* ((boundary (format "gdocs-boundary-%s" (sha1 (format "%s%s" file-path (float-time)))))
          (body (gdocs-api--build-multipart-body
                 boundary metadata file-path mime-type)))
-    (plz 'post gdocs-api--drive-upload-url
-      :headers `(("Authorization" . ,(concat "Bearer " token))
-                 ("Content-Type" . ,(concat "multipart/related; boundary=" boundary)))
-      :body body
-      :as #'json-read
-      :then callback
-      :else (lambda (err)
-              ;; Pass max-retries as attempt to prevent retry — multipart
-              ;; bodies cannot be transparently replayed.
-              (gdocs-api--handle-error
-               err 'post gdocs-api--drive-upload-url
-               callback account nil gdocs-api--max-retries)))))
+    (gdocs-api--show-progress)
+    (condition-case err
+        (plz 'post gdocs-api--drive-upload-url
+          :headers `(("Authorization" . ,(concat "Bearer " token))
+                     ("Content-Type" . ,(concat "multipart/related; boundary=" boundary)))
+          :body body
+          :as #'json-read
+          :then callback
+          :else (lambda (err)
+                  ;; Pass max-retries as attempt to prevent retry — multipart
+                  ;; bodies cannot be transparently replayed.
+                  (gdocs-api--handle-error
+                   err 'post gdocs-api--drive-upload-url
+                   callback account nil gdocs-api--max-retries))
+          :finally #'gdocs-api--hide-progress)
+      (error
+       (gdocs-api--hide-progress)
+       (signal (car err) (cdr err))))))
 
 (defun gdocs-api--build-multipart-body (boundary metadata file-path mime-type)
   "Build a multipart/related body for a Drive upload.
@@ -327,14 +333,12 @@ body.  ATTEMPT is the current retry attempt number, used
 internally.  ON-ERROR, if non-nil, is called with the error
 condition instead of signaling."
   (let ((acct (gdocs-auth--resolve-account account)))
-    (gdocs-api--show-progress)
     (gdocs-auth-get-access-token
      acct
      (lambda (token)
        (gdocs-api--send-request method url token callback
                                 acct body attempt on-error))
      (lambda (err-msg)
-       (gdocs-api--hide-progress)
        (if on-error
            (funcall on-error (cons 'error (list err-msg)))
          (error "%s" err-msg))))))
@@ -349,24 +353,28 @@ re-authentication errors.  BODY is an optional JSON string.
 ATTEMPT is the current retry count.  ON-ERROR, if non-nil, is
 called with the error condition instead of signaling."
   (let ((headers (gdocs-api--build-headers token body)))
-    (apply #'plz method url
-           :headers headers
-           :as #'json-read
-           :then (lambda (json)
-                   (gdocs-api--hide-progress)
-                   (funcall callback json))
-           :else (lambda (err)
-                   (gdocs-api--hide-progress)
-                   (condition-case api-err
-                       (gdocs-api--handle-error
-                        err method url callback account body attempt
-                        on-error)
-                     (error
-                      (if on-error
-                          (funcall on-error api-err)
-                        (signal (car api-err) (cdr api-err))))))
-           ;; Conditionally append :body via apply's final-arg spreading
-           (when body (list :body body)))))
+    (gdocs-api--show-progress)
+    (condition-case err
+        (apply #'plz method url
+               :headers headers
+               :as #'json-read
+               :then (lambda (json)
+                       (funcall callback json))
+               :else (lambda (err)
+                       (condition-case api-err
+                           (gdocs-api--handle-error
+                            err method url callback account body attempt
+                            on-error)
+                         (error
+                          (if on-error
+                              (funcall on-error api-err)
+                            (signal (car api-err) (cdr api-err))))))
+               :finally #'gdocs-api--hide-progress
+               ;; Conditionally append :body via apply's final-arg spreading
+               (when body (list :body body)))
+      (error
+       (gdocs-api--hide-progress)
+       (signal (car err) (cdr err))))))
 
 (defun gdocs-api--build-headers (token body)
   "Build HTTP headers with TOKEN for authorization.

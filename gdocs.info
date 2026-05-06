@@ -1021,7 +1021,8 @@ File: gdocs.info,  Node: Progress indication,  Prev: Error handling and retries,
 
 While API requests are in flight, the global modeline displays ‘[GDocs:
 syncing...]’ to indicate that a network operation is in progress.  The
-indicator disappears when all pending requests complete.
+indicator tracks actual Google HTTP requests, not the OAuth
+authorization prompt, and disappears when all pending requests complete.
 
 
 File: gdocs.info,  Node: Format conversion,  Next: Sync engine,  Prev: API client,  Up: Top
@@ -1705,29 +1706,29 @@ Node: Multi-account support39248
 Node: API client39908
 Node: Error handling and retries40102
 Node: Progress indication40810
-Node: Format conversion41164
-Node: Supported element mapping41428
-Node: Intermediate representation43502
-Node: Org-only constructs44685
-Node: Google Docs-only constructs45720
-Node: Sync engine46361
-Node: Metadata storage46589
-Node: Shadow copy47833
-Node: Push serialization48595
-Node: Post-push list nesting fixup49068
-Node: Diff engine52650
-Node: Approach53049
-Node: Word-level diff54918
-Node: Text-style reset56753
-Node: Comment-aware push58024
-Node: Conflict resolution60827
-Node: Minor mode61701
-Node: Keybindings62897
-Node: Merge mode63502
-Node: Development64132
-Node: Indices64351
-Node: Function index64488
-Node: Variable index69453
+Node: Format conversion41240
+Node: Supported element mapping41504
+Node: Intermediate representation43578
+Node: Org-only constructs44761
+Node: Google Docs-only constructs45796
+Node: Sync engine46437
+Node: Metadata storage46665
+Node: Shadow copy47909
+Node: Push serialization48671
+Node: Post-push list nesting fixup49144
+Node: Diff engine52726
+Node: Approach53125
+Node: Word-level diff54994
+Node: Text-style reset56829
+Node: Comment-aware push58100
+Node: Conflict resolution60903
+Node: Minor mode61777
+Node: Keybindings62973
+Node: Merge mode63578
+Node: Development64208
+Node: Indices64427
+Node: Function index64564
+Node: Variable index69529
 
 End Tag Table
 

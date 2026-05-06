@@ -83,12 +83,17 @@ the request's :then callback."
 Find the matching route handler and call the :then callback with
 the handler's return value."
   (let* ((then-fn (plist-get args :then))
+         (finally-fn (plist-get args :finally))
          (handler (gdocs-test--find-route-handler url)))
-    (unless handler
-      (error "No mock route matches URL: %s" url))
-    (when then-fn
-      (funcall then-fn
-               (funcall handler method url (plist-get args :body))))))
+    (unwind-protect
+        (progn
+          (unless handler
+            (error "No mock route matches URL: %s" url))
+          (when then-fn
+            (funcall then-fn
+                     (funcall handler method url (plist-get args :body)))))
+      (when finally-fn
+        (funcall finally-fn)))))
 
 (defun gdocs-test--find-route-handler (url)
   "Find the first handler in `gdocs-test--mock-routes' matching URL.
