@@ -20,6 +20,60 @@
 (require 'cl-lib)
 (require 'plz)
 
+;;;; Request validation
+
+(ert-deftest gdocs-api-test-record-batch-update-writes-debug-payload ()
+  "Batch update recording writes the last request payload for debugging."
+  (let ((gdocs-api-debug-batch-update-file
+         (make-temp-file "gdocs-batch-debug" nil ".json"))
+        (gdocs-api-debug-batch-update-history-directory nil))
+    (unwind-protect
+        (progn
+          (gdocs-api--record-batch-update
+           "doc-1" '(((insertText . ((text . "x")
+                                      (location . ((index . 1))))))))
+          (let ((payload (with-temp-buffer
+                           (insert-file-contents gdocs-api-debug-batch-update-file)
+                           (json-read-from-string (buffer-string)))))
+            (should (equal (alist-get 'documentId payload) "doc-1"))
+            (should (= (alist-get 'requestCount payload) 1))
+            (should (equal (append (alist-get 'requestKinds payload) nil)
+                           '("insertText")))))
+      (delete-file gdocs-api-debug-batch-update-file))))
+
+(ert-deftest gdocs-api-test-record-batch-update-writes-history-payloads ()
+  "Batch update recording keeps all payloads in a history directory."
+  (let ((gdocs-api-debug-batch-update-file nil)
+        (gdocs-api-debug-batch-update-history-directory
+         (make-temp-file "gdocs-batch-history" t))
+        (gdocs-api--debug-batch-update-sequence 0))
+    (unwind-protect
+        (progn
+          (gdocs-api--record-batch-update
+           "doc-1" '(((insertText . ((text . "x")
+                                      (location . ((index . 1))))))))
+          (gdocs-api--record-batch-update
+           "doc-1" '(((deleteContentRange
+                       . ((range . ((startIndex . 1) (endIndex . 2))))))))
+          (should (= 2 (length (directory-files
+                                gdocs-api-debug-batch-update-history-directory
+                                nil "\\.json\\'")))))
+      (delete-directory gdocs-api-debug-batch-update-history-directory t))))
+
+(ert-deftest gdocs-api-test-validate-batch-rejects-empty-delete ()
+  "Batch request validation fails before sending empty deletes to Google."
+  (should-error
+   (gdocs-api--validate-batch-requests
+    '(((deleteContentRange
+        . ((range . ((startIndex . 4) (endIndex . 4))))))))))
+
+(ert-deftest gdocs-api-test-validate-batch-allows-non-empty-delete ()
+  "Batch request validation accepts non-empty deletes."
+  (should-not
+   (gdocs-api--validate-batch-requests
+    '(((deleteContentRange
+        . ((range . ((startIndex . 4) (endIndex . 5))))))))))
+
 ;;;; Header building
 
 (ert-deftest gdocs-api-test-build-headers-get-request ()

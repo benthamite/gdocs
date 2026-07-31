@@ -48,6 +48,49 @@
 
 ;;;; Public API — Google Docs
 
+(defvar gdocs-api-debug-batch-update-file nil
+  "File where the last Docs batchUpdate payload is written for debugging.
+When nil, the latest batchUpdate payload is not recorded.")
+
+(defvar gdocs-api-debug-batch-update-history-directory nil
+  "Directory where all Docs batchUpdate payloads are written for debugging.
+When nil, batchUpdate payload history is not recorded.")
+
+(defvar gdocs-api--debug-batch-update-sequence 0
+  "Monotonic sequence number for debug batchUpdate history files.")
+
+(defun gdocs-api--batch-update-debug-payload (document-id requests)
+  "Return debug payload for DOCUMENT-ID and REQUESTS."
+  `((documentId . ,document-id)
+    (requestCount . ,(length requests))
+    (requestKinds . ,(vconcat
+                      (mapcar (lambda (request)
+                                (symbol-name (caar request)))
+                              requests)))
+    (requests . ,requests)))
+
+(defun gdocs-api--record-batch-update-history (payload)
+  "Record batchUpdate PAYLOAD in the history directory."
+  (when gdocs-api-debug-batch-update-history-directory
+    (make-directory gdocs-api-debug-batch-update-history-directory t)
+    (setq gdocs-api--debug-batch-update-sequence
+          (1+ gdocs-api--debug-batch-update-sequence))
+    (let ((file (expand-file-name
+                 (format "%s-%03d.json"
+                         (format-time-string "%Y%m%dT%H%M%S%3N")
+                         gdocs-api--debug-batch-update-sequence)
+                 gdocs-api-debug-batch-update-history-directory)))
+      (with-temp-file file
+        (insert (json-encode payload))))))
+
+(defun gdocs-api--record-batch-update (document-id requests)
+  "Record DOCUMENT-ID and REQUESTS for post-mortem debugging."
+  (let ((payload (gdocs-api--batch-update-debug-payload document-id requests)))
+    (when gdocs-api-debug-batch-update-file
+      (with-temp-file gdocs-api-debug-batch-update-file
+        (insert (json-encode payload))))
+    (gdocs-api--record-batch-update-history payload)))
+
 (defun gdocs-api-get-document (document-id callback &optional account on-error)
   "Fetch a Google Docs document by DOCUMENT-ID.
 CALLBACK is called with the parsed JSON document structure.
@@ -60,6 +103,23 @@ condition instead of signaling."
                       :account account
                       :on-error on-error))
 
+(defun gdocs-api--empty-delete-content-range-p (request)
+  "Return non-nil when REQUEST has an empty deleteContentRange."
+  (when-let* ((delete (alist-get 'deleteContentRange request))
+              (range (alist-get 'range delete))
+              (start (alist-get 'startIndex range))
+              (end (alist-get 'endIndex range)))
+    (<= end start)))
+
+(defun gdocs-api--validate-batch-requests (requests)
+  "Fail locally when REQUESTS contain invalid no-op mutations."
+  (let ((index 0))
+    (dolist (request requests)
+      (when (gdocs-api--empty-delete-content-range-p request)
+        (error "Invalid local Google Docs request[%d].deleteContentRange: %S"
+               index request))
+      (setq index (1+ index)))))
+
 (defun gdocs-api-batch-update (document-id requests callback
                                            &optional account on-error)
   "Send a batchUpdate to DOCUMENT-ID with REQUESTS.
@@ -67,6 +127,8 @@ REQUESTS is a list of request alists.  CALLBACK is called with
 the parsed JSON response.  ACCOUNT is an optional account name.
 ON-ERROR, if non-nil, is called with the error condition instead
 of signaling; use this to clean up async state on failure."
+  (gdocs-api--record-batch-update document-id requests)
+  (gdocs-api--validate-batch-requests requests)
   (gdocs-api--request 'post
                       (concat gdocs-api--docs-base-url
                               "/" document-id ":batchUpdate")
