@@ -501,6 +501,9 @@ the browser.  @code{gdocs-directory} (@ref{File storage}) is always scanned;
 this option lets you add further directories that also contain linked
 org files.
 
+Local directory links keep their @samp{file:} URLs; the converter does not
+read directories as linked Org files or map them to Google Docs.
+
 The value is a list of directory paths.  The default value is @code{nil},
 meaning only @code{gdocs-directory} is scanned.  You would add directories
 here if your linked org files are spread across multiple locations
@@ -583,7 +586,8 @@ The command @code{gdocs-link} links the current org buffer to an existing
 Google Doc.  It prompts for a document ID or URL and, if needed, an
 account.  Linking writes the document ID and account to the file-level
 property drawer (@ref{Metadata storage}) and triggers an initial pull to
-establish the sync baseline.
+establish the sync baseline.  It also enables @code{gdocs-mode} immediately,
+including push-on-save and the sync status display.
 
 The command @code{gdocs-unlink} removes the gdocs properties from the
 property drawer and clears all buffer-local sync state, turning the
@@ -1414,7 +1418,10 @@ back to computing positions from element text lengths.  Insertion
 points for new elements are determined by the end position of the
 nearest preceding kept or modified element; modified elements are
 valid anchors because they still occupy a known position in the old
-document.
+document.  When the anchor is the document's final paragraph, its
+end position is the end of the body, where the API rejects
+insertions; the engine instead inserts the new text, preceded by a
+newline, just before the final newline.
 
 @item
 Map operations to API requests:

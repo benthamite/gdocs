@@ -929,5 +929,57 @@ at D's position, not to keep(C)."
     (let ((loc (alist-get 'location (alist-get 'insertText z-req))))
       (should (= (alist-get 'index loc) 13)))))
 
+(ert-deftest gdocs-diff-test-append-after-final-paragraph ()
+  "Appending after the final paragraph inserts before the body newline.
+Regression: the insertion used the final paragraph's end index, which
+is the end of the body segment, and the API rejected it with \"Index N
+must be less than the end index of the referenced segment\".  Old: [A]
+with A=[1,7).  The text must be inserted at 6 with a leading newline,
+so the new text still occupies [7, 11)."
+  (let* ((old-ir (list (gdocs-diff-test--make-paragraph "A" "alpha")))
+         (new-ir (list (gdocs-diff-test--make-paragraph "A" "alpha")
+                       (gdocs-diff-test--make-paragraph "B" "beta")))
+         (result (gdocs-diff-generate old-ir new-ir))
+         (it (alist-get 'insertText
+                        (gdocs-diff-test--insert-text-req result "beta")))
+         (style (alist-get 'updateParagraphStyle
+                           (cl-find-if (lambda (req)
+                                         (alist-get 'updateParagraphStyle req))
+                                       result)))
+         (range (alist-get 'range style)))
+    (should (= (alist-get 'index (alist-get 'location it)) 6))
+    (should (equal (alist-get 'text it) "\nbeta"))
+    (should (= (alist-get 'startIndex range) 7))
+    (should (= (alist-get 'endIndex range) 11))))
+
+(ert-deftest gdocs-diff-test-appends-after-modified-final-paragraph ()
+  "Several paragraphs appended after a modified final paragraph.
+Every insertion must stay below the body end index, and the later
+paragraph must be inserted first so they stack in forward order.
+Old: H=[1,6), A=[6,8); the body ends at 8."
+  (let* ((old-ir (list (gdocs-diff-test--make-paragraph "H" "Head" 'heading-1)
+                       (gdocs-diff-test--make-paragraph "A" "I")))
+         (new-ir (list (gdocs-diff-test--make-paragraph "H" "Head" 'heading-1)
+                       (gdocs-diff-test--make-paragraph "A2" "I will")
+                       (gdocs-diff-test--make-paragraph "B" "beta")
+                       (gdocs-diff-test--make-paragraph "C" "gamma")))
+         (result (gdocs-diff-generate old-ir new-ir)))
+    (dolist (req result)
+      (let ((it (alist-get 'insertText req)))
+        (when it
+          (should (< (alist-get 'index (alist-get 'location it)) 8)))))
+    (should (< (cl-position (gdocs-diff-test--insert-text-req result "gamma")
+                            result)
+               (cl-position (gdocs-diff-test--insert-text-req result "beta")
+                            result)))))
+
+(defun gdocs-diff-test--insert-text-req (result text)
+  "Return the insertText request in RESULT whose text contains TEXT."
+  (cl-find-if (lambda (req)
+                (let ((it (alist-get 'insertText req)))
+                  (and it (string-match-p (regexp-quote text)
+                                          (alist-get 'text it)))))
+              result))
+
 (provide 'gdocs-diff-test)
 ;;; gdocs-diff-test.el ends here

@@ -449,6 +449,9 @@ those links with Google Docs URLs so they work in the browser.
 ‘gdocs-directory’ (*note File storage::) is always scanned; this option
 lets you add further directories that also contain linked org files.
 
+   Local directory links keep their ‘file:’ URLs; the converter does not
+read directories as linked Org files or map them to Google Docs.
+
    The value is a list of directory paths.  The default value is ‘nil’,
 meaning only ‘gdocs-directory’ is scanned.  You would add directories
 here if your linked org files are spread across multiple locations (for
@@ -537,7 +540,8 @@ The command ‘gdocs-link’ links the current org buffer to an existing
 Google Doc.  It prompts for a document ID or URL and, if needed, an
 account.  Linking writes the document ID and account to the file-level
 property drawer (*note Metadata storage::) and triggers an initial pull
-to establish the sync baseline.
+to establish the sync baseline.  It also enables ‘gdocs-mode’
+immediately, including push-on-save and the sync status display.
 
    The command ‘gdocs-unlink’ removes the gdocs properties from the
 property drawer and clears all buffer-local sync state, turning the org
@@ -1331,7 +1335,10 @@ File: gdocs.info,  Node: Approach,  Next: Word-level diff,  Up: Diff engine
      Insertion points for new elements are determined by the end
      position of the nearest preceding kept or modified element;
      modified elements are valid anchors because they still occupy a
-     known position in the old document.
+     known position in the old document.  When the anchor is the
+     document's final paragraph, its end position is the end of the
+     body, where the API rejects insertions; the engine instead inserts
+     the new text, preceded by a newline, just before the final newline.
 
   4. Map operations to API requests:
         • *Insert*: ‘InsertText’, ‘InsertTable’,
@@ -1682,53 +1689,53 @@ Node: Sync behavior11651
 Node: File storage13673
 Node: Org tagging14352
 Node: Cross-document link resolution15045
-Node: Commands16009
-Node: Opening and creating documents16344
-Node: Pushing and pulling17751
-Node: Linking and unlinking19129
-Node: Directory linking19868
-Node: Status and browser21717
-Node: Authentication22759
-Node: Conflict resolution (1)23553
-Node: Transient menu25168
-Node: Functions26686
-Node: Authentication (2)27005
-Node: API client (1)28029
-Node: Google Docs API28227
-Node: Google Drive API29318
-Node: Format conversion (1)32343
-Node: Diff engine (1)34869
-Node: Conflict resolution (2)36796
-Node: Authentication (1)37497
-Node: OAuth flow37698
-Node: Token management38591
-Node: Multi-account support39248
-Node: API client39908
-Node: Error handling and retries40102
-Node: Progress indication40810
-Node: Format conversion41240
-Node: Supported element mapping41504
-Node: Intermediate representation43578
-Node: Org-only constructs44761
-Node: Google Docs-only constructs45796
-Node: Sync engine46437
-Node: Metadata storage46665
-Node: Shadow copy47909
-Node: Push serialization48671
-Node: Post-push list nesting fixup49144
-Node: Diff engine52726
-Node: Approach53125
-Node: Word-level diff54994
-Node: Text-style reset56829
-Node: Comment-aware push58100
-Node: Conflict resolution60903
-Node: Minor mode61777
-Node: Keybindings62973
-Node: Merge mode63578
-Node: Development64208
-Node: Indices64427
-Node: Function index64564
-Node: Variable index69529
+Node: Commands16152
+Node: Opening and creating documents16487
+Node: Pushing and pulling17894
+Node: Linking and unlinking19272
+Node: Directory linking20110
+Node: Status and browser21959
+Node: Authentication23001
+Node: Conflict resolution (1)23795
+Node: Transient menu25410
+Node: Functions26928
+Node: Authentication (2)27247
+Node: API client (1)28271
+Node: Google Docs API28469
+Node: Google Drive API29560
+Node: Format conversion (1)32585
+Node: Diff engine (1)35111
+Node: Conflict resolution (2)37038
+Node: Authentication (1)37739
+Node: OAuth flow37940
+Node: Token management38833
+Node: Multi-account support39490
+Node: API client40150
+Node: Error handling and retries40344
+Node: Progress indication41052
+Node: Format conversion41482
+Node: Supported element mapping41746
+Node: Intermediate representation43820
+Node: Org-only constructs45003
+Node: Google Docs-only constructs46038
+Node: Sync engine46679
+Node: Metadata storage46907
+Node: Shadow copy48151
+Node: Push serialization48913
+Node: Post-push list nesting fixup49386
+Node: Diff engine52968
+Node: Approach53367
+Node: Word-level diff55473
+Node: Text-style reset57308
+Node: Comment-aware push58579
+Node: Conflict resolution61382
+Node: Minor mode62256
+Node: Keybindings63452
+Node: Merge mode64057
+Node: Development64687
+Node: Indices64906
+Node: Function index65043
+Node: Variable index70008
 
 End Tag Table
 

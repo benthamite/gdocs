@@ -1169,7 +1169,10 @@ last-known state to the current org state.
    points for new elements are determined by the end position of the
    nearest preceding kept or modified element; modified elements are
    valid anchors because they still occupy a known position in the old
-   document.
+   document.  When the anchor is the document's final paragraph, its
+   end position is the end of the body, where the API rejects
+   insertions; the engine instead inserts the new text, preceded by a
+   newline, just before the final newline.
 
 4. Map operations to API requests:
    - *Insert*: ~InsertText~, ~InsertTable~, ~CreateParagraphBullets~, etc.

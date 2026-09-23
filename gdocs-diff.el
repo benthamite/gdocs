@@ -378,11 +378,17 @@ START-INDEX is the UTF-16 index where the first element begins."
                (insert-index (gdocs-diff--insertion-point
                               op diff-ops old-indices start-index))
                (result (gdocs-convert--ir-element-to-requests
-                        element insert-index)))
+                        element insert-index))
+               (anchor (gdocs-diff--final-paragraph-anchor
+                        op diff-ops old-ir element)))
           (push (list :index insert-index
                       :sort-phase gdocs-diff--sort-phase-insert
                       :new-index ni
-                      :reqs (plist-get result :requests))
+                      :reqs (if anchor
+                                (gdocs-diff--insert-before-body-newline
+                                 (plist-get result :requests)
+                                 insert-index element anchor)
+                              (plist-get result :requests)))
                 groups))))
     ;; Sort groups for correct index stability:
     ;; 1. Descending by index — process from end to start so earlier
@@ -459,6 +465,48 @@ preceding kept or modified element."
           (when (memq (plist-get other :op) '(keep modify))
             (setq found (plist-get other :old-index))))))
     found))
+
+(defun gdocs-diff--final-paragraph-anchor (op diff-ops old-ir element)
+  "Return the final paragraph of OLD-IR if OP appends ELEMENT after it.
+DIFF-OPS is the full operation list.  Return nil unless the anchor of
+OP is the last element of OLD-IR and both it and ELEMENT are
+paragraphs.  The end index of that anchor is the end of the body
+segment, where the API rejects insertions."
+  (let* ((anchor-index (gdocs-diff--preceding-kept-old-index op diff-ops))
+         (anchor (and anchor-index (nth anchor-index old-ir))))
+    (when (and anchor
+               (= anchor-index (1- (length old-ir)))
+               (eq (plist-get anchor :type) 'paragraph)
+               (eq (plist-get element :type) 'paragraph))
+      anchor)))
+
+(defun gdocs-diff--insert-before-body-newline (reqs index element anchor)
+  "Move the insertion in REQS at INDEX before the final body newline.
+REQS insert paragraph ELEMENT after the final paragraph ANCHOR.
+Inserting \"\\nTEXT\" at INDEX - 1 instead of \"TEXT\\n\" at INDEX
+splits ANCHOR and yields the same paragraphs, so the style ranges in
+REQS, which start at INDEX, remain valid.  The new paragraph inherits
+the list membership of ANCHOR, so remove it when ELEMENT is not a
+list item."
+  (let* ((moved nil)
+         (rewritten
+          (mapcar (lambda (req)
+                    (let ((it (alist-get 'insertText req)))
+                      (if (or moved (null it)
+                              (/= (alist-get 'index (alist-get 'location it))
+                                  index))
+                          req
+                        (setq moved t)
+                        (gdocs-convert--make-insert-text-request
+                         (concat "\n" (substring (alist-get 'text it) 0 -1))
+                         (1- index)))))
+                  reqs)))
+    (if (and (plist-get anchor :list) (null (plist-get element :list)))
+        (append rewritten
+                (list (gdocs-diff--make-delete-bullets-request
+                       index
+                       (+ index (gdocs-diff--paragraph-utf16-length element)))))
+      rewritten)))
 
 ;; ---------------------------------------------------------------------------
 ;;; Modification requests
