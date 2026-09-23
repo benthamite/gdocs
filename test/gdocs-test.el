@@ -19,6 +19,22 @@
 (require 'cl-lib)
 (require 'gdocs)
 
+(ert-deftest gdocs-test-link-enables-mode ()
+  "Linking enables save synchronization and starts only one initial pull."
+  (with-temp-buffer
+    (org-mode)
+    (let ((gdocs-auto-pull-on-open t)
+          (pull-count 0))
+      (cl-letf (((symbol-function 'save-buffer) #'ignore)
+                ((symbol-function 'gdocs-sync-pull)
+                 (lambda () (setq pull-count (1+ pull-count)))))
+        (gdocs-link "DOCUMENT_ID" "epoch")
+        (should gdocs-mode)
+        (should (equal gdocs-sync--document-id "DOCUMENT_ID"))
+        (should (equal gdocs-sync--account "epoch"))
+        (should (memq #'gdocs-sync--push-on-save after-save-hook))
+        (should (= pull-count 1))))))
+
 ;;;; Filename sanitization
 
 (ert-deftest gdocs-test-sanitize-simple-ascii ()

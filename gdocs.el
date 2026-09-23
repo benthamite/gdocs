@@ -274,7 +274,9 @@ ACCOUNT is the account name to use; if nil, prompt."
    (progn
      (gdocs-auth--validate-accounts-configured)
      (list (read-string "Google Doc ID or URL: "))))
-  (gdocs-sync-link document-id-or-url account))
+  (gdocs-sync-link document-id-or-url account)
+  (let ((gdocs-auto-pull-on-open nil))
+    (gdocs-mode 1)))
 
 (defun gdocs-unlink ()
   "Unlink the current buffer from its Google Doc."

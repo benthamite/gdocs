@@ -406,7 +406,8 @@ The command ~gdocs-link~ links the current org buffer to an existing
 Google Doc.  It prompts for a document ID or URL and, if needed, an
 account.  Linking writes the document ID and account to the file-level
 property drawer ([[#h:metadata-storage][Metadata storage]]) and triggers an initial pull to
-establish the sync baseline.
+establish the sync baseline.  It also enables ~gdocs-mode~ immediately,
+including push-on-save and the sync status display.
 
 The command ~gdocs-unlink~ removes the gdocs properties from the
 property drawer and clears all buffer-local sync state, turning the
