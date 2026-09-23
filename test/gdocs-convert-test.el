@@ -782,6 +782,21 @@
       (delete-file target-file)
       (delete-directory temp-dir))))
 
+(ert-deftest gdocs-convert-test-link-url-directory ()
+  "Directory links preserve their file: URL without reading a directory."
+  (let ((temp-dir (make-temp-file "gdocs-test" t)))
+    (unwind-protect
+        (let* ((gdocs-convert--link-context
+                (list :buffer-file (expand-file-name "source.org" temp-dir)))
+               (ir (gdocs-convert-org-string-to-ir
+                    "See [[file:../][projects]]"))
+               (runs (plist-get (car ir) :contents))
+               (link-run (nth 1 runs)))
+          (should (equal (plist-get link-run :text) "projects"))
+          (should (equal (plist-get link-run :link) "file:../"))
+          (should-not (gdocs-convert--read-file-property-gdocs-id temp-dir)))
+      (delete-directory temp-dir))))
+
 (ert-deftest gdocs-convert-test-link-url-no-context ()
   "Without link context, file: links return raw path (backward compat)."
   (let ((gdocs-convert--link-context nil))

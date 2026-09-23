@@ -73,8 +73,9 @@ IR-to-org conversion to resolve heading anchors back to text.")
 (defun gdocs-convert--read-file-property-gdocs-id (file-path)
   "Read GDOCS_DOCUMENT_ID from FILE-PATH's file-level property drawer.
 Reads only the head of the file (~1KB) and uses a regexp.
-Returns the document ID string or nil."
-  (when (and file-path (file-readable-p file-path))
+Returns the document ID string or nil for non-regular files."
+  (when (and file-path (file-regular-p file-path)
+             (file-readable-p file-path))
     (let ((head-bytes 1024))
       (with-temp-buffer
         (insert-file-contents file-path nil 0

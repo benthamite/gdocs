@@ -324,6 +324,9 @@ the browser.  ~gdocs-directory~ ([[#h:file-storage][File storage]]) is always sc
 this option lets you add further directories that also contain linked
 org files.
 
+Local directory links keep their =file:= URLs; the converter does not
+read directories as linked Org files or map them to Google Docs.
+
 The value is a list of directory paths.  The default value is ~nil~,
 meaning only ~gdocs-directory~ is scanned.  You would add directories
 here if your linked org files are spread across multiple locations
