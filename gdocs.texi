@@ -570,12 +570,16 @@ already in progress when another is triggered, the second push is
 queued and executed after the first completes.
 
 The command @code{gdocs-pull} fetches the latest version of the linked
-Google Doc.  It first checks the document's revision ID via the Google
-Drive API; if the revision matches the locally stored one, it reports
-``Already up to date.''  If the revision differs, it fetches the full
-document, converts it to org-mode format, and either replaces the
-buffer content silently (when there are no local modifications) or
-triggers the conflict resolution interface (@ref{Conflict resolution}).
+Google Doc and records the revision returned with that document by the
+Docs API@.  It merges remote changes while preserving local Org metadata
+and opens the conflict resolution interface when needed
+(@ref{Conflict resolution}).  If the remote content is
+unchanged, it preserves local edits while refreshing the revision metadata.
+Metadata updates preserve undo history and save automatically only when the
+buffer was already clean, without triggering a push.  Unsaved local edits
+remain unsaved and can still be undone normally.  A document accessible only
+for viewing can lack a revision token; pulling it clears any stale stored
+revision.
 
 Pulls ignore the structural empty paragraphs that Google Docs places
 around tables and at the end of the document.  They do not count as
@@ -843,8 +847,8 @@ the default account is selected automatically
 @findex gdocs-api-search-files
 The function @code{gdocs-api-get-file-metadata} fetches metadata for a
 Google Drive file, including its @samp{id}, @samp{name}, @samp{modifiedTime},
-@samp{version}, and @samp{headRevisionId}.  The revision ID is used by the pull
-mechanism to detect whether the remote document has changed
+@samp{version}, and @samp{headRevisionId}.  Native Google Docs synchronization uses
+the revision returned by the Docs API with the document body
 (@ref{Pushing and pulling}).
 
 The function @code{gdocs-api-list-files} lists Google Drive files matching a

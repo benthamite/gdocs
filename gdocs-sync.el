@@ -527,49 +527,30 @@ pushes are not blocked."
   (interactive)
   (unless gdocs-sync--document-id
     (user-error "Buffer is not linked to a Google Doc"))
+  (gdocs-sync--fetch-document-for-pull))
+
+(defun gdocs-sync--fetch-document-for-pull ()
+  "Fetch the native document and its revision for a pull operation."
   (let ((buf (current-buffer)))
-    (gdocs-api-get-file-metadata
-     gdocs-sync--document-id
-     (lambda (metadata)
-       (when (buffer-live-p buf)
-         (with-current-buffer buf
-           (gdocs-sync--handle-metadata-for-pull metadata))))
-     gdocs-sync--account)))
-
-(defun gdocs-sync--handle-metadata-for-pull (metadata)
-  "Check revision in METADATA and fetch document if changed."
-  (let ((remote-rev (alist-get 'headRevisionId metadata)))
-    (if (gdocs-sync--revision-matches-p remote-rev)
-        (message "Already up to date.")
-      (gdocs-sync--fetch-document-for-pull remote-rev))))
-
-(defun gdocs-sync--revision-matches-p (remote-rev)
-  "Return non-nil if REMOTE-REV matches the stored revision."
-  (and gdocs-sync--revision-id
-       (equal gdocs-sync--revision-id remote-rev)))
-
-(defun gdocs-sync--fetch-document-for-pull (revision-id)
-  "Fetch the full document for a pull operation.
-REVISION-ID is the remote revision to store on success."
-  (let ((buf (current-buffer))
-        (rev revision-id))
     (gdocs-api-get-document
      gdocs-sync--document-id
      (lambda (json)
        (when (buffer-live-p buf)
          (with-current-buffer buf
-           (gdocs-sync--apply-pull json rev))))
+           (gdocs-sync--apply-pull json))))
      gdocs-sync--account)))
 
-(defun gdocs-sync--apply-pull (json revision-id)
+(defun gdocs-sync--apply-pull (json)
   "Apply the pulled document JSON to the current buffer.
-REVISION-ID is the remote revision to store on success.
+Use only JSON's native revisionId; its absence clears stale revisions.
 Uses the shadow IR to detect what actually changed remotely.
 When a shadow exists, performs a three-way merge that preserves
 org-only metadata (property drawers, TODO keywords, tags, etc.)
 on elements that were not changed remotely."
   (let* ((doc-id gdocs-sync--document-id)
+         (revision-id (alist-get 'revisionId json))
          (link-ctx (gdocs-sync--make-link-context))
+         (gdocs-convert--link-context link-ctx)
          (gdocs-convert--document-id doc-id)
          (remote-ir (cl-remove-if
                      #'gdocs-convert--empty-body-paragraph-p
@@ -578,22 +559,46 @@ on elements that were not changed remotely."
       (gdocs-convert--cache-heading-ids doc-id json))
     (if (gdocs-sync--remote-unchanged-p remote-ir)
         (progn
-          (when revision-id
-            (setq gdocs-sync--revision-id revision-id))
-          (gdocs-sync--set-status 'synced)
-          (message "Already up to date."))
-      (let ((gdocs-convert--link-context link-ctx))
-        (if (null gdocs-sync--shadow-ir)
-            ;; No shadow (first pull after link): full replacement
+          (gdocs-sync--refresh-pull-revision revision-id)
+          (gdocs-sync--set-status
+           (if (gdocs-sync--remote-unchanged-p
+                (gdocs-convert-org-buffer-to-ir))
+               'synced 'modified))
+          (message "Remote content unchanged%s"
+                   (if revision-id "" "; revision ID unavailable")))
+      (if (null gdocs-sync--shadow-ir)
+          ;; No shadow (first pull after link): full replacement
+          (gdocs-sync--replace-buffer-content
+           (gdocs-convert-ir-to-org remote-ir) revision-id)
+        ;; Have shadow: three-way merge
+        (let ((result (gdocs-sync--three-way-merge remote-ir)))
+          (if (plist-get result :has-conflicts)
+              (gdocs-sync--start-conflict-resolution
+               (plist-get result :merged-org) revision-id)
             (gdocs-sync--replace-buffer-content
-             (gdocs-convert-ir-to-org remote-ir) revision-id)
-          ;; Have shadow: three-way merge
-          (let ((result (gdocs-sync--three-way-merge remote-ir)))
-            (if (plist-get result :has-conflicts)
-                (gdocs-sync--start-conflict-resolution
-                 (plist-get result :merged-org) revision-id)
-              (gdocs-sync--replace-buffer-content
-               (plist-get result :merged-org) revision-id))))))))
+             (plist-get result :merged-org) revision-id)))))))
+
+(defun gdocs-sync--refresh-pull-revision (revision-id)
+  "Store REVISION-ID without saving pre-existing local edits.
+Persist metadata to disk only when the buffer was clean.  Suppress save
+and modification hooks so metadata alone cannot trigger an automatic push.
+Record metadata edits in the normal undo history."
+  (let ((modified (buffer-modified-p))
+        (stored (save-excursion
+                  (goto-char (point-min))
+                  (org-entry-get nil "GDOCS_REVISION_ID"))))
+    (setq gdocs-sync--revision-id revision-id)
+    (unless (equal stored revision-id)
+      (let ((inhibit-modification-hooks t))
+        (gdocs-sync--write-revision-property)
+        (gdocs-sync--reset-element-cache))
+      (unless modified
+        (if buffer-file-name
+            (let ((gdocs-auto-push-on-save nil)
+                  (before-save-hook nil)
+                  (after-save-hook nil))
+              (save-buffer))
+          (set-buffer-modified-p nil))))))
 
 (defun gdocs-sync--remote-unchanged-p (remote-ir)
   "Return non-nil if REMOTE-IR matches the shadow IR.
@@ -607,7 +612,7 @@ markers do not cause false mismatches."
 
 (defun gdocs-sync--install-content (org-string &optional revision-id)
   "Replace buffer content with ORG-STRING and update sync state.
-REVISION-ID, if non-nil, is stored as the current revision.
+Store REVISION-ID as the current revision; nil clears a stale revision.
 Handles suppressing modification hooks, writing properties,
 resetting org-element cache, and setting the shadow IR from the
 buffer."
@@ -620,8 +625,7 @@ buffer."
     (gdocs--ensure-org-tag)
     ;; Update buffer-local state before writing properties so
     ;; persist-properties sees the current values.
-    (when revision-id
-      (setq gdocs-sync--revision-id revision-id))
+    (setq gdocs-sync--revision-id revision-id)
     (gdocs-sync--update-last-sync-time)
     ;; Write all metadata to the file-level property drawer.
     (when doc-id
@@ -651,9 +655,10 @@ buffer."
 
 (defun gdocs-sync--replace-buffer-content (org-string &optional revision-id)
   "Replace buffer content with ORG-STRING and update the shadow IR.
-REVISION-ID, if non-nil, is stored as the current revision."
+Store REVISION-ID as the current revision; nil clears a stale revision."
   (gdocs-sync--install-content org-string revision-id)
-  (message "Pulled remote changes."))
+  (message "Pulled remote changes%s"
+           (if revision-id "" "; revision ID unavailable")))
 
 (defun gdocs-sync--start-conflict-resolution (remote-org revision-id)
   "Begin merge resolution between local content and REMOTE-ORG.
@@ -674,8 +679,8 @@ REVISION-ID is the remote revision to store after resolution."
              (gdocs-sync--apply-merge-result merged-org rev))))))))
 
 (defun gdocs-sync--apply-merge-result (merged-org &optional revision-id)
-  "Apply MERGED-ORG as the resolved content and push.
-REVISION-ID, if non-nil, is stored as the current revision."
+  "Apply MERGED-ORG as the resolved content.
+Store REVISION-ID as the current revision; nil clears a stale revision."
   (gdocs-sync--install-content merged-org revision-id)
   (message "Merge complete."))
 
@@ -1198,16 +1203,23 @@ is unused but accepted for API compatibility."
 (defun gdocs-sync--write-properties (doc-id account)
   "Write gdocs metadata to the file-level property drawer.
 DOC-ID and ACCOUNT are required.  The current buffer-local
-`gdocs-sync--revision-id' and `gdocs-sync--last-sync-time' are
-also persisted when non-nil."
+`gdocs-sync--revision-id' is written or removed when unknown.
+`gdocs-sync--last-sync-time' is also persisted when non-nil."
   (save-excursion
     (goto-char (point-min))
     (org-entry-put nil "GDOCS_DOCUMENT_ID" doc-id)
     (org-entry-put nil "GDOCS_ACCOUNT" account)
-    (when gdocs-sync--revision-id
-      (org-entry-put nil "GDOCS_REVISION_ID" gdocs-sync--revision-id))
+    (gdocs-sync--write-revision-property)
     (when gdocs-sync--last-sync-time
       (org-entry-put nil "GDOCS_LAST_SYNC" gdocs-sync--last-sync-time))))
+
+(defun gdocs-sync--write-revision-property ()
+  "Write the current revision property, removing it when unknown."
+  (save-excursion
+    (goto-char (point-min))
+    (if gdocs-sync--revision-id
+        (org-entry-put nil "GDOCS_REVISION_ID" gdocs-sync--revision-id)
+      (org-entry-delete nil "GDOCS_REVISION_ID"))))
 
 (defun gdocs-sync--reset-element-cache ()
   "Fully reset the org-element cache for the current buffer.

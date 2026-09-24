@@ -523,12 +523,16 @@ already in progress when another is triggered, the second push is queued
 and executed after the first completes.
 
    The command ‘gdocs-pull’ fetches the latest version of the linked
-Google Doc.  It first checks the document's revision ID via the Google
-Drive API; if the revision matches the locally stored one, it reports
-"Already up to date."  If the revision differs, it fetches the full
-document, converts it to org-mode format, and either replaces the buffer
-content silently (when there are no local modifications) or triggers the
-conflict resolution interface (*note Conflict resolution::).
+Google Doc and records the revision returned with that document by the
+Docs API.  It merges remote changes while preserving local Org metadata
+and opens the conflict resolution interface when needed (*note Conflict
+resolution::).  If the remote content is unchanged, it preserves local
+edits while refreshing the revision metadata.  Metadata updates preserve
+undo history and save automatically only when the buffer was already
+clean, without triggering a push.  Unsaved local edits remain unsaved
+and can still be undone normally.  A document accessible only for
+viewing can lack a revision token; pulling it clears any stale stored
+revision.
 
    Pulls ignore the structural empty paragraphs that Google Docs places
 around tables and at the end of the document.  They do not count as
@@ -786,8 +790,8 @@ File: gdocs.info,  Node: Google Drive API,  Prev: Google Docs API,  Up: API clie
 
 The function ‘gdocs-api-get-file-metadata’ fetches metadata for a Google
 Drive file, including its ‘id’, ‘name’, ‘modifiedTime’, ‘version’, and
-‘headRevisionId’.  The revision ID is used by the pull mechanism to
-detect whether the remote document has changed (*note Pushing and
+‘headRevisionId’.  Native Google Docs synchronization uses the revision
+returned by the Docs API with the document body (*note Pushing and
 pulling::).
 
    The function ‘gdocs-api-list-files’ lists Google Drive files matching
@@ -1712,50 +1716,50 @@ Node: Cross-document link resolution15045
 Node: Commands16152
 Node: Opening and creating documents16487
 Node: Pushing and pulling17894
-Node: Linking and unlinking20122
-Node: Directory linking20960
-Node: Status and browser22809
-Node: Authentication23851
-Node: Conflict resolution (1)24645
-Node: Transient menu26260
-Node: Functions27778
-Node: Authentication (2)28097
-Node: API client (1)29121
-Node: Google Docs API29319
-Node: Google Drive API30410
-Node: Format conversion (1)33435
-Node: Diff engine (1)35961
-Node: Conflict resolution (2)37888
-Node: Authentication (1)38589
-Node: OAuth flow38790
-Node: Token management39683
-Node: Multi-account support40340
-Node: API client41000
-Node: Error handling and retries41194
-Node: Progress indication41902
-Node: Format conversion42332
-Node: Supported element mapping42596
-Node: Intermediate representation44670
-Node: Org-only constructs45853
-Node: Google Docs-only constructs46888
-Node: Sync engine47529
-Node: Metadata storage47757
-Node: Shadow copy49001
-Node: Push serialization49763
-Node: Post-push list nesting fixup50236
-Node: Diff engine53818
-Node: Approach54217
-Node: Word-level diff56701
-Node: Text-style reset58536
-Node: Comment-aware push59807
-Node: Conflict resolution62610
-Node: Minor mode63484
-Node: Keybindings64680
-Node: Merge mode65285
-Node: Development65915
-Node: Indices66134
-Node: Function index66271
-Node: Variable index71236
+Node: Linking and unlinking20350
+Node: Directory linking21188
+Node: Status and browser23037
+Node: Authentication24079
+Node: Conflict resolution (1)24873
+Node: Transient menu26488
+Node: Functions28006
+Node: Authentication (2)28325
+Node: API client (1)29349
+Node: Google Docs API29547
+Node: Google Drive API30638
+Node: Format conversion (1)33668
+Node: Diff engine (1)36194
+Node: Conflict resolution (2)38121
+Node: Authentication (1)38822
+Node: OAuth flow39023
+Node: Token management39916
+Node: Multi-account support40573
+Node: API client41233
+Node: Error handling and retries41427
+Node: Progress indication42135
+Node: Format conversion42565
+Node: Supported element mapping42829
+Node: Intermediate representation44903
+Node: Org-only constructs46086
+Node: Google Docs-only constructs47121
+Node: Sync engine47762
+Node: Metadata storage47990
+Node: Shadow copy49234
+Node: Push serialization49996
+Node: Post-push list nesting fixup50469
+Node: Diff engine54051
+Node: Approach54450
+Node: Word-level diff56934
+Node: Text-style reset58769
+Node: Comment-aware push60040
+Node: Conflict resolution62843
+Node: Minor mode63717
+Node: Keybindings64913
+Node: Merge mode65518
+Node: Development66148
+Node: Indices66367
+Node: Function index66504
+Node: Variable index71469
 
 End Tag Table
 

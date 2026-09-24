@@ -616,8 +616,8 @@ and leaving unchanged cells and surrounding paragraphs untouched."
          (new-paragraph (list :type 'paragraph :style 'normal :contents new-cell))
          (text-change (gdocs-diff--word-level-paragraph-modification
                        old-paragraph new-paragraph (car range) (cdr range)))
-         (format-change (gdocs-diff--formatting-only-modification
-                         new-paragraph range)))
+         (format-change (copy-tree (gdocs-diff--formatting-only-modification
+                                    new-paragraph range))))
     (when-let* ((reset (alist-get 'updateTextStyle
                                  (car (plist-get format-change :style-reqs)))))
       (setf (alist-get 'fields reset)

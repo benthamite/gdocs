@@ -349,6 +349,26 @@ ROWS is a list of lists of lists of run plists."
       (should-error (gdocs-diff-generate (list old) (list new))
                     :type 'user-error))))
 
+(ert-deftest gdocs-diff-test-table-reset-does-not-mutate-shared-mask ()
+  "Repeated cell edits leave the generic reset mask unchanged."
+  (let* ((old (list :type 'table :doc-start 1 :doc-end 6
+                    :doc-cell-ranges '(((4 . 6)))
+                    :rows '(( ((:text "A" :bold t))))))
+         (new (list :type 'table :rows '(( ((:text "B")))))))
+    (dotimes (_ 4)
+      (let* ((requests (gdocs-diff-generate (list old) (list new)))
+             (mask (alist-get 'fields
+                              (alist-get 'updateTextStyle (car (last requests)))))
+             (fields (split-string mask ",")))
+        (should (= (seq-count (lambda (field) (equal field "link")) fields) 1))
+        (should (= (seq-count (lambda (field) (equal field "fontSize")) fields) 1)))))
+  (let ((generic (alist-get 'fields
+                            (alist-get 'updateTextStyle
+                                       (gdocs-convert--make-text-style-reset-request
+                                        1 2)))))
+    (should (equal generic
+                   "bold,italic,underline,strikethrough,weightedFontFamily,baselineOffset,foregroundColor,backgroundColor"))))
+
 (defun gdocs-diff-test--apply-bold-requests (text requests)
   "Apply ASCII text and bold style REQUESTS to propertized TEXT."
   (with-temp-buffer

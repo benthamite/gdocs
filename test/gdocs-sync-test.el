@@ -262,15 +262,187 @@ comments; now it always diffs against the fetched remote document."
 
 ;;;; Pull tests
 
+(defmacro gdocs-sync-test--with-linked-file (&rest body)
+  "Run BODY in a clean temporary linked file with a stale revision."
+  (declare (indent 0) (debug t))
+  `(let* ((file (make-temp-file "gdocs-revision-" nil ".org"))
+          (buffer (find-file-noselect file)))
+     (unwind-protect
+         (with-current-buffer buffer
+           (org-mode)
+           (insert "Shared\n")
+           (setq gdocs-sync--document-id "test-doc-id"
+                 gdocs-sync--account "test-account"
+                 gdocs-sync--revision-id "stale")
+           (gdocs-sync--persist-properties)
+           (save-buffer)
+           ,@body)
+       (when (buffer-live-p buffer)
+         (with-current-buffer buffer
+           (set-buffer-modified-p nil))
+         (kill-buffer buffer))
+       (delete-file file))))
+
+(ert-deftest gdocs-sync-test-pull-uses-native-document-revision ()
+  "Use the fetched Docs revision even when Drive omits or contradicts it."
+  (dolist (metadata '(nil ((headRevisionId . "stale"))
+                     ((headRevisionId . "unrelated-drive-revision"))))
+    (gdocs-sync-test-with-org-buffer "Old\n"
+      (setq gdocs-sync--revision-id "stale")
+      (let ((calls (gdocs-sync-test--pull-native-document
+                    (gdocs-sync-test--native-document "New" "native-current")
+                    metadata)))
+        (should (equal calls '(0 1)))
+        (should (string-match-p "New" (buffer-string)))
+        (should (equal gdocs-sync--revision-id "native-current"))
+        (goto-char (point-min))
+        (should (equal (org-entry-get nil "GDOCS_REVISION_ID")
+                       "native-current"))))))
+
+(ert-deftest gdocs-sync-test-pull-refreshes-unchanged-revision-safely ()
+  "Persist clean metadata without hooks; preserve unsaved local edits."
+  (dolist (dirty '(nil t))
+    (dolist (revision '("native-current" nil))
+      (gdocs-sync-test--with-linked-file
+        (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
+        (when dirty
+          (goto-char (point-max))
+          (insert "\nUnsaved local draft\n"))
+        (let ((before-ir (gdocs-convert-org-buffer-to-ir))
+              (before-disk (gdocs-sync-test--file-string buffer-file-name))
+              (before-save-count 0)
+              (after-save-count 0)
+              (change-count 0)
+              (gdocs-auto-push-on-save t))
+          (let ((before-save-hook (list (lambda () (cl-incf before-save-count))))
+                (after-save-hook (list (lambda () (cl-incf after-save-count))
+                                       #'gdocs-sync--push-on-save))
+                (after-change-functions
+                 (list (lambda (&rest _args) (cl-incf change-count)))))
+            (cl-letf (((symbol-function 'gdocs-sync-push)
+                       (lambda () (ert-fail "Metadata refresh attempted a push"))))
+              (gdocs-sync-test--pull-native-document
+               (gdocs-sync-test--native-document "Shared" revision))))
+          (should (= before-save-count 0))
+          (should (= after-save-count 0))
+          (should (= change-count 0))
+          (should (eq (buffer-modified-p) dirty))
+          (should (eq gdocs-sync--status (if dirty 'modified 'synced)))
+          (should (equal (gdocs-diff--element-keys before-ir)
+                         (gdocs-diff--element-keys
+                          (gdocs-convert-org-buffer-to-ir))))
+          (should (equal gdocs-sync--revision-id revision))
+          (goto-char (point-min))
+          (should (equal (org-entry-get nil "GDOCS_REVISION_ID") revision))
+          (let ((after-disk (gdocs-sync-test--file-string buffer-file-name)))
+            (if dirty
+                (should (equal after-disk before-disk))
+              (should (equal after-disk (buffer-string))))))))))
+
+(ert-deftest gdocs-sync-test-pull-clears-missing-revision-after-content-change ()
+  "A readable document without a revision clears stale state on installation."
+  (gdocs-sync-test--with-linked-file
+    (gdocs-sync-test--pull-native-document
+     (gdocs-sync-test--native-document "Updated" nil)
+     '((headRevisionId . "unrelated-drive-revision")))
+    (should (string-match-p "Updated" (buffer-string)))
+    (should-not gdocs-sync--revision-id)
+    (goto-char (point-min))
+    (should-not (org-entry-get nil "GDOCS_REVISION_ID"))
+    (should (equal (gdocs-sync-test--file-string buffer-file-name)
+                   (buffer-string)))))
+
+(ert-deftest gdocs-sync-test-pull-revision-refresh-preserves-dirty-undo ()
+  "Undo metadata and a prior user edit safely when revision lengths change."
+  (dolist (revision '("longer-native-current-revision" nil))
+    (gdocs-sync-test--with-linked-file
+      (buffer-enable-undo)
+      (setq buffer-undo-list nil
+            gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
+      (let ((saved (buffer-string))
+            (saved-disk (gdocs-sync-test--file-string buffer-file-name)))
+        (goto-char (point-max))
+        (insert "User draft\n")
+        (undo-boundary)
+        (gdocs-sync-test--pull-native-document
+         (gdocs-sync-test--native-document "Shared" revision))
+        (undo-boundary)
+        (should (buffer-modified-p))
+        (should (string-match-p "User draft" (buffer-string)))
+        (should (equal saved-disk
+                       (gdocs-sync-test--file-string buffer-file-name)))
+        (let ((last-command nil))
+          (undo-only 2))
+        (should (equal (buffer-string) saved))
+        (should (equal saved-disk
+                       (gdocs-sync-test--file-string buffer-file-name)))))))
+
+(ert-deftest gdocs-sync-test-pull-defers-revision-until-conflict-resolution ()
+  "Keep the previous revision until a conflicting pull is accepted."
+  (dolist (revision '("native-current" nil))
+    (gdocs-sync-test--with-linked-file
+      (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
+      (goto-char (point-min))
+      (search-forward "Shared")
+      (replace-match "Local edit")
+      (let ((original (buffer-string))
+            merge-callback)
+        (cl-letf (((symbol-function 'gdocs-merge-start)
+                   (lambda (_local _remote callback)
+                     (setq merge-callback callback))))
+          (gdocs-sync-test--pull-native-document
+           (gdocs-sync-test--native-document "Remote edit" revision)))
+        (should merge-callback)
+        (should (eq gdocs-sync--status 'conflict))
+        (should (equal gdocs-sync--revision-id "stale"))
+        (should (equal (buffer-string) original))
+        (funcall merge-callback "Resolved content\n")
+        (should (equal gdocs-sync--revision-id revision))
+        (goto-char (point-min))
+        (should (equal (org-entry-get nil "GDOCS_REVISION_ID") revision))))))
+
+(defun gdocs-sync-test--native-document (text revision)
+  "Return a native Docs response with paragraph TEXT and optional REVISION."
+  (append (when revision `((revisionId . ,revision)))
+          `((body
+             (content . [((paragraph
+                           (elements . [((textRun
+                                          (content . ,(concat text "\n"))))])
+                           (paragraphStyle (namedStyleType . "NORMAL_TEXT"))))])))))
+
+(defun gdocs-sync-test--pull-native-document (json &optional metadata)
+  "Pull mocked native JSON with optional Drive METADATA.
+Return the Drive and Docs request counts."
+  (let ((metadata-count 0)
+        (document-count 0))
+    (cl-letf (((symbol-function 'gdocs-api-get-file-metadata)
+               (lambda (_doc callback &optional _account)
+                 (cl-incf metadata-count)
+                 (funcall callback metadata)))
+              ((symbol-function 'gdocs-api-get-document)
+               (lambda (_doc callback &optional _account _on-error)
+                 (cl-incf document-count)
+                 (funcall callback json))))
+      (gdocs-sync-pull))
+    (list metadata-count document-count)))
+
+(defun gdocs-sync-test--file-string (file)
+  "Return the current contents of FILE."
+  (with-temp-buffer
+    (insert-file-contents file)
+    (buffer-string)))
+
 (ert-deftest gdocs-sync-test-pull-no-changes ()
-  "Revision matches stored one; message says up to date."
+  "Matching native content and revision leave the buffer unchanged."
   (gdocs-sync-test-with-org-buffer "Content\n"
     (setq gdocs-sync--revision-id "rev-5")
-    (cl-letf (((symbol-function 'gdocs-api-get-file-metadata)
-               (lambda (_file-id callback &optional _account)
-                 (funcall callback
-                          '((headRevisionId . "rev-5"))))))
-      (gdocs-sync-pull))))
+    (gdocs-sync--persist-properties)
+    (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
+    (let ((original (buffer-string)))
+      (gdocs-sync-test--pull-native-document
+       (gdocs-sync-test--native-document "Content" "rev-5"))
+      (should (equal (buffer-string) original))
+      (should (eq gdocs-sync--status 'synced)))))
 
 (ert-deftest gdocs-sync-test-pull-updates-buffer ()
   "Buffer content is replaced with remote content on first pull.
@@ -286,7 +458,8 @@ properties are preserved and revision ID is stored."
                           '((headRevisionId . "rev-6")))))
               ((symbol-function 'gdocs-api-get-document)
                (lambda (_doc-id callback &optional _account _on-error)
-                 (funcall callback (gdocs-test-sample-document-json))))
+                 (funcall callback (cons (quote (revisionId . "rev-6"))
+                                          (gdocs-test-sample-document-json)))))
               ((symbol-function 'gdocs-convert-docs-json-to-ir)
                (lambda (_json)
                  (list (list :type 'paragraph :style 'normal
@@ -318,7 +491,8 @@ local changes) but remote has new content."
                           '((headRevisionId . "rev-7")))))
               ((symbol-function 'gdocs-api-get-document)
                (lambda (_doc-id callback &optional _account _on-error)
-                 (funcall callback (gdocs-test-sample-document-json))))
+                 (funcall callback (cons (quote (revisionId . "rev-7"))
+                                          (gdocs-test-sample-document-json)))))
               ((symbol-function 'gdocs-convert-docs-json-to-ir)
                (lambda (_json)
                  (list (list :type 'paragraph :style 'normal
@@ -339,11 +513,13 @@ local changes) but remote has new content."
   "Repeated pulls preserve local spacing around structural empty paragraphs."
   (gdocs-sync-test-with-org-buffer
       "* Heading :local:\n:PROPERTIES:\n:ID: keep-me\n:END:\n\nFirst\n\n\n| Cell |\n\nSecond\n"
+    (setq gdocs-sync--revision-id "remote-revision")
+    (gdocs-sync--persist-properties)
     (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
     (let ((original (buffer-string))
           (json (gdocs-sync-test--document-with-empty-paragraphs "Second")))
       (dotimes (_ 3)
-        (gdocs-sync--apply-pull json "remote-revision")
+        (gdocs-sync--apply-pull json)
         (should (equal (buffer-string) original)))
       (should (eq gdocs-sync--status 'synced)))))
 
@@ -353,13 +529,13 @@ local changes) but remote has new content."
       "* Heading :local:\n:PROPERTIES:\n:ID: keep-me\n:END:\n\nFirst\n\n\n| Cell |\n\nSecond\n"
     (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
     (let ((json (gdocs-sync-test--document-with-empty-paragraphs "Updated")))
-      (gdocs-sync--apply-pull json "remote-revision")
+      (gdocs-sync--apply-pull json)
       (let ((merged (buffer-string)))
         (should (string-match-p ":ID: keep-me" merged))
         (should (string-match-p "First\n\n\n| Cell |\n\nUpdated\n" merged))
         (should-not (string-match-p "Second" merged))
         (dotimes (_ 3)
-          (gdocs-sync--apply-pull json "remote-revision")
+          (gdocs-sync--apply-pull json)
           (should (equal (buffer-string) merged)))))))
 
 (ert-deftest gdocs-sync-test-pull-preserves-empty-heading-and-drawer ()
@@ -368,12 +544,12 @@ local changes) but remote has new content."
       "* \n:PROPERTIES:\n:ID: keep-me\n:END:\n\nFirst\n\n\n| Cell |\n\nSecond\n"
     (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
     (let ((json (gdocs-sync-test--document-with-empty-paragraphs "Updated" "")))
-      (gdocs-sync--apply-pull json "remote-revision")
+      (gdocs-sync--apply-pull json)
       (let ((merged (buffer-string)))
         (should (string-match-p ":ID: keep-me" merged))
         (should (string-match-p "Updated" merged))
         (dotimes (_ 3)
-          (gdocs-sync--apply-pull json "remote-revision")
+          (gdocs-sync--apply-pull json)
           (should (equal (buffer-string) merged)))))))
 
 (defun gdocs-sync-test--document-with-empty-paragraphs (last-text &optional heading)
@@ -383,7 +559,8 @@ HEADING supplies the heading text and defaults to \"Heading\"."
                `((paragraph
                   (elements . [((textRun (content . ,(concat text "\n"))))])
                   (paragraphStyle (namedStyleType . ,(or style "NORMAL_TEXT")))))))
-    `((body
+    `((revisionId . "remote-revision")
+      (body
        (content . ,(vector
                     (paragraph (or heading "Heading") "HEADING_1")
                     (paragraph "")
@@ -401,22 +578,22 @@ HEADING supplies the heading text and defaults to \"Heading\"."
   "Initial and repeated pulls retain empty headings, list items, and code lines."
   (gdocs-sync-test-with-org-buffer "Old\n"
     (let ((json (gdocs-sync-test--document-with-empty-structure "Tail")))
-      (gdocs-sync--apply-pull json "first-revision")
+      (gdocs-sync--apply-pull json)
       (let ((pulled (buffer-string)))
         (should (string-match-p "^\\* .*:gdocs:" pulled))
         (should (string-match-p "^- $" pulled))
         (should (string-match-p "Line one\n\nLine three" pulled))
         (dotimes (_ 3)
-          (gdocs-sync--apply-pull json "first-revision")
+          (gdocs-sync--apply-pull json)
           (should (equal (buffer-string) pulled)))))
     (let ((json (gdocs-sync-test--document-with-empty-structure "Updated")))
-      (gdocs-sync--apply-pull json "second-revision")
+      (gdocs-sync--apply-pull json)
       (let ((merged (buffer-string)))
         (should (string-match-p "^- $" merged))
         (should (string-match-p "Line one\n\nLine three" merged))
         (should (string-match-p "Updated" merged))
         (dotimes (_ 3)
-          (gdocs-sync--apply-pull json "second-revision")
+          (gdocs-sync--apply-pull json)
           (should (equal (buffer-string) merged)))))))
 
 (defun gdocs-sync-test--document-with-empty-structure (last-text)
@@ -450,13 +627,13 @@ HEADING supplies the heading text and defaults to \"Heading\"."
                                   ((paragraph
                                     (elements . [((textRun (content . "Tail\n")))])
                                     (paragraphStyle (namedStyleType . "NORMAL_TEXT"))))])))))
-        (gdocs-sync--apply-pull json "revision")
+        (gdocs-sync--apply-pull json)
         (let ((pulled (buffer-string)))
           (should (eq (not (null (string-match-p "BEGIN_CENTER" pulled)))
                       (equal alignment "CENTER")))
           (should (string-match-p "Tail" pulled))
           (dotimes (_ 3)
-            (gdocs-sync--apply-pull json "revision")
+            (gdocs-sync--apply-pull json)
             (should (equal (buffer-string) pulled))))))))
 
 ;;;; Link/Unlink tests
