@@ -1952,10 +1952,54 @@ the IR element.  Returns an alist mapping element IDs to marker plists."
 (defun gdocs-convert--docs-table-to-ir (table)
   "Convert a Google Docs TABLE to an IR table element."
   (let* ((table-rows (alist-get 'tableRows table))
-         (rows (seq-map #'gdocs-convert--docs-table-row-to-ir table-rows)))
-    (list :type 'table
-          :rows (seq-into rows 'list)
-          :id (gdocs-convert--next-id))))
+         (rows (seq-map #'gdocs-convert--docs-table-row-to-ir table-rows))
+         (ranges (gdocs-convert--docs-table-cell-ranges table-rows rows)))
+    (append (list :type 'table
+                  :rows (seq-into rows 'list)
+                  :id (gdocs-convert--next-id))
+            (when ranges (list :doc-cell-ranges ranges)))))
+
+(defun gdocs-convert--docs-table-cell-ranges (table-rows rows)
+  "Return authoritative cell paragraph ranges for TABLE-ROWS and parsed ROWS.
+Return nil if any cell cannot be edited safely through its parsed text."
+  (catch 'unsupported-cell
+    (cl-mapcar
+     (lambda (table-row row)
+       (cl-mapcar
+        (lambda (cell runs)
+          (or (gdocs-convert--docs-table-cell-range cell runs)
+              (throw 'unsupported-cell nil)))
+        (seq-into (alist-get 'tableCells table-row) 'list) row))
+     (seq-into table-rows 'list) (seq-into rows 'list))))
+
+(defun gdocs-convert--docs-table-cell-range (cell runs)
+  "Return CELL's paragraph range when RUNS preserve its text exactly.
+Only unmerged cells containing one text-only paragraph qualify."
+  (let* ((content (alist-get 'content cell))
+         (element (and (= (length content) 1) (seq-elt content 0)))
+         (paragraph (alist-get 'paragraph element))
+         (elements (alist-get 'elements paragraph))
+         (start (alist-get 'startIndex element))
+         (end (alist-get 'endIndex element))
+         (style (alist-get 'tableCellStyle cell))
+         (text (gdocs-convert--runs-to-plain-text runs)))
+    (when (and paragraph
+               (integerp start) (integerp end) (< 0 start end)
+               (seq-every-p (lambda (field)
+                              (memq (alist-get field style) '(nil 1)))
+                            '(rowSpan columnSpan))
+               (seq-every-p (lambda (part)
+                              (stringp (alist-get 'content
+                                                 (alist-get 'textRun part))))
+                            elements)
+               (= (- end start)
+                  (1+ (gdocs-convert--string-to-utf16-length text)))
+               (equal (mapconcat (lambda (part)
+                                   (alist-get 'content
+                                              (alist-get 'textRun part)))
+                                 elements "")
+                      (concat text "\n")))
+      (cons start end))))
 
 (defun gdocs-convert--docs-table-row-to-ir (row)
   "Convert a Google Docs table ROW to a list of cell run lists."
@@ -2489,20 +2533,15 @@ element (+1), first row-start marker (+1), first cell-start
 marker (+1).")
 
 (defun gdocs-convert--table-cell-requests (rows table-index ncols)
-  "Generate insertText and text-style-reset requests for cells in ROWS.
+  "Generate text insertion and formatting requests for cells in ROWS.
 TABLE-INDEX is the insertTable location index.  NCOLS is the
 column count.  The table body starts at TABLE-INDEX + 1 because
 insertTable preserves the existing paragraph at the location.
 
-For each non-empty cell, generates an insertText followed by a
-text-style reset to clear inherited formatting (font size, font
-family, colors).  Without the reset, cells inherit the style at
-the insertion point, which may be a heading or other non-body
-style.
-
-Iterates forward and pushes, so the result is in reverse order
-\(last cell first) for stable index processing."
-  (let ((reqs nil)
+Each non-empty cell inserts text, clears inherited formatting,
+then applies its runs' styles.  Requests for later cells come
+first so their indices remain valid while earlier cells grow."
+  (let ((groups nil)
         (r 0))
     (dolist (row rows)
       (let ((c 0))
@@ -2514,19 +2553,16 @@ Iterates forward and pushes, so the result is in reverse order
                                    gdocs-convert--table-base-cell-offset
                                    (* r (+ 1 (* ncols 2)))
                                    (* c 2))))
-                ;; Reset formatting so cells don't inherit heading
-                ;; styles or other non-body formatting.  Push reset
-                ;; first so that after reversal (last-to-first) the
-                ;; insertText runs before the reset in the batch.
-                (push (gdocs-convert--make-text-style-reset-request
-                       cell-start (+ cell-start text-len))
-                      reqs)
-                (push (gdocs-convert--make-insert-text-request
-                       text cell-start)
-                      reqs))))
+                (push (append
+                       (list (gdocs-convert--make-insert-text-request
+                              text cell-start)
+                             (gdocs-convert--make-text-style-reset-request
+                              cell-start (+ cell-start text-len)))
+                       (gdocs-convert--make-text-style-requests cell cell-start))
+                      groups))))
           (setq c (1+ c))))
       (setq r (1+ r)))
-    reqs))
+    (apply #'append groups)))
 
 (defun gdocs-convert--table-total-cell-text-length (rows)
   "Return total UTF-16 length of all cell text in ROWS."

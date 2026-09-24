@@ -217,6 +217,49 @@ comments; now it always diffs against the fetched remote document."
         (gdocs-sync-push)
         (should-not (equal gdocs-sync--shadow-ir original-shadow))))))
 
+(ert-deftest gdocs-sync-test-delayed-comments-rejects-unsafe-table ()
+  "A delayed comment callback releases push state after an unsafe table edit."
+  (gdocs-sync-test-with-org-buffer "| Changed |\n"
+    (let ((gdocs-preserve-comments t)
+          (original-shadow '((:type paragraph :contents ((:text "Shadow")))))
+          docs-callback comments-callback batch-called)
+      (setq gdocs-sync--shadow-ir original-shadow
+            gdocs-sync--revision-id "original-revision")
+      (cl-letf (((symbol-function 'gdocs-api-get-document)
+                 (lambda (_doc-id callback &optional _account _on-error)
+                   (setq docs-callback callback)))
+                ((symbol-function 'gdocs-api-list-comments)
+                 (lambda (_doc-id callback &optional _account)
+                   (setq comments-callback callback)))
+                ((symbol-function 'gdocs-api-batch-update)
+                 (lambda (&rest _args) (setq batch-called t))))
+        (gdocs-sync-push)
+        (should gdocs-sync--push-in-progress)
+        (should-not comments-callback)
+        (with-temp-buffer
+          (funcall docs-callback
+                   '((body
+                      . ((content
+                          . [((startIndex . 2) (endIndex . 18)
+                              (table
+                               . ((tableRows
+                                   . [((tableCells
+                                        . [((content
+                                             . [((paragraph
+                                                  . ((elements
+                                                      . [((textRun
+                                                           . ((content
+                                                               . "Original\n"))))]))))]))]))]))))]))))))
+        (should comments-callback)
+        (should (eq gdocs-sync--status 'pushing))
+        (with-temp-buffer
+          (funcall comments-callback nil))
+        (should-not batch-called)
+        (should-not gdocs-sync--push-in-progress)
+        (should (eq gdocs-sync--status 'error))
+        (should (eq gdocs-sync--shadow-ir original-shadow))
+        (should (equal gdocs-sync--revision-id "original-revision"))))))
+
 ;;;; Pull tests
 
 (ert-deftest gdocs-sync-test-pull-no-changes ()

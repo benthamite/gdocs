@@ -215,6 +215,162 @@ ROWS is a list of lists of lists of run plists."
 
 ;;;; Request ordering tests
 
+(ert-deftest gdocs-diff-test-adjacent-edits-preserve-paragraph-spacing ()
+  "Editing adjacent paragraphs does not move them across remote blank lines."
+  (let* ((texts '("Heading" "First old" "Middle old" "Last old" "Tail"))
+         (ranges '((1 . 9) (9 . 19) (21 . 32) (32 . 41) (41 . 46)))
+         (old-ir (cl-mapcar
+                  (lambda (text range)
+                    (append (gdocs-diff-test--make-paragraph text text)
+                            (list :doc-start (car range) :doc-end (cdr range))))
+                  texts ranges))
+         (new-ir (mapcar (lambda (text)
+                          (gdocs-diff-test--make-paragraph text text))
+                        '("Heading" "First new" "Middle new" "Last new" "Tail")))
+         (requests (gdocs-diff-generate old-ir new-ir)))
+    (should
+     (equal (gdocs-diff-test--apply-text-requests
+             "Heading\nFirst old\n\n\nMiddle old\nLast old\nTail\n" requests)
+            "Heading\nFirst new\n\n\nMiddle new\nLast new\nTail\n"))))
+
+(ert-deftest gdocs-diff-test-adjacent-edits-pair-growing-and-shrinking-blocks ()
+  "Unequal edit blocks preserve order around unchanged boundary paragraphs."
+  (dolist (replacement '(("New first") ("New first" "New last")
+                         ("New first" "New middle" "New last")))
+    (let* ((old-texts '("Keep" "Old first" "Old last" "Tail"))
+           (new-texts (append '("Keep") replacement '("Tail")))
+           (old-ir (mapcar (lambda (text)
+                            (gdocs-diff-test--make-paragraph text text)) old-texts))
+           (new-ir (mapcar (lambda (text)
+                            (gdocs-diff-test--make-paragraph text text)) new-texts)))
+      (should
+       (equal (gdocs-diff-test--apply-text-requests
+               (concat (string-join old-texts "\n") "\n")
+               (gdocs-diff-generate old-ir new-ir))
+              (concat (string-join new-texts "\n") "\n"))))))
+
+(defun gdocs-diff-test--apply-text-requests (text requests)
+  "Apply text edits from REQUESTS to ASCII document TEXT, ignoring styles."
+  (with-temp-buffer
+    (insert text)
+    (dolist (request requests)
+      (cond
+       ((alist-get 'deleteContentRange request)
+        (let ((range (alist-get 'range (alist-get 'deleteContentRange request))))
+          (delete-region (alist-get 'startIndex range) (alist-get 'endIndex range))))
+       ((alist-get 'insertText request)
+        (let ((insertion (alist-get 'insertText request)))
+          (goto-char (alist-get 'index (alist-get 'location insertion)))
+          (insert (alist-get 'text insertion))))))
+    (buffer-string)))
+
+(ert-deftest gdocs-diff-test-table-edits-preserve-structure-and-unchanged-cells ()
+  "Cell edits retain surrounding text, empty guards, and unchanged cells."
+  (let* ((old-text "Before\n\n##A old\n#same\n#B old\n#z\n##After\n")
+         (old (list :type 'table :doc-start 9 :doc-end 33
+                    :doc-cell-ranges '(((11 . 17) (18 . 23))
+                                       ((24 . 30) (31 . 33)))
+                    :rows '(( ((:text "A old" :bold t)) ((:text "same")))
+                            ( ((:text "B old")) ((:text "z"))))))
+         (new (list :type 'table
+                    :rows '(( ((:text "A old more")) ((:text "same")))
+                            ( ((:text "B")) ((:text "z"))))))
+         (requests (gdocs-diff-generate (list old) (list new))))
+    (should (equal (gdocs-diff-test--apply-text-requests old-text requests)
+                   "Before\n\n##A old more\n#same\n#B\n#z\n##After\n"))
+    (dolist (request requests)
+      (should (or (alist-get 'insertText request)
+                  (alist-get 'deleteContentRange request)
+                  (alist-get 'updateTextStyle request))))
+    (let* ((styled (copy-sequence old-text))
+           (_ (put-text-property 10 15 'bold t styled))
+           (result (gdocs-diff-test--apply-bold-requests styled requests)))
+      (should-not (get-text-property 10 'bold result)))
+    (let ((resets (seq-filter
+                   (lambda (request)
+                     (let ((style (alist-get 'updateTextStyle request)))
+                       (equal (alist-get 'bold (alist-get 'textStyle style))
+                              :json-false))) requests)))
+      (should (= (length resets) 2))
+      (should (equal (mapcar
+                      (lambda (request)
+                        (alist-get 'startIndex
+                                   (alist-get 'range
+                                              (alist-get 'updateTextStyle request))))
+                      resets)
+                     '(24 11))))))
+
+(ert-deftest gdocs-diff-test-table-formatting-spans-are-significant ()
+  "Moving a bold boundary changes the cell without deleting its text."
+  (let* ((old (list :type 'table :doc-start 1 :doc-end 8
+                    :doc-cell-ranges '(((4 . 8)))
+                    :rows '(( ((:text "a" :bold t) (:text "bc"))))))
+         (new (list :type 'table
+                    :rows '(( ((:text "ab" :bold t) (:text "c"))))))
+         (requests (gdocs-diff-generate (list old) (list new)))
+         (text (copy-sequence "###abc\n")))
+    (put-text-property 3 4 'bold t text)
+    (should (seq-every-p (lambda (request) (alist-get 'updateTextStyle request))
+                         requests))
+    (let ((result (gdocs-diff-test--apply-bold-requests text requests)))
+      (should (get-text-property 3 'bold result))
+      (should (get-text-property 4 'bold result))
+      (should-not (get-text-property 5 'bold result)))))
+
+(ert-deftest gdocs-diff-test-table-run-fragmentation-is-insignificant ()
+  "Equivalent cell styles and empty representations produce no update."
+  (let ((old (list :type 'table
+                   :rows '(( ((:text "a" :bold t) (:text "b" :bold t)) nil))))
+        (new (list :type 'table
+                   :rows '(( ((:text "ab" :bold t)) ((:text "")))))))
+    (should-not (gdocs-diff-generate (list old) (list new)))))
+
+(ert-deftest gdocs-diff-test-table-style-removal-resets-all-supported-fields ()
+  "Cell changes clear inherited link, font size, and retained bold tokens."
+  (let* ((old (list :type 'table :doc-start 1 :doc-end 6
+                    :doc-cell-ranges '(((4 . 6)))
+                    :rows '(( ((:text "A" :bold t :link "https://example.org"
+                                      :font-size 24))))))
+         (new (list :type 'table :rows '(( ((:text "A more"))))))
+         (requests (gdocs-diff-generate (list old) (list new)))
+         (reset (alist-get 'updateTextStyle (car (last requests)))))
+    (should (equal (alist-get 'text (alist-get 'insertText (car requests))) " more"))
+    (should (equal (alist-get 'bold (alist-get 'textStyle reset)) :json-false))
+    (should (member "link" (split-string (alist-get 'fields reset) ",")))
+    (should (member "fontSize" (split-string (alist-get 'fields reset) ",")))))
+
+(ert-deftest gdocs-diff-test-table-cell-ranges-reject-lossy-or-invalid-input ()
+  "In-place updates require a complete, ordered, lossless cell range matrix."
+  (dolist (ranges '(nil (((4 . 5))) (((4 . 7))) (((8 . 10)))
+                       (((4 . 6) (5 . 7)))))
+    (let* ((old (list :type 'table :doc-start 1 :doc-end 7
+                      :doc-cell-ranges ranges :rows '(( ((:text "A"))))))
+           (new (list :type 'table :rows '(( ((:text "B")))))))
+      (should-error (gdocs-diff-generate (list old) (list new))
+                    :type 'user-error))))
+
+(defun gdocs-diff-test--apply-bold-requests (text requests)
+  "Apply ASCII text and bold style REQUESTS to propertized TEXT."
+  (with-temp-buffer
+    (insert text)
+    (dolist (request requests)
+      (cond
+       ((alist-get 'deleteContentRange request)
+        (let ((range (alist-get 'range (alist-get 'deleteContentRange request))))
+          (delete-region (alist-get 'startIndex range) (alist-get 'endIndex range))))
+       ((alist-get 'insertText request)
+        (let ((insertion (alist-get 'insertText request)))
+          (goto-char (alist-get 'index (alist-get 'location insertion)))
+          (insert-and-inherit (alist-get 'text insertion))))
+       ((alist-get 'updateTextStyle request)
+        (let* ((style (alist-get 'updateTextStyle request))
+               (range (alist-get 'range style)))
+          (when (member "bold" (split-string (alist-get 'fields style) ","))
+            (put-text-property
+             (alist-get 'startIndex range) (alist-get 'endIndex range) 'bold
+             (eq (alist-get 'bold (alist-get 'textStyle style)) t)))))))
+    (buffer-string)))
+
 (ert-deftest gdocs-diff-test-deletions-reverse-order ()
   "Deletions are ordered by descending startIndex."
   (let* ((p1 (gdocs-diff-test--make-paragraph "e1" "first"))

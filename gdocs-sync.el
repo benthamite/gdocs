@@ -145,12 +145,15 @@ for accurate UTF-16 indices."
         (gdocs-api-list-comments
          doc-id
          (lambda (comments)
-           (when (buffer-live-p buf)
-             (with-current-buffer buf
-               (let ((gdocs-convert--link-context link-ctx))
-                 (gdocs-sync--push-with-comment-protection
-                  local-ir local-filtered remote-filtered
-                  comments start-index buf link-ctx)))))
+           (condition-case err
+               (when (buffer-live-p buf)
+                 (with-current-buffer buf
+                   (let ((gdocs-convert--link-context link-ctx))
+                     (gdocs-sync--push-with-comment-protection
+                      local-ir local-filtered remote-filtered
+                      comments start-index buf link-ctx))))
+             ((error quit)
+              (funcall (gdocs-sync--make-push-error-callback buf) err))))
          acct)
       ;; Standard flow: compute diff and push
       (let ((requests (gdocs-diff-generate

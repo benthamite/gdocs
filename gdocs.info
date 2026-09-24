@@ -537,6 +537,14 @@ spacing is preserved when the corresponding content is unchanged.  Empty
 headings, list items, centered or marked blocks, and blank code lines
 retain their structure instead of being treated as paragraph separators.
 
+   Editing adjacent paragraphs and tables keeps each element at its
+original position.  An incremental push edits simple table cells in
+place when the table dimensions are unchanged, preserving surrounding
+spacing and applying cell formatting such as bold headers.  If a
+same-size remote table contains merged cells, multiple paragraphs, or
+unsupported cell ranges, the push reports an error instead of replacing
+that table.
+
 
 File: gdocs.info,  Node: Linking and unlinking,  Next: Directory linking,  Prev: Pushing and pulling,  Up: Commands
 
@@ -1330,12 +1338,13 @@ File: gdocs.info,  Node: Approach,  Next: Word-level diff,  Up: Diff engine
 
   2. Run a longest-common-subsequence (LCS) algorithm on the key lists
      to identify which elements are kept, deleted, inserted, or
-     modified.  Adjacent delete+insert pairs of the same type are
-     collapsed into modify operations.
+     modified.  Within each changed block, deletions and insertions are
+     paired in document order to form modify operations.  This preserves
+     each element's anchor across unrepresented blank paragraphs.
 
   3. Compute the UTF-16 document position of each old element.  When the
      old IR was produced from Google Docs JSON, elements carry
-     ‘:doc-start’ / ‘:doc-end’ properties with the authoritative byte
+     ‘:doc-start’ / ‘:doc-end’ properties with the authoritative UTF-16
      offsets reported by the API; the engine uses those directly.  For
      IR produced from org-mode (which lacks document positions), it
      falls back to computing positions from element text lengths.
@@ -1354,11 +1363,15 @@ File: gdocs.info,  Node: Approach,  Next: Word-level diff,  Up: Diff engine
         • *Modify*: for style-only changes, ‘UpdateParagraphStyle’; for
           formatting-only changes, ‘UpdateTextStyle’; for content
           changes, word-level surgical diff (*note Word-level diff::).
+          Tables with unchanged dimensions use the authoritative ranges
+          of their simple cell paragraphs, preserving each final newline
+          and leaving unchanged cells alone.  Table keys include
+          formatting spans as well as text, while ignoring equivalent
+          run fragmentation.
 
-  5. Order requests correctly: deletions in reverse index order (highest
-     first), then insertions in forward order.  This is necessary
-     because the Google Docs API processes requests sequentially and
-     earlier operations shift later indices.
+  5. Process element and cell changes from highest to lowest document
+     index.  Keep each change's text edits and style requests together
+     so earlier edits cannot shift the positions used by later requests.
 
 
 File: gdocs.info,  Node: Word-level diff,  Next: Text-style reset,  Prev: Approach,  Up: Diff engine
@@ -1699,50 +1712,50 @@ Node: Cross-document link resolution15045
 Node: Commands16152
 Node: Opening and creating documents16487
 Node: Pushing and pulling17894
-Node: Linking and unlinking19696
-Node: Directory linking20534
-Node: Status and browser22383
-Node: Authentication23425
-Node: Conflict resolution (1)24219
-Node: Transient menu25834
-Node: Functions27352
-Node: Authentication (2)27671
-Node: API client (1)28695
-Node: Google Docs API28893
-Node: Google Drive API29984
-Node: Format conversion (1)33009
-Node: Diff engine (1)35535
-Node: Conflict resolution (2)37462
-Node: Authentication (1)38163
-Node: OAuth flow38364
-Node: Token management39257
-Node: Multi-account support39914
-Node: API client40574
-Node: Error handling and retries40768
-Node: Progress indication41476
-Node: Format conversion41906
-Node: Supported element mapping42170
-Node: Intermediate representation44244
-Node: Org-only constructs45427
-Node: Google Docs-only constructs46462
-Node: Sync engine47103
-Node: Metadata storage47331
-Node: Shadow copy48575
-Node: Push serialization49337
-Node: Post-push list nesting fixup49810
-Node: Diff engine53392
-Node: Approach53791
-Node: Word-level diff55897
-Node: Text-style reset57732
-Node: Comment-aware push59003
-Node: Conflict resolution61806
-Node: Minor mode62680
-Node: Keybindings63876
-Node: Merge mode64481
-Node: Development65111
-Node: Indices65330
-Node: Function index65467
-Node: Variable index70432
+Node: Linking and unlinking20122
+Node: Directory linking20960
+Node: Status and browser22809
+Node: Authentication23851
+Node: Conflict resolution (1)24645
+Node: Transient menu26260
+Node: Functions27778
+Node: Authentication (2)28097
+Node: API client (1)29121
+Node: Google Docs API29319
+Node: Google Drive API30410
+Node: Format conversion (1)33435
+Node: Diff engine (1)35961
+Node: Conflict resolution (2)37888
+Node: Authentication (1)38589
+Node: OAuth flow38790
+Node: Token management39683
+Node: Multi-account support40340
+Node: API client41000
+Node: Error handling and retries41194
+Node: Progress indication41902
+Node: Format conversion42332
+Node: Supported element mapping42596
+Node: Intermediate representation44670
+Node: Org-only constructs45853
+Node: Google Docs-only constructs46888
+Node: Sync engine47529
+Node: Metadata storage47757
+Node: Shadow copy49001
+Node: Push serialization49763
+Node: Post-push list nesting fixup50236
+Node: Diff engine53818
+Node: Approach54217
+Node: Word-level diff56701
+Node: Text-style reset58536
+Node: Comment-aware push59807
+Node: Conflict resolution62610
+Node: Minor mode63484
+Node: Keybindings64680
+Node: Merge mode65285
+Node: Development65915
+Node: Indices66134
+Node: Function index66271
+Node: Variable index71236
 
 End Tag Table
 

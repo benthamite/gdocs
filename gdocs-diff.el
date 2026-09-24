@@ -88,12 +88,20 @@ Includes type, style, list info, and full run details."
 
 (defun gdocs-diff--table-key (element)
   "Compute a content key for a table ELEMENT.
-Concatenates all cell text across all rows."
-  (let ((cell-texts nil))
-    (dolist (row (plist-get element :rows))
-      (dolist (cell row)
-        (push (gdocs-convert--runs-to-plain-text cell) cell-texts)))
-    (format "table:%s" (s-join "|" (nreverse cell-texts)))))
+Includes row boundaries and each cell's text and formatting spans."
+  (format "table:%S"
+          (mapcar (lambda (row)
+                    (mapcar #'gdocs-diff--table-cell-key row))
+                  (plist-get element :rows))))
+
+(defun gdocs-diff--table-cell-key (cell)
+  "Return a text and formatting key for CELL, ignoring run fragmentation."
+  (mapcar (lambda (run)
+            (list (plist-get run :text)
+                  (gdocs-convert--run-to-docs-style run)))
+          (gdocs-convert--merge-adjacent-runs
+           (seq-remove (lambda (run) (string-empty-p (plist-get run :text)))
+                       cell))))
 
 (defun gdocs-diff--footnote-key (element)
   "Compute a content key for a footnote ELEMENT."
@@ -216,32 +224,29 @@ match list.  Returns operations in document order."
     (nreverse ops)))
 
 (defun gdocs-diff--collapse-adjacent-into-modify (ops)
-  "Collapse adjacent delete+insert of the same type into :modify.
-OPS is a list of operation plists."
+  "Pair deletions and insertions within each changed block of OPS.
+Pair elements in document order so adjacent edits retain their original
+anchors, including any unrepresented blank paragraphs between them."
   (let ((result nil)
         (remaining ops))
     (while remaining
-      (let ((current (car remaining))
-            (next (cadr remaining)))
-        (if (gdocs-diff--collapsible-pair-p current next)
-            (progn
-              (push (list :op 'modify
-                          :old-index (plist-get current :old-index)
-                          :new-index (plist-get next :new-index))
-                    result)
-              (setq remaining (cddr remaining)))
-          (push current result)
-          (setq remaining (cdr remaining)))))
+      (if (not (eq (plist-get (car remaining) :op) 'delete))
+          (push (pop remaining) result)
+        (let (deletions insertions)
+          (while (eq (plist-get (car remaining) :op) 'delete)
+            (push (pop remaining) deletions))
+          (while (eq (plist-get (car remaining) :op) 'insert)
+            (push (pop remaining) insertions))
+          (setq deletions (nreverse deletions)
+                insertions (nreverse insertions))
+          (while (and deletions insertions)
+            (push (list :op 'modify
+                        :old-index (plist-get (pop deletions) :old-index)
+                        :new-index (plist-get (pop insertions) :new-index))
+                  result))
+          (dolist (op (append deletions insertions))
+            (push op result)))))
     (nreverse result)))
-
-(defun gdocs-diff--collapsible-pair-p (current next)
-  "Return non-nil if CURRENT delete and NEXT insert can be collapsed.
-They must be adjacent delete+insert operations.  The elements may
-differ in type (e.g. table -> paragraph); `gdocs-diff--content-modification'
-handles cross-type changes by falling back to full delete+re-insert."
-  (and current next
-       (eq (plist-get current :op) 'delete)
-       (eq (plist-get next :op) 'insert)))
 
 ;; ---------------------------------------------------------------------------
 ;;; Element index computation
@@ -517,6 +522,11 @@ RANGE is a (START . END) cons.  Returns a plist with
 :delete-reqs, :insert-reqs, and :style-reqs."
   (let ((result
          (cond
+          ((gdocs-diff--table-cell-edits-p old-elem new-elem range)
+           (gdocs-diff--table-cell-modifications old-elem new-elem))
+          ((and (gdocs-diff--same-table-shape-p old-elem new-elem)
+                (plist-member old-elem :doc-start))
+           (user-error "Cannot safely edit this table: unsupported cell structure or ranges"))
           ((gdocs-diff--only-style-changed-p old-elem new-elem)
            (gdocs-diff--style-only-modification old-elem new-elem range))
           ((gdocs-diff--only-formatting-changed-p old-elem new-elem)
@@ -541,6 +551,83 @@ RANGE is a (START . END) cons.  Returns a plist with
                            (list (gdocs-diff--make-delete-bullets-request
                                   (car range) new-end))))))
     result))
+
+(defun gdocs-diff--same-table-shape-p (old-elem new-elem)
+  "Return non-nil if OLD-ELEM and NEW-ELEM are tables with equal dimensions."
+  (and (eq (plist-get old-elem :type) 'table)
+       (eq (plist-get new-elem :type) 'table)
+       (equal (mapcar #'length (plist-get old-elem :rows))
+              (mapcar #'length (plist-get new-elem :rows)))))
+
+(defun gdocs-diff--table-cell-edits-p (old-elem new-elem range)
+  "Return non-nil if OLD-ELEM and NEW-ELEM allow cell edits within RANGE.
+Require unchanged dimensions and lossless authoritative paragraph ranges
+for every old cell.  New cells must remain single paragraphs."
+  (let ((old-rows (plist-get old-elem :rows))
+        (new-rows (plist-get new-elem :rows))
+        (ranges (plist-get old-elem :doc-cell-ranges))
+        (previous-end (car range)))
+    (and (eq (plist-get old-elem :type) 'table)
+         (eq (plist-get new-elem :type) 'table)
+         old-rows
+         (= (length old-rows) (length new-rows) (length ranges))
+         (cl-every
+          (lambda (old-row new-row row-ranges)
+            (and old-row
+                 (= (length old-row) (length new-row) (length row-ranges))
+                 (cl-every
+                  (lambda (old-cell new-cell cell-range)
+                    (and (consp cell-range)
+                         (integerp (car cell-range))
+                         (integerp (cdr cell-range))
+                         (<= previous-end (car cell-range))
+                         (< (car cell-range) (cdr cell-range))
+                         (<= (cdr cell-range) (cdr range))
+                         (= (- (cdr cell-range) (car cell-range))
+                            (1+ (gdocs-convert--string-to-utf16-length
+                                 (gdocs-convert--runs-to-plain-text old-cell))))
+                         (not (string-match-p
+                               "\n" (gdocs-convert--runs-to-plain-text new-cell)))
+                         (setq previous-end (cdr cell-range))))
+                  old-row new-row row-ranges)))
+          old-rows new-rows ranges))))
+
+(defun gdocs-diff--table-cell-modifications (old-elem new-elem)
+  "Modify changed cells of OLD-ELEM into NEW-ELEM without replacing the table.
+Process cells from last to first, preserving their paragraph terminators
+and leaving unchanged cells and surrounding paragraphs untouched."
+  (let (groups)
+    (cl-mapc
+     (lambda (old-row new-row ranges)
+       (cl-mapc
+        (lambda (old-cell new-cell range)
+          (unless (equal (gdocs-diff--table-cell-key old-cell)
+                         (gdocs-diff--table-cell-key new-cell))
+            (push (gdocs-diff--table-cell-modification old-cell new-cell range)
+                  groups)))
+        old-row new-row ranges))
+     (plist-get old-elem :rows) (plist-get new-elem :rows)
+     (plist-get old-elem :doc-cell-ranges))
+    (list :insert-reqs (apply #'append groups))))
+
+(defun gdocs-diff--table-cell-modification (old-cell new-cell range)
+  "Return text and formatting requests for OLD-CELL to NEW-CELL at RANGE."
+  (let* ((old-paragraph (list :type 'paragraph :style 'normal :contents old-cell))
+         (new-paragraph (list :type 'paragraph :style 'normal :contents new-cell))
+         (text-change (gdocs-diff--word-level-paragraph-modification
+                       old-paragraph new-paragraph (car range) (cdr range)))
+         (format-change (gdocs-diff--formatting-only-modification
+                         new-paragraph range)))
+    (when-let* ((reset (alist-get 'updateTextStyle
+                                 (car (plist-get format-change :style-reqs)))))
+      (setf (alist-get 'fields reset)
+            (concat (alist-get 'fields reset) ",link,fontSize")))
+    ;; Keep the cell's paragraph style and list identity.  Reset text styles
+    ;; after all text edits, including on retained tokens with removed styling.
+    (append (plist-get text-change :delete-reqs)
+            (seq-filter (lambda (req) (alist-get 'insertText req))
+                        (plist-get text-change :insert-reqs))
+            (plist-get format-change :style-reqs))))
 
 (defun gdocs-diff--same-text-paragraphs-p (old-elem new-elem)
   "Return non-nil if OLD-ELEM and NEW-ELEM are paragraphs with identical text."

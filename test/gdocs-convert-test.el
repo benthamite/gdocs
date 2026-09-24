@@ -239,6 +239,48 @@
       (should (alist-get 'columnIndices req))
       (should (alist-get 'tableColumnProperties req)))))
 
+(ert-deftest gdocs-convert-test-table-creation-preserves-cell-formatting ()
+  "Create cells backwards, resetting inherited styles before run styles."
+  (let* ((ir '((:type table
+                :rows ((((:text "A" :bold t) (:text " value"))
+                        ((:text "😀" :italic t)))
+                       (nil ((:text "C" :underline t)))))))
+         (requests (gdocs-convert-ir-to-docs-requests ir))
+         (cell-requests
+          (seq-filter (lambda (request)
+                        (or (alist-get 'insertText request)
+                            (alist-get 'updateTextStyle request)))
+                      requests)))
+    (should (= (length cell-requests) 9))
+    (cl-loop for (insert reset format) on cell-requests by #'cdddr
+             for expected in '((12 "C" 13 underline)
+                               (7 "😀" 9 italic)
+                               (5 "A value" 6 bold))
+             do
+             (let* ((text-request (alist-get 'insertText insert))
+                    (reset-request (alist-get 'updateTextStyle reset))
+                    (style-request (alist-get 'updateTextStyle format))
+                    (start (nth 0 expected))
+                    (text (nth 1 expected))
+                    (end (nth 2 expected))
+                    (style (nth 3 expected)))
+               (should (equal (alist-get 'text text-request) text))
+               (should (= (alist-get 'index
+                                     (alist-get 'location text-request))
+                          start))
+               (should (eq (alist-get 'bold
+                                      (alist-get 'textStyle reset-request))
+                           :json-false))
+               (should (equal (alist-get 'range reset-request)
+                              `((startIndex . ,start)
+                                (endIndex
+                                 . ,(+ start (if (equal text "😀")
+                                                 2 (length text)))))))
+               (should (equal (alist-get 'range style-request)
+                              `((startIndex . ,start) (endIndex . ,end))))
+               (should (equal (alist-get 'textStyle style-request)
+                              `((,style . t))))))))
+
 ;; ---------------------------------------------------------------------------
 ;;; Horizontal rules
 
@@ -429,6 +471,86 @@
     (should table-elem)
     (should (= (length (plist-get table-elem :rows)) 1))
     (should (= (length (car (plist-get table-elem :rows))) 2))))
+
+(ert-deftest gdocs-convert-test-docs-table-authoritative-cell-ranges ()
+  "Simple cells retain paragraph ranges, including empty and UTF-16 text."
+  (let* ((first (gdocs-convert-test--docs-cell "A\n" 4 6))
+         (empty (gdocs-convert-test--docs-cell "\n" 8 9))
+         (emoji (gdocs-convert-test--docs-cell "😀\n" 12 15))
+         (last (gdocs-convert-test--docs-cell "Z\n" 17 19))
+         (paragraph (alist-get 'paragraph (car (alist-get 'content first)))))
+    (setf (alist-get 'elements paragraph)
+          [((textRun . ((content . "A") (textStyle . ((bold . t))))))
+           ((textRun . ((content . "\n"))))])
+    (let ((table (gdocs-convert-test--parse-docs-table
+                  (list (list first empty) (list emoji last)))))
+      (should (equal (plist-get table :doc-cell-ranges)
+                     '(((4 . 6) (8 . 9)) ((12 . 15) (17 . 19)))))
+      (should (plist-get (car (caar (plist-get table :rows))) :bold))
+      (should (equal (mapcar (lambda (row)
+                              (mapcar #'gdocs-convert--runs-to-plain-text row))
+                            (plist-get table :rows))
+                     '(("A" "") ("😀" "Z")))))))
+
+(ert-deftest gdocs-convert-test-docs-table-rejects-unsafe-cell-ranges ()
+  "One unsupported or lossy cell excludes ranges for the entire table."
+  (dolist (case '(multiple-paragraphs non-text merged-row merged-column
+                 no-start no-end zero-start reversed-range wrong-length
+                 trailing-spaces missing-newline extra-newline))
+    (let* ((good (gdocs-convert-test--docs-cell "B\n" 1 3))
+           (cell (gdocs-convert-test--docs-cell "A\n" 4 6))
+           (content (alist-get 'content cell))
+           (element (car content))
+           (paragraph (alist-get 'paragraph element)))
+      (pcase case
+        ('multiple-paragraphs
+         (setf (alist-get 'content cell)
+               (append content
+                       (alist-get 'content
+                                  (gdocs-convert-test--docs-cell "B\n" 6 8)))))
+        ('non-text
+         (push '((inlineObjectElement . ((inlineObjectId . "object"))))
+               (alist-get 'elements paragraph)))
+        ('merged-row
+         (setf (alist-get 'tableCellStyle cell) '((rowSpan . 2))))
+        ('merged-column
+         (setf (alist-get 'tableCellStyle cell) '((columnSpan . 2))))
+        ('no-start (setf (alist-get 'startIndex element) nil))
+        ('no-end (setf (alist-get 'endIndex element) nil))
+        ('zero-start (setf (alist-get 'startIndex element) 0))
+        ('reversed-range (setf (alist-get 'endIndex element) 3))
+        ('wrong-length (setf (alist-get 'endIndex element) 7))
+        ('trailing-spaces
+         (setq cell (gdocs-convert-test--docs-cell "A \n" 4 7)))
+        ('missing-newline
+         (setq cell (gdocs-convert-test--docs-cell "A" 4 5)))
+        ('extra-newline
+         (setq cell (gdocs-convert-test--docs-cell "A\n\n" 4 7))))
+      (ert-info ((format "Unsafe table cell: %s" case))
+        (should-not
+         (plist-member (gdocs-convert-test--parse-docs-table
+                        (list (list good cell)))
+                       :doc-cell-ranges))))))
+
+(defun gdocs-convert-test--docs-cell (text start end)
+  "Make one text-only Docs cell containing TEXT from START to END."
+  `((tableCellStyle . ((rowSpan . 1) (columnSpan . 1)))
+    (content . (((startIndex . ,start) (endIndex . ,end)
+                 (paragraph
+                  . ((elements . (((textRun . ((content . ,text)))))))))))))
+
+(defun gdocs-convert-test--parse-docs-table (rows)
+  "Parse a Docs table containing ROWS of raw cell objects."
+  (let* ((json `((body
+                  . ((content
+                      . (((table
+                           . ((tableRows
+                               . ,(vconcat
+                                   (mapcar (lambda (row)
+                                             `((tableCells . ,(vconcat row))))
+                                           rows))))))))))))
+         (ir (gdocs-convert-docs-json-to-ir json)))
+    (gdocs-convert-test--find-element ir 'table)))
 
 ;; ---------------------------------------------------------------------------
 ;;; IR -> batchUpdate requests

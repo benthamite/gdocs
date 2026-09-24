@@ -402,6 +402,13 @@ spacing is preserved when the corresponding content is unchanged.
 Empty headings, list items, centered or marked blocks, and blank code
 lines retain their structure instead of being treated as paragraph separators.
 
+Editing adjacent paragraphs and tables keeps each element at its original
+position.  An incremental push edits simple table cells in place when the
+table dimensions are unchanged, preserving surrounding spacing and applying
+cell formatting such as bold headers.  If a same-size remote table contains
+merged cells, multiple paragraphs, or unsupported cell ranges, the push
+reports an error instead of replacing that table.
+
 ** Linking and unlinking
 :PROPERTIES:
 :CUSTOM_ID: h:linking-and-unlinking
@@ -1164,12 +1171,13 @@ last-known state to the current org state.
 
 2. Run a longest-common-subsequence (LCS) algorithm on the key lists to
    identify which elements are kept, deleted, inserted, or modified.
-   Adjacent delete+insert pairs of the same type are collapsed into
-   modify operations.
+   Within each changed block, deletions and insertions are paired in
+   document order to form modify operations.  This preserves each
+   element's anchor across unrepresented blank paragraphs.
 
 3. Compute the UTF-16 document position of each old element.  When the
    old IR was produced from Google Docs JSON, elements carry
-   =:doc-start= / =:doc-end= properties with the authoritative byte
+   =:doc-start= / =:doc-end= properties with the authoritative UTF-16
    offsets reported by the API; the engine uses those directly.  For IR
    produced from org-mode (which lacks document positions), it falls
    back to computing positions from element text lengths.  Insertion
@@ -1187,11 +1195,14 @@ last-known state to the current org state.
    - *Modify*: for style-only changes, ~UpdateParagraphStyle~; for
      formatting-only changes, ~UpdateTextStyle~; for content changes,
      word-level surgical diff ([[#h:word-level-diff][Word-level diff]]).
+     Tables with unchanged dimensions use the authoritative ranges of
+     their simple cell paragraphs, preserving each final newline and
+     leaving unchanged cells alone.  Table keys include formatting spans
+     as well as text, while ignoring equivalent run fragmentation.
 
-5. Order requests correctly: deletions in reverse index order (highest
-   first), then insertions in forward order.  This is necessary because
-   the Google Docs API processes requests sequentially and earlier
-   operations shift later indices.
+5. Process element and cell changes from highest to lowest document
+   index.  Keep each change's text edits and style requests together so
+   earlier edits cannot shift the positions used by later requests.
 
 ** Word-level diff
 :PROPERTIES:
