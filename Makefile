@@ -4,6 +4,7 @@ LOAD_PATH := -L $(CURDIR) -L test \
              -L $(ELPACA_REPOS)plz \
              -L $(ELPACA_REPOS)dash \
              -L $(ELPACA_REPOS)s \
+             -L $(ELPACA_REPOS)compat \
              -L $(ELPACA_REPOS)transient/lisp \
              -L $(ELPACA_REPOS)cond-let \
              -L $(ELPACA_REPOS)seq \
