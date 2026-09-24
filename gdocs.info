@@ -530,6 +530,13 @@ document, converts it to org-mode format, and either replaces the buffer
 content silently (when there are no local modifications) or triggers the
 conflict resolution interface (*note Conflict resolution::).
 
+   Pulls ignore the structural empty paragraphs that Google Docs places
+around tables and at the end of the document.  They do not count as
+remote edits or add blank lines on repeated pulls.  Existing local
+spacing is preserved when the corresponding content is unchanged.  Empty
+headings, list items, centered or marked blocks, and blank code lines
+retain their structure instead of being treated as paragraph separators.
+
 
 File: gdocs.info,  Node: Linking and unlinking,  Next: Directory linking,  Prev: Pushing and pulling,  Up: Commands
 
@@ -1692,50 +1699,50 @@ Node: Cross-document link resolution15045
 Node: Commands16152
 Node: Opening and creating documents16487
 Node: Pushing and pulling17894
-Node: Linking and unlinking19272
-Node: Directory linking20110
-Node: Status and browser21959
-Node: Authentication23001
-Node: Conflict resolution (1)23795
-Node: Transient menu25410
-Node: Functions26928
-Node: Authentication (2)27247
-Node: API client (1)28271
-Node: Google Docs API28469
-Node: Google Drive API29560
-Node: Format conversion (1)32585
-Node: Diff engine (1)35111
-Node: Conflict resolution (2)37038
-Node: Authentication (1)37739
-Node: OAuth flow37940
-Node: Token management38833
-Node: Multi-account support39490
-Node: API client40150
-Node: Error handling and retries40344
-Node: Progress indication41052
-Node: Format conversion41482
-Node: Supported element mapping41746
-Node: Intermediate representation43820
-Node: Org-only constructs45003
-Node: Google Docs-only constructs46038
-Node: Sync engine46679
-Node: Metadata storage46907
-Node: Shadow copy48151
-Node: Push serialization48913
-Node: Post-push list nesting fixup49386
-Node: Diff engine52968
-Node: Approach53367
-Node: Word-level diff55473
-Node: Text-style reset57308
-Node: Comment-aware push58579
-Node: Conflict resolution61382
-Node: Minor mode62256
-Node: Keybindings63452
-Node: Merge mode64057
-Node: Development64687
-Node: Indices64906
-Node: Function index65043
-Node: Variable index70008
+Node: Linking and unlinking19696
+Node: Directory linking20534
+Node: Status and browser22383
+Node: Authentication23425
+Node: Conflict resolution (1)24219
+Node: Transient menu25834
+Node: Functions27352
+Node: Authentication (2)27671
+Node: API client (1)28695
+Node: Google Docs API28893
+Node: Google Drive API29984
+Node: Format conversion (1)33009
+Node: Diff engine (1)35535
+Node: Conflict resolution (2)37462
+Node: Authentication (1)38163
+Node: OAuth flow38364
+Node: Token management39257
+Node: Multi-account support39914
+Node: API client40574
+Node: Error handling and retries40768
+Node: Progress indication41476
+Node: Format conversion41906
+Node: Supported element mapping42170
+Node: Intermediate representation44244
+Node: Org-only constructs45427
+Node: Google Docs-only constructs46462
+Node: Sync engine47103
+Node: Metadata storage47331
+Node: Shadow copy48575
+Node: Push serialization49337
+Node: Post-push list nesting fixup49810
+Node: Diff engine53392
+Node: Approach53791
+Node: Word-level diff55897
+Node: Text-style reset57732
+Node: Comment-aware push59003
+Node: Conflict resolution61806
+Node: Minor mode62680
+Node: Keybindings63876
+Node: Merge mode64481
+Node: Development65111
+Node: Indices65330
+Node: Function index65467
+Node: Variable index70432
 
 End Tag Table
 

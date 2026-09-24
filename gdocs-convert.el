@@ -977,7 +977,12 @@ the Google Docs representation."
                         :contents trimmed
                         :id (gdocs-convert--next-id))
                   result)))))
-    (nreverse result)))
+    (or (nreverse result)
+        (list (list :type 'paragraph
+                    :style 'normal
+                    :alignment 'center
+                    :contents nil
+                    :id (gdocs-convert--next-id))))))
 
 ;; ---------------------------------------------------------------------------
 ;;; Verse blocks -> IR
@@ -1099,10 +1104,8 @@ grouped into a single =#+BEGIN_EXAMPLE= block."
     (while (< i len)
       (let ((element (aref elements i)))
         (cond
-         ;; Empty paragraph (nil contents): skip in org output but
-         ;; preserve in IR for correct index computation.
-         ((and (eq (plist-get element :type) 'paragraph)
-               (null (plist-get element :contents)))
+         ;; Structural paragraphs remain in IR for Docs index computation.
+         ((gdocs-convert--empty-body-paragraph-p element)
           (setq i (1+ i)))
          ;; Collect consecutive all-code paragraphs into an example block
          ((gdocs-convert--all-code-paragraph-p element)
@@ -1146,6 +1149,17 @@ grouped into a single =#+BEGIN_EXAMPLE= block."
               (setq prev-type type)))
           (setq i (1+ i))))))
     (concat (s-join "\n" (nreverse parts)) "\n")))
+
+(defun gdocs-convert--empty-body-paragraph-p (element)
+  "Return non-nil if ELEMENT is an empty paragraph without Org structure.
+Headings, list items, marked blocks, and centered paragraphs retain
+their structure even when their text content is empty."
+  (and (eq (plist-get element :type) 'paragraph)
+       (memq (plist-get element :style) '(nil normal))
+       (null (plist-get element :contents))
+       (not (plist-get element :list))
+       (not (plist-get element :gdocs-marker))
+       (not (eq (plist-get element :alignment) 'center))))
 
 (defun gdocs-convert--all-code-paragraph-p (element)
   "Return non-nil if ELEMENT is a normal paragraph with all-code runs.
@@ -1571,7 +1585,7 @@ named-range marker data."
          (bullet (alist-get 'bullet paragraph))
          (ir-style (gdocs-convert--docs-style-to-ir named-style))
          (runs (gdocs-convert--docs-elements-to-runs elements))
-         (trimmed (gdocs-convert--trim-trailing-newline-runs runs))
+         (trimmed (gdocs-convert--trim-docs-paragraph-runs runs))
          (list-info (when bullet
                       (gdocs-convert--docs-bullet-to-list
                        bullet lists-map)))
@@ -1582,6 +1596,12 @@ named-range marker data."
                   :id (gdocs-convert--next-id))
             (when list-info (list :list list-info))
             (when ir-alignment (list :alignment ir-alignment)))))
+
+(defun gdocs-convert--trim-docs-paragraph-runs (runs)
+  "Trim trailing paragraph whitespace from RUNS, retaining blank code lines."
+  (or (gdocs-convert--trim-trailing-newline-runs runs)
+      (when (and runs (seq-every-p (lambda (run) (plist-get run :code)) runs))
+        (list (plist-put (copy-sequence (car runs)) :text "")))))
 
 (defun gdocs-convert--docs-alignment-to-ir (alignment)
   "Convert a Google Docs ALIGNMENT string to an IR alignment symbol."

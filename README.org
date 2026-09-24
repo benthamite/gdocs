@@ -395,6 +395,13 @@ document, converts it to org-mode format, and either replaces the
 buffer content silently (when there are no local modifications) or
 triggers the conflict resolution interface ([[#h:conflict-resolution][Conflict resolution]]).
 
+Pulls ignore the structural empty paragraphs that Google Docs places
+around tables and at the end of the document.  They do not count as
+remote edits or add blank lines on repeated pulls.  Existing local
+spacing is preserved when the corresponding content is unchanged.
+Empty headings, list items, centered or marked blocks, and blank code
+lines retain their structure instead of being treated as paragraph separators.
+
 ** Linking and unlinking
 :PROPERTIES:
 :CUSTOM_ID: h:linking-and-unlinking

@@ -568,7 +568,9 @@ on elements that were not changed remotely."
   (let* ((doc-id gdocs-sync--document-id)
          (link-ctx (gdocs-sync--make-link-context))
          (gdocs-convert--document-id doc-id)
-         (remote-ir (gdocs-convert-docs-json-to-ir json)))
+         (remote-ir (cl-remove-if
+                     #'gdocs-convert--empty-body-paragraph-p
+                     (gdocs-convert-docs-json-to-ir json))))
     (when doc-id
       (gdocs-convert--cache-heading-ids doc-id json))
     (if (gdocs-sync--remote-unchanged-p remote-ir)

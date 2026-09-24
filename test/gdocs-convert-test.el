@@ -1364,6 +1364,17 @@
     ;; Empty paragraph is skipped, result should be empty/whitespace
     (should (string= (s-trim result) ""))))
 
+(ert-deftest gdocs-convert-test-empty-structure-retains-org-syntax ()
+  "Empty structured elements retain their heading, list, or block syntax."
+  (dolist (case '(((:style heading-1) . "* \n")
+                  ((:list (:type check :level 0)) . "- [ ] \n")
+                  ((:alignment center) . "#+BEGIN_CENTER\n\n#+END_CENTER\n")
+                  ((:gdocs-marker ((:type src-block
+                                     :data (:language "emacs-lisp" :value ""))))
+                   . "#+BEGIN_SRC emacs-lisp\n#+END_SRC\n")))
+    (let ((element (append (list :type 'paragraph :contents nil) (car case))))
+      (should (equal (gdocs-convert-ir-to-org (list element)) (cdr case))))))
+
 ;; ---------------------------------------------------------------------------
 ;;; Org-to-IR formatting edge cases
 

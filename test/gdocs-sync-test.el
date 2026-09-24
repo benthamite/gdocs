@@ -292,6 +292,130 @@ local changes) but remote has new content."
       (should (eq gdocs-sync--status 'synced))
       (should (equal gdocs-sync--revision-id "rev-7")))))
 
+(ert-deftest gdocs-sync-test-pull-ignores-structural-empty-paragraphs ()
+  "Repeated pulls preserve local spacing around structural empty paragraphs."
+  (gdocs-sync-test-with-org-buffer
+      "* Heading :local:\n:PROPERTIES:\n:ID: keep-me\n:END:\n\nFirst\n\n\n| Cell |\n\nSecond\n"
+    (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
+    (let ((original (buffer-string))
+          (json (gdocs-sync-test--document-with-empty-paragraphs "Second")))
+      (dotimes (_ 3)
+        (gdocs-sync--apply-pull json "remote-revision")
+        (should (equal (buffer-string) original)))
+      (should (eq gdocs-sync--status 'synced)))))
+
+(ert-deftest gdocs-sync-test-pull-changed-content-with-empty-paragraphs ()
+  "A real remote edit merges once without adding its structural blank lines."
+  (gdocs-sync-test-with-org-buffer
+      "* Heading :local:\n:PROPERTIES:\n:ID: keep-me\n:END:\n\nFirst\n\n\n| Cell |\n\nSecond\n"
+    (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
+    (let ((json (gdocs-sync-test--document-with-empty-paragraphs "Updated")))
+      (gdocs-sync--apply-pull json "remote-revision")
+      (let ((merged (buffer-string)))
+        (should (string-match-p ":ID: keep-me" merged))
+        (should (string-match-p "First\n\n\n| Cell |\n\nUpdated\n" merged))
+        (should-not (string-match-p "Second" merged))
+        (dotimes (_ 3)
+          (gdocs-sync--apply-pull json "remote-revision")
+          (should (equal (buffer-string) merged)))))))
+
+(ert-deftest gdocs-sync-test-pull-preserves-empty-heading-and-drawer ()
+  "A remote edit preserves an empty local heading and its property drawer."
+  (gdocs-sync-test-with-org-buffer
+      "* \n:PROPERTIES:\n:ID: keep-me\n:END:\n\nFirst\n\n\n| Cell |\n\nSecond\n"
+    (setq gdocs-sync--shadow-ir (gdocs-convert-org-buffer-to-ir))
+    (let ((json (gdocs-sync-test--document-with-empty-paragraphs "Updated" "")))
+      (gdocs-sync--apply-pull json "remote-revision")
+      (let ((merged (buffer-string)))
+        (should (string-match-p ":ID: keep-me" merged))
+        (should (string-match-p "Updated" merged))
+        (dotimes (_ 3)
+          (gdocs-sync--apply-pull json "remote-revision")
+          (should (equal (buffer-string) merged)))))))
+
+(defun gdocs-sync-test--document-with-empty-paragraphs (last-text &optional heading)
+  "Return Docs JSON with structural empty paragraphs and final LAST-TEXT.
+HEADING supplies the heading text and defaults to \"Heading\"."
+  (cl-labels ((paragraph (text &optional style)
+               `((paragraph
+                  (elements . [((textRun (content . ,(concat text "\n"))))])
+                  (paragraphStyle (namedStyleType . ,(or style "NORMAL_TEXT")))))))
+    `((body
+       (content . ,(vector
+                    (paragraph (or heading "Heading") "HEADING_1")
+                    (paragraph "")
+                    (paragraph "First")
+                    (paragraph "")
+                    `((table
+                       (rows . 1)
+                       (columns . 1)
+                       (tableRows . [((tableCells . [((content . ,(vector (paragraph "Cell"))))]))])))
+                    (paragraph "")
+                    (paragraph last-text)
+                    (paragraph "")))))))
+
+(ert-deftest gdocs-sync-test-pull-preserves-empty-structured-content ()
+  "Initial and repeated pulls retain empty headings, list items, and code lines."
+  (gdocs-sync-test-with-org-buffer "Old\n"
+    (let ((json (gdocs-sync-test--document-with-empty-structure "Tail")))
+      (gdocs-sync--apply-pull json "first-revision")
+      (let ((pulled (buffer-string)))
+        (should (string-match-p "^\\* .*:gdocs:" pulled))
+        (should (string-match-p "^- $" pulled))
+        (should (string-match-p "Line one\n\nLine three" pulled))
+        (dotimes (_ 3)
+          (gdocs-sync--apply-pull json "first-revision")
+          (should (equal (buffer-string) pulled)))))
+    (let ((json (gdocs-sync-test--document-with-empty-structure "Updated")))
+      (gdocs-sync--apply-pull json "second-revision")
+      (let ((merged (buffer-string)))
+        (should (string-match-p "^- $" merged))
+        (should (string-match-p "Line one\n\nLine three" merged))
+        (should (string-match-p "Updated" merged))
+        (dotimes (_ 3)
+          (gdocs-sync--apply-pull json "second-revision")
+          (should (equal (buffer-string) merged)))))))
+
+(defun gdocs-sync-test--document-with-empty-structure (last-text)
+  "Return Docs JSON containing empty structure and final LAST-TEXT."
+  (cl-labels ((paragraph (text &optional style extra text-style)
+               `((paragraph
+                  (elements . [((textRun (content . ,(concat text "\n"))
+                                        (textStyle . ,text-style)))])
+                  (paragraphStyle (namedStyleType . ,(or style "NORMAL_TEXT")))
+                  ,@extra))))
+    (let ((code-style '((weightedFontFamily (fontFamily . "Courier New")))))
+      `((body
+         (content . ,(vector
+                      (paragraph "" "HEADING_1")
+                      (paragraph "Anchor")
+                      (paragraph "" nil '((bullet (listId . "empty-list"))))
+                      (paragraph "Line one" nil nil code-style)
+                      (paragraph "" nil nil code-style)
+                      (paragraph "Line three" nil nil code-style)
+                      (paragraph last-text))))))))
+
+(ert-deftest gdocs-sync-test-pull-empty-aligned-paragraphs-is-idempotent ()
+  "Centered empty blocks round-trip; unsupported empty alignments add no text."
+  (dolist (alignment '("CENTER" "END" "JUSTIFIED"))
+    (gdocs-sync-test-with-org-buffer "Old\n"
+      (let ((json `((body
+                     (content . [((paragraph
+                                   (elements . [((textRun (content . "\n")))])
+                                   (paragraphStyle (namedStyleType . "NORMAL_TEXT")
+                                                   (alignment . ,alignment))))
+                                  ((paragraph
+                                    (elements . [((textRun (content . "Tail\n")))])
+                                    (paragraphStyle (namedStyleType . "NORMAL_TEXT"))))])))))
+        (gdocs-sync--apply-pull json "revision")
+        (let ((pulled (buffer-string)))
+          (should (eq (not (null (string-match-p "BEGIN_CENTER" pulled)))
+                      (equal alignment "CENTER")))
+          (should (string-match-p "Tail" pulled))
+          (dotimes (_ 3)
+            (gdocs-sync--apply-pull json "revision")
+            (should (equal (buffer-string) pulled))))))))
+
 ;;;; Link/Unlink tests
 
 (ert-deftest gdocs-sync-test-parse-document-id-from-url ()
