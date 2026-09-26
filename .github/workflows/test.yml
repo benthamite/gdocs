@@ -21,6 +21,7 @@ jobs:
           git clone --depth 1 https://github.com/alphapapa/plz.el.git ../plz
           git clone --depth 1 https://github.com/magnars/dash.el.git ../dash
           git clone --depth 1 https://github.com/magnars/s.el.git ../s
+          git clone --depth 1 https://github.com/emacs-compat/compat.git ../compat
           git clone --depth 1 https://github.com/magit/transient.git ../transient
           git clone --depth 1 https://github.com/tarsius/cond-let.git ../cond-let
           git clone --depth 1 https://github.com/tarsius/llama.git ../llama
