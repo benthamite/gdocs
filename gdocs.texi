@@ -137,10 +137,10 @@ Indices
 @chapter Overview
 
 The @samp{gdocs} package provides bidirectional synchronization between
-org-mode files and Google Docs.  It lets you open, edit, create, and
-push Google Docs entirely from within Emacs, using org-mode as the
-native editing format.  The package handles OAuth 2.0 authentication,
-format conversion, incremental diffing, and conflict resolution so that
+org-mode files and Google Docs.  It lets you open@comma{} edit@comma{} create@comma{} and
+push Google Docs entirely from within Emacs@comma{} using org-mode as the
+native editing format.  The package handles OAuth 2.0 authentication@comma{}
+format conversion@comma{} incremental diffing@comma{} and conflict resolution so that
 your org files and their Google Docs counterparts stay in sync.
 
 The package addresses three main workflows:
@@ -158,18 +158,18 @@ Emacs.
 
 @item
 @strong{Import existing Google Docs.}  Import old Google Docs into org
-files.  The files remain synchronized, but you may later choose to
+files.  The files remain synchronized@comma{} but you may later choose to
 unlink or delete the Google Doc.
 @end itemize
 
-Additionally, the package supports @strong{directory-level linking}: you can
+Additionally@comma{} the package supports @strong{directory-level linking}: you can
 associate a local directory with a Google Drive folder so that newly
 created documents are automatically placed in the corresponding Drive
-folder, mirroring your local directory structure
-(@ref{Directory linking}).
+folder@comma{} mirroring your local directory structure
+(@ref{Directory linking, , Directory linking}).
 
 All commands are accessible through a @samp{transient} popup menu
-(@ref{Transient menu}).
+(@ref{Transient menu, , Transient menu}).
 
 @menu
 * Architecture::
@@ -180,33 +180,33 @@ All commands are accessible through a @samp{transient} popup menu
 @node Architecture
 @section Architecture
 
-The package is composed of several modules, each responsible for a
+The package is composed of several modules@comma{} each responsible for a
 distinct layer of functionality:
 
 @table @asis
 @item @samp{gdocs.el}
-Entry point, user commands, and the @code{gdocs-mode} minor
-mode (@ref{Minor mode}).
+Entry point@comma{} user commands@comma{} and the @code{gdocs-mode} minor
+mode (@ref{Minor mode, , Minor mode}).
 @item @samp{gdocs-auth.el}
-OAuth 2.0 flow, token management, and
-multi-account support (@ref{Authentication}).
+OAuth 2.0 flow@comma{} token management@comma{} and
+multi-account support (@ref{Authentication, , Authentication}).
 @item @samp{gdocs-api.el}
 Asynchronous Google Docs and Google Drive API
-client built on @samp{plz.el} (@ref{API client}).
+client built on @samp{plz.el} (@ref{API client, , API client}).
 @item @samp{gdocs-convert.el}
 Bidirectional conversion between org-mode and
 Google Docs JSON via an intermediate representation (IR)
-(@ref{Format conversion}).
+(@ref{Format conversion, , Format conversion}).
 @item @samp{gdocs-diff.el}
 Incremental diff engine that computes the minimal
-set of API requests to synchronize changes, using word-level diffs
-to preserve Google Docs comment anchors (@ref{Diff engine}).
+set of API requests to synchronize changes@comma{} using word-level diffs
+to preserve Google Docs comment anchors (@ref{Diff engine, , Diff engine}).
 @item @samp{gdocs-sync.el}
-Push/pull orchestration, shadow copy management,
-and conflict detection (@ref{Sync engine}).
+Push/pull orchestration@comma{} shadow copy management@comma{}
+and conflict detection (@ref{Sync engine, , Sync engine}).
 @item @samp{gdocs-merge.el}
 Side-by-side conflict resolution interface
-(@ref{Conflict resolution}).
+(@ref{Conflict resolution, , Conflict resolution}).
 @end table
 
 All API operations are fully asynchronous via @samp{plz.el} so that Emacs
@@ -226,7 +226,7 @@ external packages:
 @item
 @samp{s} (1.13+) for string manipulation utilities.
 @item
-@samp{org} (9.6+), which is built into Emacs.
+@samp{org} (9.6+)@comma{} which is built into Emacs.
 @end itemize
 
 @node Quick start
@@ -235,7 +235,7 @@ external packages:
 @enumerate
 @item
 Obtain OAuth credentials from Google Cloud Console
-(@ref{Obtaining credentials}).
+(@ref{Obtaining credentials, , Obtaining credentials}).
 
 @item
 Configure your credentials in Emacs:
@@ -256,9 +256,9 @@ Open an existing Google Doc: @samp{M-x gdocs-open}.
 Or create a new Google Doc from an org file: @samp{M-x gdocs-create}.
 @end enumerate
 
-Once a buffer is linked, the @code{gdocs-mode} minor mode activates
+Once a buffer is linked@comma{} the @code{gdocs-mode} minor mode activates
 automatically.  Changes are pushed to Google Docs on every save (when
-@code{gdocs-auto-push-on-save} is non-nil), and you can pull remote changes
+@code{gdocs-auto-push-on-save} is non-nil)@comma{} and you can pull remote changes
 at any time with @samp{M-x gdocs-pull}.
 
 The development repository is on @uref{https://github.com/benthamite/gdocs, GitHub}.
@@ -281,16 +281,16 @@ The development repository is on @uref{https://github.com/benthamite/gdocs, GitH
 The user option @code{gdocs-accounts} is an alist of named Google accounts
 with their OAuth credentials.  Each entry takes the form
 @code{(NAME . ((client-id . "ID") (client-secret . "SECRET")))} where NAME
-is a string identifying the account (e.g., @samp{"personal"} or @samp{"work"}),
+is a string identifying the account (e.g.@comma{} @samp{"personal"} or @samp{"work"})@comma{}
 and @code{client-id} and @code{client-secret} are OAuth 2.0 credentials that you
-obtain from the Google Cloud Console (@ref{Obtaining credentials}).
+obtain from the Google Cloud Console (@ref{Obtaining credentials, , Obtaining credentials}).
 
-When @code{gdocs-accounts} is @code{nil} or has only one entry, commands that
+When @code{gdocs-accounts} is @code{nil} or has only one entry@comma{} commands that
 require an account use it automatically without prompting.  When
-multiple accounts are configured, commands prompt with
+multiple accounts are configured@comma{} commands prompt with
 @code{completing-read} to select one.  You would configure multiple accounts
 when you need to access Google Docs from different Google Workspace
-organizations (for example, a personal account and a work account with
+organizations (for example@comma{} a personal account and a work account with
 separate OAuth credentials).
 
 The default value is @code{nil}.  You must configure at least one account
@@ -303,7 +303,7 @@ before using any @samp{gdocs} commands.
 @node Obtaining credentials
 @subsection Obtaining credentials
 
-To use @samp{gdocs}, you need an OAuth 2.0 @emph{client ID} and @emph{client secret}
+To use @samp{gdocs}@comma{} you need an OAuth 2.0 @emph{client ID} and @emph{client secret}
 from the Google Cloud Console.  These credentials identify your
 application to Google's servers and allow it to request access to your
 Google Docs and Drive data on your behalf.  They are not passwords ---
@@ -326,7 +326,7 @@ Click the project dropdown at the top of the page.
 @item
 Click @strong{New Project}.
 @item
-Enter a name (e.g., ``Emacs gdocs'') and click @strong{Create}.
+Enter a name (e.g.@comma{} ``Emacs gdocs'') and click @strong{Create}.
 @end itemize
 
 @item
@@ -348,10 +348,10 @@ Select @strong{External} as the user type (unless you have a Google
 Workspace organization and want to restrict access to internal
 users).
 @item
-Fill in the required fields: app name (e.g., ``Emacs gdocs'') and
+Fill in the required fields: app name (e.g.@comma{} ``Emacs gdocs'') and
 your email address for the support and developer contact fields.
 @item
-On the @strong{Scopes} page, add these two scopes:
+On the @strong{Scopes} page@comma{} add these two scopes:
 @itemize
 @item
 @samp{https://www.googleapis.com/auth/documents}
@@ -359,8 +359,8 @@ On the @strong{Scopes} page, add these two scopes:
 @samp{https://www.googleapis.com/auth/drive}
 @end itemize
 @item
-On the @strong{Test users} page, add your own email address.  While the
-app is in ``Testing'' status (the default), only listed test users
+On the @strong{Test users} page@comma{} add your own email address.  While the
+app is in ``Testing'' status (the default)@comma{} only listed test users
 can authorize it.
 @item
 Click @strong{Save and Continue} through the remaining pages.
@@ -375,7 +375,7 @@ Click @strong{Create Credentials > OAuth client ID}.
 @item
 Select @strong{Desktop app} as the application type.
 @item
-Enter a name (e.g., ``Emacs gdocs'') and click @strong{Create}.
+Enter a name (e.g.@comma{} ``Emacs gdocs'') and click @strong{Create}.
 @item
 Google will display your @strong{Client ID} and @strong{Client secret}.  Copy
 both values.
@@ -396,12 +396,12 @@ makes sense to you.
 
 @item
 Run @samp{M-x gdocs-authenticate}.  Your browser will open to a Google
-consent screen.  Grant access, and @samp{gdocs} will store the resulting
+consent screen.  Grant access@comma{} and @samp{gdocs} will store the resulting
 tokens securely in @code{gdocs-token-directory}
-(@ref{Account configuration}).
+(@ref{Account configuration, , Account configuration}).
 @end enumerate
 
-Note: while the app remains in ``Testing'' status, Google will show a
+Note: while the app remains in ``Testing'' status@comma{} Google will show a
 warning screen during authorization (``Google hasn't verified this
 app'').  Click @strong{Continue} to proceed.  You do not need to publish the
 app for personal use --- ``Testing'' status works indefinitely for the
@@ -425,39 +425,39 @@ directory structure.
 @vindex gdocs-auto-push-on-save
 The user option @code{gdocs-auto-push-on-save} controls whether changes are
 automatically pushed to Google Docs whenever you save a linked org
-buffer.  When non-nil, saving the buffer triggers an asynchronous push
+buffer.  When non-nil@comma{} saving the buffer triggers an asynchronous push
 of any changes detected since the last sync.
 
 The default value is @code{t}.  Set this to @code{nil} if you prefer to push
-changes manually with @code{gdocs-push} (@ref{Pushing and pulling}).  Automatic
-pushing is suppressed when the buffer is in a conflict or error state,
+changes manually with @code{gdocs-push} (@ref{Pushing and pulling, , Pushing and pulling}).  Automatic
+pushing is suppressed when the buffer is in a conflict or error state@comma{}
 regardless of this setting.
 
 @vindex gdocs-auto-pull-on-open
 The user option @code{gdocs-auto-pull-on-open} controls whether a linked org
 buffer automatically pulls the latest remote content when opened.  When
-non-nil, opening a file that has @code{gdocs-mode} active triggers an
+non-nil@comma{} opening a file that has @code{gdocs-mode} active triggers an
 immediate pull to ensure you start editing the most recent version.
 
 The default value is @code{nil}.  Enable this if you frequently collaborate
 on documents and want to always start with the latest remote state.
-When disabled, the buffer shows whatever was last saved locally, and you
+When disabled@comma{} the buffer shows whatever was last saved locally@comma{} and you
 must run @code{gdocs-pull} manually to fetch updates.
 
 @vindex gdocs-preserve-comments
 The user option @code{gdocs-preserve-comments} controls whether the push
 flow checks for Google Docs comments before applying changes.  When
-non-nil, the push fetches all comments via the Drive Comments API and
+non-nil@comma{} the push fetches all comments via the Drive Comments API and
 identifies destructive operations---element deletions and cross-type
 modifications---that would destroy anchored comments.  For each at-risk
-operation, you are prompted with @code{y-or-n-p} showing the comment author
-and content.  Declined deletions are removed from the request batch, so
+operation@comma{} you are prompted with @code{y-or-n-p} showing the comment author
+and content.  Declined deletions are removed from the request batch@comma{} so
 the commented elements remain in the remote document.
 
 The default value is @code{t}.  Set this to @code{nil} if you never use Google
 Docs comments and want to skip the extra API call on each push.  This
 option works with both manual pushes and auto-push-on-save
-(@ref{Comment-aware push}).
+(@ref{Comment-aware push, , Comment-aware push}).
 
 @node File storage
 @section File storage
@@ -465,12 +465,12 @@ option works with both manual pushes and auto-push-on-save
 @vindex gdocs-directory
 The user option @code{gdocs-directory} specifies the default directory where
 newly imported org files are saved.  When you use @code{gdocs-open} to fetch
-a Google Doc for the first time, the resulting org file is written to
+a Google Doc for the first time@comma{} the resulting org file is written to
 this directory with a filename derived from the document title.
 
 The default value is @samp{~/org/gdocs/}.  The directory is created
 automatically if it does not exist.  If you already have an org file
-and use @code{gdocs-create} or @code{gdocs-link}, the file stays at its current
+and use @code{gdocs-create} or @code{gdocs-link}@comma{} the file stays at its current
 location regardless of this setting.
 
 @node Org tagging
@@ -478,15 +478,15 @@ location regardless of this setting.
 
 @vindex gdocs-org-tag
 The user option @code{gdocs-org-tag} specifies an org tag to add to the
-first heading of linked org files.  When non-nil, every org file that
-has a Google Doc counterpart receives this tag on its first heading,
+first heading of linked org files.  When non-nil@comma{} every org file that
+has a Google Doc counterpart receives this tag on its first heading@comma{}
 making it easy to filter linked files in agenda views or tag-based
 searches.
 
-The value is a string (e.g., @samp{"gdocs"}) or @code{nil} to disable tagging.
+The value is a string (e.g.@comma{} @samp{"gdocs"}) or @code{nil} to disable tagging.
 The default value is @samp{"gdocs"}.  The tag is added automatically when
-you link, open, or create a document, and removed when you unlink
-(@ref{Linking and unlinking}).
+you link@comma{} open@comma{} or create a document@comma{} and removed when you unlink
+(@ref{Linking and unlinking, , Linking and unlinking}).
 
 @node Cross-document link resolution
 @section Cross-document link resolution
@@ -495,19 +495,19 @@ you link, open, or create a document, and removed when you unlink
 The user option @code{gdocs-link-directories} specifies additional
 directories to scan when resolving cross-document links during
 push.  When you push an org file that contains @samp{file:} or @samp{id:} links
-pointing to other org files with Google Doc counterparts, the
+pointing to other org files with Google Doc counterparts@comma{} the
 converter replaces those links with Google Docs URLs so they work in
-the browser.  @code{gdocs-directory} (@ref{File storage}) is always scanned;
+the browser.  @code{gdocs-directory} (@ref{File storage, , File storage}) is always scanned;
 this option lets you add further directories that also contain linked
 org files.
 
 Local directory links keep their @samp{file:} URLs; the converter does not
 read directories as linked Org files or map them to Google Docs.
 
-The value is a list of directory paths.  The default value is @code{nil},
+The value is a list of directory paths.  The default value is @code{nil}@comma{}
 meaning only @code{gdocs-directory} is scanned.  You would add directories
 here if your linked org files are spread across multiple locations
-(for example, a project-specific directory alongside your main gdocs
+(for example@comma{} a project-specific directory alongside your main gdocs
 directory).
 
 @node Commands
@@ -531,24 +531,24 @@ directory).
 @findex gdocs-create
 The command @code{gdocs-open} fetches a Google Doc and opens it as an
 org-mode buffer.  It prompts for a document ID or a full Google Docs
-URL (e.g., @samp{https://docs.google.com/document/d/DOCUMENT-ID/edit}).  If
+URL (e.g.@comma{} @samp{https://docs.google.com/document/d/DOCUMENT-ID/edit}).  If
 multiple accounts are configured in @code{gdocs-accounts}
-(@ref{Account configuration}), it prompts you to select one.  The document is
+(@ref{Account configuration, , Account configuration})@comma{} it prompts you to select one.  The document is
 converted from Google Docs JSON to org-mode format via the intermediate
-representation (@ref{Format conversion}), saved to @code{gdocs-directory}
-(@ref{File storage}) with a sanitized filename, and displayed in a buffer
+representation (@ref{Format conversion, , Format conversion})@comma{} saved to @code{gdocs-directory}
+(@ref{File storage, , File storage}) with a sanitized filename@comma{} and displayed in a buffer
 with @code{gdocs-mode} active.
 
 The command @code{gdocs-create} does the reverse: it creates a new Google
 Doc from the current org buffer's content.  The title defaults to the
-buffer's @samp{#+TITLE} keyword, falling back to the buffer name.  If the
+buffer's @samp{#+TITLE} keyword@comma{} falling back to the buffer name.  If the
 current directory is linked to a Google Drive folder via
-@code{gdocs-folder-id} (@ref{Directory linking}), the new document is
-automatically placed in that folder.  After creating the document, the
+@code{gdocs-folder-id} (@ref{Directory linking, , Directory linking})@comma{} the new document is
+automatically placed in that folder.  After creating the document@comma{} the
 buffer is linked to it and @code{gdocs-mode} is activated.  Subsequent saves
 push changes to the newly created Doc.
 
-Both commands are autoloaded, so they are available without explicitly
+Both commands are autoloaded@comma{} so they are available without explicitly
 loading the package.
 
 @node Pushing and pulling
@@ -557,26 +557,26 @@ loading the package.
 @findex gdocs-push
 @findex gdocs-pull
 The command @code{gdocs-push} pushes local changes to the linked Google Doc.
-If a shadow copy exists (i.e., the buffer has been synced at least once
-in the current session), the push is incremental: only the differences
+If a shadow copy exists (i.e.@comma{} the buffer has been synced at least once
+in the current session)@comma{} the push is incremental: only the differences
 between the current buffer and the shadow are sent as Google Docs API
-@code{batchUpdate} requests (@ref{Diff engine}).  If no shadow exists (for
-example, after restarting Emacs), the push performs a full document
+@code{batchUpdate} requests (@ref{Diff engine, , Diff engine}).  If no shadow exists (for
+example@comma{} after restarting Emacs)@comma{} the push performs a full document
 replacement.
 
-When @code{gdocs-auto-push-on-save} is non-nil, @code{gdocs-push} is called
+When @code{gdocs-auto-push-on-save} is non-nil@comma{} @code{gdocs-push} is called
 automatically after every save.  Pushes are serialized: if a push is
-already in progress when another is triggered, the second push is
+already in progress when another is triggered@comma{} the second push is
 queued and executed after the first completes.
 
 The command @code{gdocs-pull} fetches the latest version of the linked
 Google Doc and records the revision returned with that document by the
 Docs API@.  It merges remote changes while preserving local Org metadata
 and opens the conflict resolution interface when needed
-(@ref{Conflict resolution}).  If the remote content is
-unchanged, it preserves local edits while refreshing the revision metadata.
+(@ref{Conflict resolution, , Conflict resolution}).  If the remote content is
+unchanged@comma{} it preserves local edits while refreshing the revision metadata.
 Metadata updates preserve undo history and save automatically only when the
-buffer was already clean, without triggering a push.  Unsaved local edits
+buffer was already clean@comma{} without triggering a push.  Unsaved local edits
 remain unsaved and can still be undone normally.  A document accessible only
 for viewing can lack a revision token; pulling it clears any stale stored
 revision.
@@ -585,14 +585,14 @@ Pulls ignore the structural empty paragraphs that Google Docs places
 around tables and at the end of the document.  They do not count as
 remote edits or add blank lines on repeated pulls.  Existing local
 spacing is preserved when the corresponding content is unchanged.
-Empty headings, list items, centered or marked blocks, and blank code
+Empty headings@comma{} list items@comma{} centered or marked blocks@comma{} and blank code
 lines retain their structure instead of being treated as paragraph separators.
 
 Editing adjacent paragraphs and tables keeps each element at its original
 position.  An incremental push edits simple table cells in place when the
-table dimensions are unchanged, preserving surrounding spacing and applying
+table dimensions are unchanged@comma{} preserving surrounding spacing and applying
 cell formatting such as bold headers.  If a same-size remote table contains
-merged cells, multiple paragraphs, or unsupported cell ranges, the push
+merged cells@comma{} multiple paragraphs@comma{} or unsupported cell ranges@comma{} the push
 reports an error instead of replacing that table.
 
 @node Linking and unlinking
@@ -601,14 +601,14 @@ reports an error instead of replacing that table.
 @findex gdocs-link
 @findex gdocs-unlink
 The command @code{gdocs-link} links the current org buffer to an existing
-Google Doc.  It prompts for a document ID or URL and, if needed, an
+Google Doc.  It prompts for a document ID or URL and@comma{} if needed@comma{} an
 account.  Linking writes the document ID and account to the file-level
-property drawer (@ref{Metadata storage}) and triggers an initial pull to
-establish the sync baseline.  It also enables @code{gdocs-mode} immediately,
+property drawer (@ref{Metadata storage, , Metadata storage}) and triggers an initial pull to
+establish the sync baseline.  It also enables @code{gdocs-mode} immediately@comma{}
 including push-on-save and the sync status display.
 
 The command @code{gdocs-unlink} removes the gdocs properties from the
-property drawer and clears all buffer-local sync state, turning the
+property drawer and clears all buffer-local sync state@comma{} turning the
 org file back into a standalone document.  The file content is
 preserved; only the sync metadata is removed.
 
@@ -619,17 +619,17 @@ preserved; only the sync metadata is removed.
 @findex gdocs-unlink-directory
 @findex gdocs-create-folder
 When you have a local directory of org files that you want to mirror in
-a Google Drive folder, you can link the directory so that @code{gdocs-create}
+a Google Drive folder@comma{} you can link the directory so that @code{gdocs-create}
 automatically places new documents in the correct Google Drive folder
 and uses the associated account.
 
 The command @code{gdocs-link-directory} links the current directory to a
 Google Drive folder.  It prompts for a folder ID or a full Google Drive
-folder URL (e.g., @samp{https://drive.google.com/drive/folders/FOLDER-ID})
-and, if needed, an account.  The mapping is written to @samp{.dir-locals.el}
+folder URL (e.g.@comma{} @samp{https://drive.google.com/drive/folders/FOLDER-ID})
+and@comma{} if needed@comma{} an account.  The mapping is written to @samp{.dir-locals.el}
 in the current directory as @code{gdocs-folder-id} and @code{gdocs-account}
-entries.  After linking, any call to @code{gdocs-create}
-(@ref{Opening and creating documents}) from within that directory
+entries.  After linking@comma{} any call to @code{gdocs-create}
+(@ref{Opening and creating documents, , Opening and creating documents}) from within that directory
 automatically places the new document in the linked folder.
 
 The command @code{gdocs-unlink-directory} removes the @code{gdocs-folder-id} and
@@ -639,12 +639,12 @@ removed.
 
 The command @code{gdocs-create-folder} creates a Google Drive folder
 corresponding to a local directory.  It prompts for the target
-directory, defaulting to @code{default-directory} or the directory at point
+directory@comma{} defaulting to @code{default-directory} or the directory at point
 in @code{dired-mode}.  The target must be inside a directory that is already
-linked to a Google Drive folder (@ref{Directory linking}).  If there are
+linked to a Google Drive folder (@ref{Directory linking, , Directory linking}).  If there are
 unlinked intermediate directories between the target and its nearest
-linked ancestor, the command prompts before creating the intermediate
-Drive folders as well, so the folder hierarchy on Drive matches the
+linked ancestor@comma{} the command prompts before creating the intermediate
+Drive folders as well@comma{} so the folder hierarchy on Drive matches the
 local directory structure.
 
 All three commands are autoloaded.
@@ -655,19 +655,19 @@ All three commands are autoloaded.
 @findex gdocs-status
 @findex gdocs-open-in-browser
 The command @code{gdocs-status} displays the current sync status in the echo
-area.  It shows the linked document ID, account name, sync status
-(synced, modified, pushing, conflict, or error), revision ID, and the
+area.  It shows the linked document ID@comma{} account name@comma{} sync status
+(synced@comma{} modified@comma{} pushing@comma{} conflict@comma{} or error)@comma{} revision ID@comma{} and the
 timestamp of the last sync.  This is useful for quickly verifying
 whether the buffer is in sync without inspecting the modeline.
 
 The command @code{gdocs-open-in-browser} opens the linked Google Doc in your
 default web browser using @code{browse-url}.  It constructs the URL from
 the stored document ID@.  This is convenient when you need to check
-formatting, share the link with someone, or use Google Docs features
-that are not yet supported in @samp{gdocs}.  In a @code{dired} buffer, the
-command operates on the file or directory at point: for files, it opens
-the linked Google Doc; for directories, it opens the linked Google
-Drive folder (@ref{Directory linking}).
+formatting@comma{} share the link with someone@comma{} or use Google Docs features
+that are not yet supported in @samp{gdocs}.  In a @code{dired} buffer@comma{} the
+command operates on the file or directory at point: for files@comma{} it opens
+the linked Google Doc; for directories@comma{} it opens the linked Google
+Drive folder (@ref{Directory linking, , Directory linking}).
 
 @node Authentication
 @section Authentication
@@ -675,14 +675,14 @@ Drive folder (@ref{Directory linking}).
 @findex gdocs-authenticate
 @findex gdocs-logout
 The command @code{gdocs-authenticate} initiates the OAuth 2.0 flow for a
-Google account (@ref{OAuth flow}).  If multiple accounts are configured, it
+Google account (@ref{OAuth flow, , OAuth flow}).  If multiple accounts are configured@comma{} it
 prompts you to select one.  The command opens your browser to Google's
-consent screen, and a temporary local HTTP server receives the
-authorization callback.  Upon successful authentication, tokens are
-stored in @code{gdocs-token-directory} (@ref{Account configuration}).
+consent screen@comma{} and a temporary local HTTP server receives the
+authorization callback.  Upon successful authentication@comma{} tokens are
+stored in @code{gdocs-token-directory} (@ref{Account configuration, , Account configuration}).
 
 The command @code{gdocs-logout} deletes the stored token file for an
-account, effectively logging you out.  You will need to run
+account@comma{} effectively logging you out.  You will need to run
 @code{gdocs-authenticate} again to re-authorize.
 
 Both commands are autoloaded.
@@ -699,9 +699,9 @@ Both commands are autoloaded.
 @findex gdocs-merge-accept-all-remote
 @findex gdocs-merge-finalize
 @findex gdocs-merge-abort
-When a pull detects that both local and remote changes exist, the
+When a pull detects that both local and remote changes exist@comma{} the
 conflict resolution interface opens in a dedicated @samp{*gdocs-merge*}
-buffer using @code{gdocs-merge-mode} (@ref{Merge mode}).  The following commands
+buffer using @code{gdocs-merge-mode} (@ref{Merge mode, , Merge mode}).  The following commands
 are available in the merge buffer:
 
 @itemize
@@ -729,12 +729,12 @@ with the local version.
 with the remote version.
 @item
 @code{gdocs-merge-finalize} (@samp{C-c C-c}) finalizes the merge once all
-hunks are resolved, applies the merged content to the original
-buffer, and triggers a push.  It signals an error if any hunks remain
+hunks are resolved@comma{} applies the merged content to the original
+buffer@comma{} and triggers a push.  It signals an error if any hunks remain
 unresolved.
 @item
 @code{gdocs-merge-abort} (@samp{C-c C-k} or @samp{q}) aborts the merge after
-confirmation, leaving the buffer unchanged.
+confirmation@comma{} leaving the buffer unchanged.
 @end itemize
 
 @node Transient menu
@@ -743,27 +743,27 @@ confirmation, leaving the buffer unchanged.
 @findex gdocs-menu
 The command @code{gdocs-menu} opens a @samp{transient} popup menu that provides
 quick access to all @samp{gdocs} commands and options from a single
-interface.  It is autoloaded, so you can invoke it with @samp{M-x gdocs-menu}
+interface.  It is autoloaded@comma{} so you can invoke it with @samp{M-x gdocs-menu}
 without loading the package first.
 
 The menu is organized into the following groups:
 
 @itemize
 @item
-@strong{Sync}: @code{gdocs-push} (@samp{p}), @code{gdocs-pull} (@samp{l}), @code{gdocs-status} (@samp{s}).
+@strong{Sync}: @code{gdocs-push} (@samp{p})@comma{} @code{gdocs-pull} (@samp{l})@comma{} @code{gdocs-status} (@samp{s}).
 @item
-@strong{Documents}: @code{gdocs-open} (@samp{o}), @code{gdocs-create} (@samp{c}),
+@strong{Documents}: @code{gdocs-open} (@samp{o})@comma{} @code{gdocs-create} (@samp{c})@comma{}
 @code{gdocs-open-in-browser} (@samp{b}).
 @item
-@strong{Linking}: @code{gdocs-link} (@samp{L}), @code{gdocs-unlink} (@samp{U}),
-@code{gdocs-link-directory} (@samp{D}), @code{gdocs-unlink-directory} (@samp{X}),
+@strong{Linking}: @code{gdocs-link} (@samp{L})@comma{} @code{gdocs-unlink} (@samp{U})@comma{}
+@code{gdocs-link-directory} (@samp{D})@comma{} @code{gdocs-unlink-directory} (@samp{X})@comma{}
 @code{gdocs-create-folder} (@samp{F}).
 @item
-@strong{Auth}: @code{gdocs-authenticate} (@samp{a}), @code{gdocs-logout} (@samp{x}).
+@strong{Auth}: @code{gdocs-authenticate} (@samp{a})@comma{} @code{gdocs-logout} (@samp{x}).
 @item
-@strong{Options}: toggle @code{gdocs-auto-push-on-save} (@samp{-p}), toggle
-@code{gdocs-auto-pull-on-open} (@samp{-l}), set @code{gdocs-directory} (@samp{-d}), set
-@code{gdocs-org-tag} (@samp{-t}), set @code{gdocs-link-directories} (@samp{-L}).
+@strong{Options}: toggle @code{gdocs-auto-push-on-save} (@samp{-p})@comma{} toggle
+@code{gdocs-auto-pull-on-open} (@samp{-l})@comma{} set @code{gdocs-directory} (@samp{-d})@comma{} set
+@code{gdocs-org-tag} (@samp{-t})@comma{} set @code{gdocs-link-directories} (@samp{-L}).
 @end itemize
 
 The Options group uses @samp{transient} infix commands that let you view and
@@ -789,18 +789,18 @@ configuration to persist them.
 @findex gdocs-auth-select-account
 @findex gdocs-auth-get-access-token
 The function @code{gdocs-auth-select-account} selects a Google account from
-@code{gdocs-accounts}.  If only one account is configured, it returns that
-account's name without prompting.  If multiple accounts exist, it
+@code{gdocs-accounts}.  If only one account is configured@comma{} it returns that
+account's name without prompting.  If multiple accounts exist@comma{} it
 prompts via @code{completing-read} with an optional PROMPT argument.  It
 signals an error if @code{gdocs-accounts} is @code{nil}.  This function is used
 internally by most commands but is also available for use in custom
 workflows or hooks.
 
 The function @code{gdocs-auth-get-access-token} ensures a valid OAuth access
-token for a given account, then calls a callback with the token string.
+token for a given account@comma{} then calls a callback with the token string.
 If the token is expired or about to expire (within a 60-second safety
-margin), it refreshes the token asynchronously before calling the
-callback.  If no token exists, it initiates the full OAuth flow.  This
+margin)@comma{} it refreshes the token asynchronously before calling the
+callback.  If no token exists@comma{} it initiates the full OAuth flow.  This
 function is the primary entry point for all API operations that need
 authentication.
 
@@ -824,19 +824,19 @@ This is used internally by @code{gdocs-pull} to retrieve the remote document
 state.
 
 The function @code{gdocs-api-batch-update} sends a list of @code{batchUpdate}
-requests to a document, which is how all modifications (insertions,
-deletions, style changes) are applied to Google Docs.  The REQUESTS
+requests to a document@comma{} which is how all modifications (insertions@comma{}
+deletions@comma{} style changes) are applied to Google Docs.  The REQUESTS
 argument is a list of request alists as specified by the Google Docs
 API@.  This function is called by both the incremental diff engine and
 full replacement paths.
 
 The function @code{gdocs-api-create-document} creates a new empty Google
 Docs document with a given title.  The callback receives the response
-JSON, which includes the new @samp{documentId}.
+JSON@comma{} which includes the new @samp{documentId}.
 
-All three functions accept an optional ACCOUNT argument; when @code{nil},
+All three functions accept an optional ACCOUNT argument; when @code{nil}@comma{}
 the default account is selected automatically
-(@ref{Account configuration}).
+(@ref{Account configuration, , Account configuration}).
 
 @node Google Drive API
 @subsection Google Drive API
@@ -846,10 +846,10 @@ the default account is selected automatically
 @findex gdocs-api-upload-image
 @findex gdocs-api-search-files
 The function @code{gdocs-api-get-file-metadata} fetches metadata for a
-Google Drive file, including its @samp{id}, @samp{name}, @samp{modifiedTime},
-@samp{version}, and @samp{headRevisionId}.  Native Google Docs synchronization uses
+Google Drive file@comma{} including its @samp{id}@comma{} @samp{name}@comma{} @samp{modifiedTime}@comma{}
+@samp{version}@comma{} and @samp{headRevisionId}.  Native Google Docs synchronization uses
 the revision returned by the Docs API with the document body
-(@ref{Pushing and pulling}).
+(@ref{Pushing and pulling, , Pushing and pulling}).
 
 The function @code{gdocs-api-list-files} lists Google Drive files matching a
 query string (using Drive's query syntax).  It supports pagination via
@@ -857,7 +857,7 @@ an optional PAGE-TOKEN argument.
 
 The function @code{gdocs-api-upload-image} uploads a local image file to
 Google Drive using a multipart upload.  It determines the MIME type
-from the file extension (PNG, JPEG, GIF, WebP, and SVG are supported).
+from the file extension (PNG@comma{} JPEG@comma{} GIF@comma{} WebP@comma{} and SVG are supported).
 An optional FOLDER-ID argument specifies the parent folder in Drive.
 
 The function @code{gdocs-api-search-files} performs a full-text search across
@@ -867,12 +867,12 @@ Google Drive by wrapping @code{gdocs-api-list-files} with a
 @findex gdocs-api-list-comments
 The function @code{gdocs-api-list-comments} fetches all comments on a Google
 Drive file via the Drive Comments API@.  It paginates automatically with
-a page size of 100, collecting results across pages before calling
+a page size of 100@comma{} collecting results across pages before calling
 CALLBACK with the complete list of comment alists.  Each comment
-includes its @samp{id}, @samp{content}, @samp{quotedFileContent} (the anchored text),
-@samp{author}, @samp{createdTime}, @samp{resolved} state, and nested @samp{replies}.  This
+includes its @samp{id}@comma{} @samp{content}@comma{} @samp{quotedFileContent} (the anchored text)@comma{}
+@samp{author}@comma{} @samp{createdTime}@comma{} @samp{resolved} state@comma{} and nested @samp{replies}.  This
 function is used by the comment-aware push flow when
-@code{gdocs-preserve-comments} is non-nil (@ref{Comment-aware push}).
+@code{gdocs-preserve-comments} is non-nil (@ref{Comment-aware push, , Comment-aware push}).
 
 @findex gdocs-api-resolve-comment
 The function @code{gdocs-api-resolve-comment} resolves a comment on a Google
@@ -881,28 +881,28 @@ COMMENT-ID and marks the comment as resolved by sending a PATCH request
 that sets the @samp{resolved} field to true.  CALLBACK receives the updated
 comment alist.  This function is used by the comment-aware push flow
 when the user chooses the ``resolve & delete'' action
-(@ref{Comment-aware push}).
+(@ref{Comment-aware push, , Comment-aware push}).
 
 @findex gdocs-api-rename-file
 @findex gdocs-api-create-folder
 @findex gdocs-api-move-file
 The function @code{gdocs-api-rename-file} renames a Google Drive file
 identified by FILE-ID to NEW-NAME@.  This is used internally by
-@code{gdocs-push} when the local @samp{#+TITLE} has changed since the last sync,
+@code{gdocs-push} when the local @samp{#+TITLE} has changed since the last sync@comma{}
 so the Google Doc title stays in sync with the org file
-(@ref{Pushing and pulling}).
+(@ref{Pushing and pulling, , Pushing and pulling}).
 
 The function @code{gdocs-api-create-folder} creates a new folder in Google
 Drive.  An optional PARENT-FOLDER-ID argument places the folder inside
 a specific parent.  This function is called by @code{gdocs-create-folder}
 when building the Drive folder hierarchy for local directories
-(@ref{Directory linking}).
+(@ref{Directory linking, , Directory linking}).
 
 The function @code{gdocs-api-move-file} moves a Google Drive file into a
 different folder by adding the file to the target folder and removing
 it from its current parent.  This is used by @code{gdocs-create} to place
 newly created documents in the linked Drive folder
-(@ref{Directory linking}).
+(@ref{Directory linking, , Directory linking}).
 
 @node Format conversion (1)
 @section Format conversion
@@ -914,8 +914,8 @@ newly created documents in the linked Drive folder
 @findex gdocs-convert-docs-json-to-ir
 @findex gdocs-convert-ir-to-docs-requests
 All conversion passes through a flat list of intermediate
-representation (IR) element plists, which serves as the canonical
-interchange format shared with the diff engine (@ref{Diff engine}).
+representation (IR) element plists@comma{} which serves as the canonical
+interchange format shared with the diff engine (@ref{Diff engine, , Diff engine}).
 
 The function @code{gdocs-convert-org-buffer-to-ir} parses the current org
 buffer using @code{org-element-parse-buffer} and returns an IR element list.
@@ -924,15 +924,15 @@ accepts an org-mode string rather than operating on the current buffer.
 
 The function @code{gdocs-convert-org-buffer-to-segments} is a variant of
 @code{gdocs-convert-org-buffer-to-ir} designed for the three-way merge.
-Instead of returning a flat IR list, it returns a plist with four keys:
-@code{:ir} (the full IR element list), @code{:segments} (a list of segment plists,
-each pairing an @code{:ir-element} with its @code{:org-text} region), @code{:preamble}
-(buffer text before the first body element, including the property
-drawer and @samp{#+TITLE:} line), and @code{:postamble} (text after the last
+Instead of returning a flat IR list@comma{} it returns a plist with four keys:
+@code{:ir} (the full IR element list)@comma{} @code{:segments} (a list of segment plists@comma{}
+each pairing an @code{:ir-element} with its @code{:org-text} region)@comma{} @code{:preamble}
+(buffer text before the first body element@comma{} including the property
+drawer and @samp{#+TITLE:} line)@comma{} and @code{:postamble} (text after the last
 element).  By preserving the mapping between IR
-elements and their original org text, the three-way merge can retain
-org-only metadata (property drawers, TODO keywords, tags) that would
-otherwise be lost during conversion (@ref{Sync engine}).
+elements and their original org text@comma{} the three-way merge can retain
+org-only metadata (property drawers@comma{} TODO keywords@comma{} tags) that would
+otherwise be lost during conversion (@ref{Sync engine, , Sync engine}).
 
 The function @code{gdocs-convert-ir-to-org} converts an IR element list back
 to a well-formatted org-mode string.  This is the inverse of
@@ -940,13 +940,13 @@ to a well-formatted org-mode string.  This is the inverse of
 changes.
 
 The function @code{gdocs-convert-docs-json-to-ir} converts a Google Docs API
-JSON response (an alist with keys like @samp{body}, @samp{title}, @samp{lists}, and
+JSON response (an alist with keys like @samp{body}@comma{} @samp{title}@comma{} @samp{lists}@comma{} and
 @samp{namedRanges}) to an IR element list.  It walks the document structure
 and maps each structural element to its IR equivalent.  Each resulting
 IR element carries @samp{:doc-start} and @samp{:doc-end} properties copied from
-the JSON's @code{startIndex} and @code{endIndex}, giving the diff engine
+the JSON's @code{startIndex} and @code{endIndex}@comma{} giving the diff engine
 authoritative UTF-16 document positions
-(@ref{Intermediate representation}).
+(@ref{Intermediate representation, , Intermediate representation}).
 
 The function @code{gdocs-convert-ir-to-docs-requests} converts an IR element
 list to a list of Google Docs @code{batchUpdate} request alists.  It tracks
@@ -963,32 +963,32 @@ and by the diff engine for incremental insertions.
 The function @code{gdocs-diff-generate} is the main entry point of the diff
 engine.  It compares two IR element lists (OLD-IR and NEW-IR) and
 returns a list of @code{batchUpdate} request plists representing the minimal
-changes needed.  Internally, it computes content-based keys for each
-element, runs a longest-common-subsequence (LCS) algorithm to identify
-kept, deleted, inserted, and modified elements, and generates the
+changes needed.  Internally@comma{} it computes content-based keys for each
+element@comma{} runs a longest-common-subsequence (LCS) algorithm to identify
+kept@comma{} deleted@comma{} inserted@comma{} and modified elements@comma{} and generates the
 appropriate API requests.
 
 An optional START-INDEX argument specifies the UTF-16 code unit offset
 where the first IR element begins in the document body (default 1).
 The sync engine uses this to account for title elements that precede the
-diffable body content (@ref{Sync engine}).  When the old IR carries
+diffable body content (@ref{Sync engine, , Sync engine}).  When the old IR carries
 @samp{:doc-start} / @samp{:doc-end} properties (as produced by
-@code{gdocs-convert-docs-json-to-ir}), the engine uses those authoritative
+@code{gdocs-convert-docs-json-to-ir})@comma{} the engine uses those authoritative
 positions; otherwise it computes positions from element text lengths.
 Requests are ordered for correct index stability: deletions and
-modifications processed from highest index to lowest, with insertions
+modifications processed from highest index to lowest@comma{} with insertions
 interleaved so that earlier operations do not shift indices of later
 ones.
 
 For workflows that need to inspect or filter diff operations before
-generating API requests, two lower-level functions are available.  The
+generating API requests@comma{} two lower-level functions are available.  The
 function @code{gdocs-diff-compute-operations} returns the raw diff operation
-list (with @code{:op} values of @code{keep}, @code{delete}, @code{insert}, or @code{modify})
+list (with @code{:op} values of @code{keep}@comma{} @code{delete}@comma{} @code{insert}@comma{} or @code{modify})
 without generating requests.  The function
 @code{gdocs-diff-generate-from-ops} accepts a pre-computed operation list and
 produces the corresponding API requests.  The comment-aware push flow
 uses this two-step API to filter declined deletions before generating
-the final request batch (@ref{Comment-aware push}).
+the final request batch (@ref{Comment-aware push, , Comment-aware push}).
 
 @node Conflict resolution (2)
 @section Conflict resolution
@@ -997,13 +997,13 @@ the final request batch (@ref{Comment-aware push}).
 The function @code{gdocs-merge-start} opens the conflict resolution
 interface.  It takes two org-mode strings (local and remote) and a
 callback function.  It computes hunks by running an LCS diff on the
-line-level differences, sets up the @samp{*gdocs-merge*} buffer with
-color-coded overlays for conflicts, and displays it.  When the user
-finalizes the merge, the callback is called with the resulting merged
+line-level differences@comma{} sets up the @samp{*gdocs-merge*} buffer with
+color-coded overlays for conflicts@comma{} and displays it.  When the user
+finalizes the merge@comma{} the callback is called with the resulting merged
 org string.
 
 This function is called internally by the sync engine when a pull
-detects both local and remote changes (@ref{Conflict resolution}).
+detects both local and remote changes (@ref{Conflict resolution, , Conflict resolution}).
 
 @node Authentication (1)
 @chapter Authentication
@@ -1028,7 +1028,7 @@ receive the authorization callback.
 @item
 The user's default browser opens to Google's OAuth consent screen.
 @item
-After the user grants consent, Google redirects to the local server
+After the user grants consent@comma{} Google redirects to the local server
 with an authorization code.
 @item
 The package exchanges the code for access and refresh tokens.
@@ -1043,7 +1043,7 @@ The package requests two OAuth scopes:
 @samp{https://www.googleapis.com/auth/documents} for reading and writing
 Google Docs.
 @item
-@samp{https://www.googleapis.com/auth/drive} for listing, browsing, and
+@samp{https://www.googleapis.com/auth/drive} for listing@comma{} browsing@comma{} and
 creating files in Google Drive.
 @end itemize
 
@@ -1052,13 +1052,13 @@ creating files in Google Drive.
 
 Access tokens are refreshed automatically before each API call when
 they are expired or within 60 seconds of expiry.  The refresh uses the
-stored refresh token and happens asynchronously, so Emacs is never
+stored refresh token and happens asynchronously@comma{} so Emacs is never
 blocked.  Each token file also stores the @samp{client_id} and
 @samp{client_secret} so that token refreshes work without re-reading
 @code{gdocs-accounts}.
 
-If no token file exists for an account (e.g., after running
-@code{gdocs-logout}), the next API operation triggers a fresh OAuth flow.
+If no token file exists for an account (e.g.@comma{} after running
+@code{gdocs-logout})@comma{} the next API operation triggers a fresh OAuth flow.
 
 @node Multi-account support
 @section Multi-account support
@@ -1066,8 +1066,8 @@ If no token file exists for an account (e.g., after running
 Each entry in @code{gdocs-accounts} is an independent account with its own
 OAuth credentials and token file.  Linked org files remember which
 account they are associated with via the @samp{GDOCS_ACCOUNT} property in
-the file-level property drawer (@ref{Metadata storage}).  When you open a
-linked file, the stored account is used automatically.
+the file-level property drawer (@ref{Metadata storage, , Metadata storage}).  When you open a
+linked file@comma{} the stored account is used automatically.
 
 You would configure custom OAuth credentials per account if you want to
 avoid shared rate limits or if your organization requires its own OAuth
@@ -1085,11 +1085,11 @@ application.
 @section Error handling and retries
 
 All API requests include automatic retry logic for transient errors.
-When the server returns HTTP 429 (rate limited), 500 (internal server
-error), or 503 (service unavailable), the request is retried with
+When the server returns HTTP 429 (rate limited)@comma{} 500 (internal server
+error)@comma{} or 503 (service unavailable)@comma{} the request is retried with
 exponential backoff up to three times.  If the response includes a
-@samp{Retry-After} header, its value is used as the delay; otherwise, the
-delay follows the pattern 1s, 2s, 4s, capped at 30 seconds.
+@samp{Retry-After} header@comma{} its value is used as the delay; otherwise@comma{} the
+delay follows the pattern 1s@comma{} 2s@comma{} 4s@comma{} capped at 30 seconds.
 
 Authentication failures (HTTP 401 or 403) produce a clear error message
 directing you to run @code{gdocs-authenticate} to re-authorize.
@@ -1097,10 +1097,10 @@ directing you to run @code{gdocs-authenticate} to re-authorize.
 @node Progress indication
 @section Progress indication
 
-While API requests are in flight, the global modeline displays
+While API requests are in flight@comma{} the global modeline displays
 @samp{[GDocs: syncing...]} to indicate that a network operation is in
-progress.  The indicator tracks actual Google HTTP requests, not the
-OAuth authorization prompt, and disappears when all pending requests
+progress.  The indicator tracks actual Google HTTP requests@comma{} not the
+OAuth authorization prompt@comma{} and disappears when all pending requests
 complete.
 
 @node Format conversion
@@ -1142,13 +1142,13 @@ org-mode elements and Google Docs constructs:
 @tab Monospace font text run
 @item @samp{[[url][description]]}
 @tab Hyperlink
-@item Unordered lists (@samp{-}, @samp{+})
+@item Unordered lists (@samp{-}@comma{} @samp{+})
 @tab Bullet list
-@item Ordered lists (@samp{1.}, @samp{1)})
+@item Ordered lists (@samp{1.}@comma{} @samp{1)})
 @tab Numbered list
 @item Nested lists
 @tab Nested list with nesting level
-@item Checkbox items (@samp{[ ]}, @samp{[X]})
+@item Checkbox items (@samp{[ ]}@comma{} @samp{[X]})
 @tab Checklist items
 @item Tables
 @tab Google Docs table
@@ -1163,13 +1163,13 @@ org-mode elements and Google Docs constructs:
 @end multitable
 
 @vindex gdocs-convert-monospace-font-families
-Google Docs has no native ``code'' text style, so the converter uses a
-font-based heuristic: when pulling, any text run whose font family
+Google Docs has no native ``code'' text style@comma{} so the converter uses a
+font-based heuristic: when pulling@comma{} any text run whose font family
 appears in the variable @code{gdocs-convert-monospace-font-families} is
-treated as code (mapped to @samp{~code~} in org-mode).  When pushing, code
+treated as code (mapped to @samp{~code~} in org-mode).  When pushing@comma{} code
 runs are set to the first font in the list (@samp{Courier New} by default).
-The recognized families are @samp{Courier New}, @samp{Consolas}, @samp{Source Code
-Pro}, @samp{Roboto Mono}, and @samp{Courier}.  You can customize this list if
+The recognized families are @samp{Courier New}@comma{} @samp{Consolas}@comma{} @samp{Source Code
+Pro}@comma{} @samp{Roboto Mono}@comma{} and @samp{Courier}.  You can customize this list if
 your documents use a different monospace font.
 
 @node Intermediate representation
@@ -1177,21 +1177,21 @@ your documents use a different monospace font.
 
 All conversion passes through a flat list of IR element plists rather
 than directly translating between org-mode and Google Docs JSON@.  Each
-IR element has a @samp{:type} (e.g., @code{paragraph}, @code{table},
-@code{horizontal-rule}), a @samp{:style} (e.g., @code{normal}, @code{heading-1}), and
+IR element has a @samp{:type} (e.g.@comma{} @code{paragraph}@comma{} @code{table}@comma{}
+@code{horizontal-rule})@comma{} a @samp{:style} (e.g.@comma{} @code{normal}@comma{} @code{heading-1})@comma{} and
 @samp{:contents} (a list of text runs with formatting properties like
-@samp{:bold}, @samp{:italic}, @samp{:link}, etc.).
+@samp{:bold}@comma{} @samp{:italic}@comma{} @samp{:link}@comma{} etc.).
 
 When the IR is produced from Google Docs JSON (via
-@code{gdocs-convert-docs-json-to-ir}), each element also carries
+@code{gdocs-convert-docs-json-to-ir})@comma{} each element also carries
 @samp{:doc-start} and @samp{:doc-end} properties recording the element's
 @code{startIndex} and @code{endIndex} from the JSON@.  These authoritative UTF-16
 byte offsets allow the diff engine to use the exact document positions
 reported by the API rather than re-computing them from text lengths
-(@ref{Diff engine}).
+(@ref{Diff engine, , Diff engine}).
 
 This architecture means the diff engine only needs to understand the IR
-format, not both org-mode and Google Docs JSON independently.
+format@comma{} not both org-mode and Google Docs JSON independently.
 
 @node Org-only constructs
 @section Org-only constructs
@@ -1206,10 +1206,10 @@ round-trips:
 @item
 @strong{Tags}: same treatment as TODO keywords.
 @item
-@strong{Timestamps} (@samp{SCHEDULED:}, @samp{DEADLINE:}, active/inactive): preserved
+@strong{Timestamps} (@samp{SCHEDULED:}@comma{} @samp{DEADLINE:}@comma{} active/inactive): preserved
 as markers.
 @item
-@strong{Properties and drawers}: preserved as markers, not rendered visually.
+@strong{Properties and drawers}: preserved as markers@comma{} not rendered visually.
 @item
 @strong{Source code blocks}: rendered as monospace-formatted text with the
 full org syntax in a comment.
@@ -1217,7 +1217,7 @@ full org syntax in a comment.
 @strong{@LaTeX{} fragments}: rendered as monospace text with the raw @LaTeX{} in a
 comment.
 @item
-@strong{Org keywords} (@samp{#+AUTHOR:}, @samp{#+DATE:}, etc.): preserved as markers
+@strong{Org keywords} (@samp{#+AUTHOR:}@comma{} @samp{#+DATE:}@comma{} etc.): preserved as markers
 at the top of the document.
 @item
 @strong{Custom IDs and anchors}: preserved as comments.
@@ -1226,7 +1226,7 @@ at the top of the document.
 @node Google Docs-only constructs
 @section Google Docs-only constructs
 
-Similarly, some Google Docs constructs have no org equivalent and are
+Similarly@comma{} some Google Docs constructs have no org equivalent and are
 preserved as opaque org markers:
 
 @itemize
@@ -1273,12 +1273,12 @@ drawer at the top of the file:
 
 The property drawer is the standard org-mode mechanism for
 document-level metadata.  All four properties are persisted to the
-file, so revision tracking and last-sync timestamps survive across
+file@comma{} so revision tracking and last-sync timestamps survive across
 Emacs sessions.  The drawer is read via @code{org-entry-get} and written
-via @code{org-entry-put}, using standard org APIs rather than the Emacs
+via @code{org-entry-put}@comma{} using standard org APIs rather than the Emacs
 file-local variable machinery.
 
-Directories linked to Google Drive folders (@ref{Directory linking}) store
+Directories linked to Google Drive folders (@ref{Directory linking, , Directory linking}) store
 their association in @samp{.dir-locals.el} rather than per-file:
 
 @example
@@ -1297,11 +1297,11 @@ The sync engine maintains a buffer-local @emph{shadow IR}: the intermediate
 representation of the last-synced state.  This shadow enables
 incremental diffs on push and conflict detection on pull.
 
-On the first open of a linked file after an Emacs restart, the shadow
+On the first open of a linked file after an Emacs restart@comma{} the shadow
 is @code{nil}.  The next push fetches the remote document and diffs against
-it (rather than against the missing shadow), so incremental diffing
+it (rather than against the missing shadow)@comma{} so incremental diffing
 still works and comment anchors are preserved.  If
-@code{gdocs-auto-pull-on-open} is non-nil, the pull establishes the shadow
+@code{gdocs-auto-pull-on-open} is non-nil@comma{} the pull establishes the shadow
 baseline automatically so that subsequent pushes diff against the
 known-good shadow.
 
@@ -1309,7 +1309,7 @@ known-good shadow.
 @section Push serialization
 
 Pushes are serialized to prevent race conditions.  If a push is already
-in flight when another is triggered (e.g., by a rapid save), the second
+in flight when another is triggered (e.g.@comma{} by a rapid save)@comma{} the second
 push is queued and executes automatically when the first completes.
 This ensures that the shadow copy is always consistent with what was
 last sent to the API@.
@@ -1322,21 +1322,21 @@ items and for modifications that change the list type or nesting level.
 These per-paragraph requests always produce flat (level-0) lists.  The
 full conversion path has a separate mechanism
 (@code{gdocs-convert--fixup-list-nesting}) that groups bullets and inserts
-leading tabs so that the API infers correct nesting levels, but the diff
+leading tabs so that the API infers correct nesting levels@comma{} but the diff
 path cannot use that mechanism because it interleaves modifications with
 insertions at varying document positions.
 
 When a content modification does not change the list structure (same
-type and level), the diff engine suppresses the @code{createParagraphBullets}
+type and level)@comma{} the diff engine suppresses the @code{createParagraphBullets}
 request entirely.  The trailing newline is preserved during paragraph
-modifications, which keeps the paragraph in its existing Google Docs
+modifications@comma{} which keeps the paragraph in its existing Google Docs
 list object.  Re-emitting a bullet request with a fixed preset would
 overwrite the alternated preset assigned during document creation and
 cause Google Docs to merge separate numbered lists into one continuous
 sequence.
 
-To restore correct nesting, the sync engine runs a second
-@code{batchUpdate} pass after the main push succeeds, but only when the
+To restore correct nesting@comma{} the sync engine runs a second
+@code{batchUpdate} pass after the main push succeeds@comma{} but only when the
 local IR contains nested list items (level > 0).  The fixup proceeds
 as follows:
 
@@ -1346,7 +1346,7 @@ Fetch the just-pushed document to obtain current paragraph ranges.
 
 @item
 Align local and remote IR elements by plain-text content using the
-same LCS approach as the diff engine, so that each local element
+same LCS approach as the diff engine@comma{} so that each local element
 (which carries the correct @samp{:level} from the org source) is paired
 with its remote counterpart (which carries @samp{:doc-start} /
 @samp{:doc-end} positions).
@@ -1354,7 +1354,7 @@ with its remote counterpart (which carries @samp{:doc-start} /
 @item
 Build element-range plists that merge local list info with remote
 document positions.  The local element's @samp{:list} always takes
-precedence, even when nil — this ensures that headings erroneously
+precedence@comma{} even when nil — this ensures that headings erroneously
 bulleted by the API are correctly treated as non-list elements by
 the guard logic in step 6.
 
@@ -1363,14 +1363,14 @@ Identify contiguous list groups that contain at least one element
 at level > 0.
 
 @item
-For each such group, emit four kinds of requests in order:
+For each such group@comma{} emit four kinds of requests in order:
 @itemize
 @item
 @code{deleteParagraphBullets} to remove the flat bullets for the
 group range.
 @item
 @code{updateParagraphStyle} to reset @samp{indentStart} and
-@samp{indentFirstLine} to zero, so only leading tabs signal nesting
+@samp{indentFirstLine} to zero@comma{} so only leading tabs signal nesting
 depth.
 @item
 @code{insertText} to insert @emph{N} tab characters at each nested
@@ -1379,7 +1379,7 @@ Insertions are sorted by descending index to maintain correct
 positions.
 @item
 A per-group @code{createParagraphBullets} request.  The API counts
-the leading tabs, assigns the correct nesting levels, and
+the leading tabs@comma{} assigns the correct nesting levels@comma{} and
 removes the tabs afterward.
 @end itemize
 
@@ -1387,13 +1387,13 @@ removes the tabs afterward.
 Emit defensive @code{deleteParagraphBullets} requests for non-list
 paragraphs adjacent to the list groups.  The Google Docs API can
 extend bullet formatting to heading paragraphs near
-@code{createParagraphBullets} ranges, so these guards prevent headings
+@code{createParagraphBullets} ranges@comma{} so these guards prevent headings
 from being accidentally turned into bullet points.
 @end enumerate
 
-The fixup keeps the push lock held until completion, so any queued
+The fixup keeps the push lock held until completion@comma{} so any queued
 push waits until nesting is fully resolved before proceeding
-(@ref{Push serialization}).  If the local IR has no nested list items,
+(@ref{Push serialization, , Push serialization}).  If the local IR has no nested list items@comma{}
 the fixup is skipped entirely and the push completes in a single
 round trip.
 
@@ -1417,46 +1417,46 @@ last-known state to the current org state.
 @enumerate
 @item
 Produce content-based keys for each element in the old and new IRs.
-Keys capture type, style, text content, and formatting, so elements
+Keys capture type@comma{} style@comma{} text content@comma{} and formatting@comma{} so elements
 with identical content produce identical keys.
 
 @item
 Run a longest-common-subsequence (LCS) algorithm on the key lists to
-identify which elements are kept, deleted, inserted, or modified.
-Within each changed block, deletions and insertions are paired in
+identify which elements are kept@comma{} deleted@comma{} inserted@comma{} or modified.
+Within each changed block@comma{} deletions and insertions are paired in
 document order to form modify operations.  This preserves each
 element's anchor across unrepresented blank paragraphs.
 
 @item
 Compute the UTF-16 document position of each old element.  When the
-old IR was produced from Google Docs JSON, elements carry
+old IR was produced from Google Docs JSON@comma{} elements carry
 @samp{:doc-start} / @samp{:doc-end} properties with the authoritative UTF-16
 offsets reported by the API; the engine uses those directly.  For IR
-produced from org-mode (which lacks document positions), it falls
+produced from org-mode (which lacks document positions)@comma{} it falls
 back to computing positions from element text lengths.  Insertion
 points for new elements are determined by the end position of the
 nearest preceding kept or modified element; modified elements are
 valid anchors because they still occupy a known position in the old
-document.  When the anchor is the document's final paragraph, its
-end position is the end of the body, where the API rejects
-insertions; the engine instead inserts the new text, preceded by a
-newline, just before the final newline.
+document.  When the anchor is the document's final paragraph@comma{} its
+end position is the end of the body@comma{} where the API rejects
+insertions; the engine instead inserts the new text@comma{} preceded by a
+newline@comma{} just before the final newline.
 
 @item
 Map operations to API requests:
 @itemize
 @item
-@strong{Insert}: @code{InsertText}, @code{InsertTable}, @code{CreateParagraphBullets}, etc.
+@strong{Insert}: @code{InsertText}@comma{} @code{InsertTable}@comma{} @code{CreateParagraphBullets}@comma{} etc.
 @item
 @strong{Delete}: @code{DeleteContentRange}.
 @item
-@strong{Modify}: for style-only changes, @code{UpdateParagraphStyle}; for
-formatting-only changes, @code{UpdateTextStyle}; for content changes,
-word-level surgical diff (@ref{Word-level diff}).
+@strong{Modify}: for style-only changes@comma{} @code{UpdateParagraphStyle}; for
+formatting-only changes@comma{} @code{UpdateTextStyle}; for content changes@comma{}
+word-level surgical diff (@ref{Word-level diff, , Word-level diff}).
 Tables with unchanged dimensions use the authoritative ranges of
-their simple cell paragraphs, preserving each final newline and
+their simple cell paragraphs@comma{} preserving each final newline and
 leaving unchanged cells alone.  Table keys include formatting spans
-as well as text, while ignoring equivalent run fragmentation.
+as well as text@comma{} while ignoring equivalent run fragmentation.
 @end itemize
 
 @item
@@ -1468,12 +1468,12 @@ earlier edits cannot shift the positions used by later requests.
 @node Word-level diff
 @section Word-level diff
 
-When a paragraph's text content changes, the diff engine performs a
+When a paragraph's text content changes@comma{} the diff engine performs a
 word-level diff rather than deleting all text and re-inserting it.
 This is critical for preserving Google Docs comments: comments are
 anchored to specific text ranges via opaque internal identifiers that
 cannot be recreated through any API@.  A full delete+re-insert destroys
-all comment anchors, even on text that did not change.
+all comment anchors@comma{} even on text that did not change.
 
 The word-level algorithm works as follows:
 
@@ -1485,7 +1485,7 @@ or tabs).  This preserves exact spacing.
 
 @item
 Run the LCS algorithm on the token strings to identify which tokens
-are kept, deleted, or inserted.
+are kept@comma{} deleted@comma{} or inserted.
 
 @item
 Collapse adjacent same-operation tokens into contiguous ranges.
@@ -1496,7 +1496,7 @@ highest to lowest by document index) and @code{InsertText} requests for
 inserted text at the correct post-deletion positions.
 
 @item
-Apply paragraph style, text formatting, and list property requests
+Apply paragraph style@comma{} text formatting@comma{} and list property requests
 for the full new paragraph extent (same as before).
 @end enumerate
 
@@ -1504,7 +1504,7 @@ Token offsets are computed in UTF-16 code units using
 @code{gdocs-convert--string-to-utf16-length} to handle non-BMP characters
 (such as emoji) that require surrogate pairs.  Even a fully rewritten
 paragraph produces correct operations.  The word-level approach is used
-whenever the list structure is unchanged (same type and level, or both
+whenever the list structure is unchanged (same type and level@comma{} or both
 non-list); modifications that change the list type or nesting level fall
 back to a bulk replacement to handle the tab prefix and bullet preset
 changes that list transitions require.
@@ -1518,23 +1518,23 @@ formatting of adjacent text.  This means that inserting a plain
 paragraph next to a bold one would produce bold text unless the
 formatting is explicitly cleared.
 
-To prevent inherited formatting from bleeding into new content, every
+To prevent inherited formatting from bleeding into new content@comma{} every
 text insertion is followed by an @code{updateTextStyle} request that resets
 all character-level formatting across the inserted range.  The reset
-clears bold, italic, underline, strikethrough, @code{weightedFontFamily},
-@code{baselineOffset}, @code{foregroundColor}, and @code{backgroundColor} by listing
+clears bold@comma{} italic@comma{} underline@comma{} strikethrough@comma{} @code{weightedFontFamily}@comma{}
+@code{baselineOffset}@comma{} @code{foregroundColor}@comma{} and @code{backgroundColor} by listing
 them in the API's @code{fields} mask with only default values in the
 @code{textStyle} body.  Fields present in the mask but absent from the body
-are reset to their defaults by the Google Docs API@.  After the reset,
+are reset to their defaults by the Google Docs API@.  After the reset@comma{}
 per-run style requests re-apply only the formatting that the org source
 actually specifies.  This two-step approach (reset then re-apply)
-ensures that every text run matches the org source exactly, regardless
+ensures that every text run matches the org source exactly@comma{} regardless
 of surrounding context.
 
 @node Comment-aware push
 @section Comment-aware push
 
-When @code{gdocs-preserve-comments} is non-nil (@ref{Sync behavior}), the push
+When @code{gdocs-preserve-comments} is non-nil (@ref{Sync behavior, , Sync behavior})@comma{} the push
 flow adds a comment protection step between computing the diff and
 sending the batch update.  The extended flow is:
 
@@ -1544,29 +1544,29 @@ Fetch the remote document (as before).
 @item
 Fetch all comments on the document via the Drive Comments API
 (@code{gdocs-api-list-comments}).  Deleted and resolved comments are
-excluded from the mapping, so they never trigger prompts.
+excluded from the mapping@comma{} so they never trigger prompts.
 @item
 Compute the diff operations
 (@code{gdocs-diff-compute-operations}).
 @item
 For each destructive operation (element deletion or cross-type
-modification), check whether the target element has comments anchored
+modification)@comma{} check whether the target element has comments anchored
 to it.  A comment is considered ``on'' an element if the comment's
 @samp{quotedFileContent.value} appears as a substring of the element's
 plain text.
 @item
 Prompt the user for each at-risk operation via a single-key prompt
-showing the element text, comment author, and comment content.  The
+showing the element text@comma{} comment author@comma{} and comment content.  The
 prompt offers four actions:
 @itemize
 @item
-@samp{[s]kip} -- keep the element in the remote document, preserving the
+@samp{[s]kip} -- keep the element in the remote document@comma{} preserving the
 comment.
 @item
-@samp{[d]elete} -- proceed with the deletion, destroying the comment.
+@samp{[d]elete} -- proceed with the deletion@comma{} destroying the comment.
 @item
 @samp{[o]pen} -- open the comment in the browser using the Google Docs
-comment URL (@samp{https://docs.google.com/document/d/DOC-ID/edit?disco=COMMENT-ID}),
+comment URL (@samp{https://docs.google.com/document/d/DOC-ID/edit?disco=COMMENT-ID})@comma{}
 then re-prompt for the same element so you can inspect the comment
 in context before deciding.
 @item
@@ -1575,8 +1575,8 @@ API (@code{gdocs-api-resolve-comment}) before proceeding with the
 deletion.  This marks the discussion as resolved while still
 removing the element from the document.
 @end itemize
-Uppercase variants (@samp{S}, @samp{D}, @samp{R}) apply the chosen action to all
-remaining conflicts, so you do not have to answer individually for
+Uppercase variants (@samp{S}@comma{} @samp{D}@comma{} @samp{R}) apply the chosen action to all
+remaining conflicts@comma{} so you do not have to answer individually for
 every at-risk element.
 @item
 Remove declined (skipped) operations from the diff operation list.
@@ -1587,32 +1587,32 @@ Generate API requests from the filtered operations
 Send the batch update.
 @item
 Reconstruct the shadow IR to account for declined deletions: the
-shadow starts with the local IR, and declined elements (from the
+shadow starts with the local IR@comma{} and declined elements (from the
 remote IR) are re-inserted at the correct positions.
 @end enumerate
 
-Declined elements remain in the remote document.  On the next push, the
+Declined elements remain in the remote document.  On the next push@comma{} the
 diff will again classify them as deletions and prompt again.
 
 Comments without quoted text (document-level comments) are never
-considered at risk.  Resolved comments are still prompted, since they
+considered at risk.  Resolved comments are still prompted@comma{} since they
 represent valuable discussion history.
 
 @node Conflict resolution
 @chapter Conflict resolution
 
 When a pull detects that the buffer has local modifications and the
-remote revision has changed, the conflict resolution UI opens
+remote revision has changed@comma{} the conflict resolution UI opens
 automatically.  The @samp{*gdocs-merge*} buffer displays all hunks
-(computed via a line-level LCS diff), with conflicts shown in a
+(computed via a line-level LCS diff)@comma{} with conflicts shown in a
 @samp{<<<< LOCAL} / @samp{====/ =>>>> REMOTE} format.
 
 Common (matching) lines are displayed without highlighting.  Conflict
 hunks use color-coded overlays: @code{gdocs-merge-remote-face} for
-unresolved conflicts, @code{gdocs-merge-resolved-face} for resolved ones.
+unresolved conflicts@comma{} @code{gdocs-merge-resolved-face} for resolved ones.
 
-After resolving all hunks and finalizing with @samp{C-c C-c}, the merged
-content replaces the buffer, the shadow IR is updated, and the buffer
+After resolving all hunks and finalizing with @samp{C-c C-c}@comma{} the merged
+content replaces the buffer@comma{} the shadow IR is updated@comma{} and the buffer
 is saved (which triggers a push if auto-push is enabled).
 
 @node Minor mode
@@ -1641,13 +1641,13 @@ Modeline status display showing the sync state:
 @samp{GDocs:error} when the last sync failed.
 @end itemize
 @item
-Keybindings under the @samp{C-c g} prefix (@ref{Keybindings}).
+Keybindings under the @samp{C-c g} prefix (@ref{Keybindings, , Keybindings}).
 @end itemize
 
 The mode activates automatically when you open an org file that has a
 @samp{GDOCS_DOCUMENT_ID} property in its file-level property drawer (via a
 hook on @code{org-mode-hook}).  If buffers were restored at startup before
-gdocs loaded (e.g. by @code{desktop-save-mode}), gdocs scans already-open
+gdocs loaded (e.g. by @code{desktop-save-mode})@comma{} gdocs scans already-open
 org buffers at load time and activates the mode retroactively.  You
 can also toggle it manually.
 
